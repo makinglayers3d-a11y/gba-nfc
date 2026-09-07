@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+  >
+  <meta name="theme-color" content="#10141b">
+  <title>GBA NFC</title>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <main class="app">
+
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">GBA NFC</div>
+        <h1 id="game-title">Preparando juego…</h1>
+      </div>
+
+      <button
+        id="menu-button"
+        class="icon-button"
+        type="button"
+        aria-label="Abrir menú"
+      >
+        ☰
+      </button>
+    </header>
+
+    <section class="console">
+
+      <div class="screen-frame">
+        <canvas id="screen" width="240" height="160"></canvas>
+        <div id="status">Preparando emulador…</div>
+      </div>
+
+      <section id="controls" class="controls">
+
+        <button class="shoulder left" data-key="L">L</button>
+        <button class="shoulder right" data-key="R">R</button>
+
+        <div class="dpad">
+          <button data-key="UP">▲</button>
+          <button data-key="LEFT">◀</button>
+          <button data-key="RIGHT">▶</button>
+          <button data-key="DOWN">▼</button>
+        </div>
+
+        <div class="face-buttons">
+          <button class="face b" data-key="B">B</button>
+          <button class="face a" data-key="A">A</button>
+        </div>
+
+        <div class="start-select">
+          <button data-key="SELECT">SELECT</button>
+          <button data-key="START">START</button>
+        </div>
+
+      </section>
+
+    </section>
+
+    <dialog id="menu">
+      <div class="menu-card">
+        <button id="close-menu" type="button">×</button>
+        <h2>GBA NFC</h2>
+
+        <button id="fullscreen" type="button">
+          Pantalla completa
+        </button>
+
+        <button id="reload-game" type="button">
+          Reiniciar juego
+        </button>
+      </div>
+    </dialog>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
