@@ -4088,20 +4088,40 @@ GameBoyAdvanceMemory.prototype.readUnused32MultiBase = function () {
     return this.IOCore.getCurrentFetchValue() | 0;
 }
 GameBoyAdvanceMemory.prototype.loadBIOS = function () {
-    //Ensure BIOS is of correct length:
-    if ((this.IOCore.BIOS.length | 0) == 0x4000) {
-        //this.IOCore.BIOSFound = true;
-        for (var index = 0; (index | 0) < 0x4000; index = ((index | 0) + 1) | 0) {
-            this.BIOS[index & 0x3FFF] = this.IOCore.BIOS[index & 0x3FFF] & 0xFF;
+    /*
+     * Arranque sin BIOS cuando SKIPBoot está activado.
+     * El CPU hará su inicialización directa.
+     */
+    if (this.IOCore.SKIPBoot) {
+        for (
+            var index = 0;
+            (index | 0) < 0x4000;
+            index = ((index | 0) + 1) | 0
+        ) {
+            this.BIOS[index & 0x3FFF] = 0;
         }
+
+        return 1;
     }
-    else {
-        //this.IOCore.BIOSFound = false;
-        this.IOCore.SKIPBoot = true;
-        throw(new Error("BIOS invalid."));
+
+    /*
+     * Arranque normal: exigir BIOS válida de 16 KiB.
+     */
+    if ((this.IOCore.BIOS.length | 0) == 0x4000) {
+        for (
+            var index = 0;
+            (index | 0) < 0x4000;
+            index = ((index | 0) + 1) | 0
+        ) {
+            this.BIOS[index & 0x3FFF] =
+                this.IOCore.BIOS[index & 0x3FFF] & 0xFF;
+        }
+
+        return 1;
     }
+
+    throw(new Error("BIOS invalid."));
 }
-function generateMemoryTopLevelDispatch() {
     //Generic memory read dispatch generator:
     function compileMemoryReadDispatch(readUnused, readExternalWRAM, readInternalWRAM,
                                        readIODispatch, readVRAM, readROM, readROM2, readSRAM, readBIOS) {
