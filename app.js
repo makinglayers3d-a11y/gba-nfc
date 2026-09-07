@@ -13,6 +13,10 @@
   const reloadButton = document.getElementById("reload-game");
   const canvas = document.getElementById("screen");
 
+  const ctx = canvas.getContext("2d", {
+    alpha: false
+  });
+
   const gameConfig = {
     pokemon: {
       name: "Pokémon",
@@ -21,33 +25,81 @@
   };
 
   const selected = gameConfig[game] || gameConfig.pokemon;
-  title.textContent = selected.name;
 
+  title.textContent = selected.name;
+  status.textContent = "Cargando Pokémon…";
+
+  canvas.width = 240;
+  canvas.height = 160;
+
+  let emulator = null;
+  let timer = null;
+
+  /*
+   * Mapa de botones IodineGBA:
+   * 0 A
+   * 1 B
+   * 2 SELECT
+   * 3 START
+   * 4 RIGHT
+   * 5 LEFT
+   * 6 UP
+   * 7 DOWN
+   * 8 R
+   * 9 L
+   */
   const keyMap = {
-    UP: "ArrowUp",
-    DOWN: "ArrowDown",
-    LEFT: "ArrowLeft",
-    RIGHT: "ArrowRight",
-    A: "x",
-    B: "z",
-    L: "a",
-    R: "s",
-    START: "Enter",
-    SELECT: "Shift"
+    A: 0,
+    B: 1,
+    SELECT: 2,
+    START: 3,
+    RIGHT: 4,
+    LEFT: 5,
+    UP: 6,
+    DOWN: 7,
+    R: 8,
+    L: 9
   };
 
-  function sendKey(keyName, pressed) {
-    const key = keyMap[keyName];
-    if (!key) return;
+  function drawFrame(buffer) {
+    if (!buffer || buffer.length < 240 * 160 * 3) {
+      return;
+    }
 
-    document.dispatchEvent(
-      new KeyboardEvent(pressed ? "keydown" : "keyup", {
-        key,
-        code: key,
-        bubbles: true,
-        cancelable: true
-      })
-    );
+    const image = ctx.createImageData(240, 160);
+    const data = image.data;
+
+    let source = 0;
+    let target = 0;
+
+    while (source < 240 * 160 * 3) {
+      data[target++] = buffer[source++];
+      data[target++] = buffer[source++];
+      data[target++] = buffer[source++];
+      data[target++] = 255;
+    }
+
+    ctx.putImageData(image, 0, 0);
+  }
+
+  function pressKey(keyName) {
+    if (!emulator) return;
+
+    const value = keyMap[keyName];
+
+    if (value === undefined) return;
+
+    emulator.keyDown(value);
+  }
+
+  function releaseKey(keyName) {
+    if (!emulator) return;
+
+    const value = keyMap[keyName];
+
+    if (value === undefined) return;
+
+    emulator.keyUp(value);
   }
 
   document.querySelectorAll("[data-key]").forEach((button) => {
@@ -58,20 +110,22 @@
       event.preventDefault();
 
       if (pressed) return;
-      pressed = true;
 
+      pressed = true;
       button.classList.add("pressed");
-      sendKey(keyName, true);
+
+      pressKey(keyName);
     };
 
     const up = (event) => {
       event.preventDefault();
 
       if (!pressed) return;
-      pressed = false;
 
+      pressed = false;
       button.classList.remove("pressed");
-      sendKey(keyName, false);
+
+      releaseKey(keyName);
     };
 
     button.addEventListener("pointerdown", down);
@@ -79,6 +133,111 @@
     button.addEventListener("pointercancel", up);
     button.addEventListener("pointerleave", up);
   });
+
+  /*
+   * Teclado físico también funciona.
+   */
+  const keyboardMap = {
+    x: "A",
+    z: "B",
+    Enter: "START",
+    Shift: "SELECT",
+    ArrowRight: "RIGHT",
+    ArrowLeft: "LEFT",
+    ArrowUp: "UP",
+    ArrowDown: "DOWN",
+    s: "R",
+    a: "L"
+  };
+
+  const keyboardPressed = new Set();
+
+  window.addEventListener("keydown", (event) => {
+    const keyName = keyboardMap[event.key];
+
+    if (!keyName || keyboardPressed.has(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+
+    keyboardPressed.add(event.key);
+    pressKey(keyName);
+  });
+
+  window.addEventListener("keyup", (event) => {
+    const keyName = keyboardMap[event.key];
+
+    if (!keyName) {
+      return;
+    }
+
+    event.preventDefault();
+
+    keyboardPressed.delete(event.key);
+    releaseKey(keyName);
+  });
+
+  async function loadGame() {
+    try {
+      status.hidden = false;
+      status.textContent = "Cargando Pokémon…";
+
+      const response = await fetch(selected.rom, {
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const rom = new Uint8Array(await response.arrayBuffer());
+
+      if (rom.length < 1024) {
+        throw new Error("ROM inválida");
+      }
+
+      if (typeof GameBoyAdvanceEmulator !== "function") {
+        throw new Error("IodineGBA no se cargó correctamente");
+      }
+
+      emulator = new GameBoyAdvanceEmulator();
+
+      /*
+       * Saltamos la BIOS para no necesitar un archivo BIOS externo.
+       */
+      emulator.settings.SKIPBoot = true;
+
+      emulator.attachGraphicsFrameHandler(drawFrame);
+
+      emulator.attachROM(rom);
+
+      emulator.play();
+
+      timer = window.setInterval(() => {
+        if (emulator) {
+          emulator.timerCallback(
+            performance.now() | 0
+          );
+        }
+      }, 8);
+
+      status.hidden = true;
+
+      console.log(
+        "Juego iniciado:",
+        selected.rom,
+        rom.length,
+        "bytes"
+      );
+    } catch (error) {
+      console.error(error);
+
+      status.hidden = false;
+      status.textContent =
+        "Error al iniciar el juego: " + error.message;
+    }
+  }
 
   menuButton.addEventListener("click", () => {
     menu.showModal();
@@ -104,48 +263,19 @@
     window.location.reload();
   });
 
-  async function verifyRom() {
-    status.hidden = false;
-    status.textContent = "Comprobando juego…";
-
-    try {
-      const response = await fetch(selected.rom, {
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const rom = await response.arrayBuffer();
-
-      if (rom.byteLength < 1024) {
-        throw new Error("ROM demasiado pequeña");
-      }
-
-      canvas.width = 240;
-      canvas.height = 160;
-
-      status.hidden = true;
-
-      console.log(
-        "ROM cargada:",
-        selected.rom,
-        rom.byteLength,
-        "bytes"
-      );
-
-      window.__gbaRom = new Uint8Array(rom);
-      window.__gbaCanvas = canvas;
-
-    } catch (error) {
-      console.error("No se pudo cargar la ROM:", error);
-
-      status.hidden = false;
-      status.textContent =
-        "No se pudo cargar el juego. Comprueba que games/PokemonRF.gba exista.";
+  window.addEventListener("beforeunload", () => {
+    if (timer) {
+      clearInterval(timer);
     }
-  }
 
-  verifyRom();
+    if (emulator) {
+      try {
+        emulator.pause();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  });
+
+  loadGame();
 })();
