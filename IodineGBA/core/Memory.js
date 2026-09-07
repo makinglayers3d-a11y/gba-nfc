@@ -4088,26 +4088,20 @@ GameBoyAdvanceMemory.prototype.readUnused32MultiBase = function () {
     return this.IOCore.getCurrentFetchValue() | 0;
 }
 GameBoyAdvanceMemory.prototype.loadBIOS = function () {
-    if (this.IOCore.SKIPBoot) {
-        return 1;
-    }
-
+    //Ensure BIOS is of correct length:
     if ((this.IOCore.BIOS.length | 0) == 0x4000) {
-        for (
-            var index = 0;
-            (index | 0) < 0x4000;
-            index = ((index | 0) + 1) | 0
-        ) {
-            this.BIOS[index & 0x3FFF] =
-                this.IOCore.BIOS[index & 0x3FFF] & 0xFF;
+        //this.IOCore.BIOSFound = true;
+        for (var index = 0; (index | 0) < 0x4000; index = ((index | 0) + 1) | 0) {
+            this.BIOS[index & 0x3FFF] = this.IOCore.BIOS[index & 0x3FFF] & 0xFF;
         }
-
-        return 1;
     }
-
-    throw(new Error("BIOS invalid."));
+    else {
+        //this.IOCore.BIOSFound = false;
+        this.IOCore.SKIPBoot = true;
+        throw(new Error("BIOS invalid."));
+    }
 }
-
+function generateMemoryTopLevelDispatch() {
     //Generic memory read dispatch generator:
     function compileMemoryReadDispatch(readUnused, readExternalWRAM, readInternalWRAM,
                                        readIODispatch, readVRAM, readROM, readROM2, readSRAM, readBIOS) {
