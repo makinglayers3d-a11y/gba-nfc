@@ -11,25 +11,17 @@
   const closeMenu = document.getElementById("close-menu");
   const fullscreenButton = document.getElementById("fullscreen");
   const reloadButton = document.getElementById("reload-game");
+  const canvas = document.getElementById("screen");
 
-  const gameNames = {
-    pokemon: "Pokémon",
-    mario: "Mario",
-    zelda: "Zelda"
+  const gameConfig = {
+    pokemon: {
+      name: "Pokémon",
+      rom: "games/PokemonRF.gba"
+    }
   };
 
-  const name = gameNames[game] || "GBA";
-
-  title.textContent = name;
-  status.textContent = `Juego seleccionado: ${name}`;
-
-  /*
-   * Esta primera versión NO carga todavía el emulador.
-   * Solo comprobamos que:
-   * 1. La URL NFC selecciona el juego.
-   * 2. La interfaz funciona.
-   * 3. Los controles táctiles generan eventos.
-   */
+  const selected = gameConfig[game] || gameConfig.pokemon;
+  title.textContent = selected.name;
 
   const keyMap = {
     UP: "ArrowUp",
@@ -49,14 +41,12 @@
     if (!key) return;
 
     document.dispatchEvent(
-      new KeyboardEvent(
-        pressed ? "keydown" : "keyup",
-        {
-          key,
-          code: key,
-          bubbles: true
-        }
-      )
+      new KeyboardEvent(pressed ? "keydown" : "keyup", {
+        key,
+        code: key,
+        bubbles: true,
+        cancelable: true
+      })
     );
   }
 
@@ -114,4 +104,48 @@
     window.location.reload();
   });
 
+  async function verifyRom() {
+    status.hidden = false;
+    status.textContent = "Comprobando juego…";
+
+    try {
+      const response = await fetch(selected.rom, {
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const rom = await response.arrayBuffer();
+
+      if (rom.byteLength < 1024) {
+        throw new Error("ROM demasiado pequeña");
+      }
+
+      canvas.width = 240;
+      canvas.height = 160;
+
+      status.hidden = true;
+
+      console.log(
+        "ROM cargada:",
+        selected.rom,
+        rom.byteLength,
+        "bytes"
+      );
+
+      window.__gbaRom = new Uint8Array(rom);
+      window.__gbaCanvas = canvas;
+
+    } catch (error) {
+      console.error("No se pudo cargar la ROM:", error);
+
+      status.hidden = false;
+      status.textContent =
+        "No se pudo cargar el juego. Comprueba que games/PokemonRF.gba exista.";
+    }
+  }
+
+  verifyRom();
 })();
