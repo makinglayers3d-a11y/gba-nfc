@@ -201,18 +201,24 @@
         throw new Error("IodineGBA no se cargó correctamente");
       }
 
-      emulator = new GameBoyAdvanceEmulator();
+     emulator = new GameBoyAdvanceEmulator();
 
-      /*
-       * Saltamos la BIOS para no necesitar un archivo BIOS externo.
-       */
-      emulator.settings.SKIPBoot = true;
+/*
+ * Arranque sin BIOS.
+ */
+emulator.settings.SKIPBoot = true;
 
-      emulator.attachGraphicsFrameHandler(drawFrame);
+/*
+ * Le damos un buffer de BIOS de 16 KiB.
+ * Como SKIPBoot está activado, no se ejecuta el arranque de la BIOS.
+ */
+const fakeBIOS = new Uint8Array(0x4000);
 
-      emulator.attachROM(rom);
+emulator.attachGraphicsFrameHandler(drawFrame);
+emulator.attachBIOS(fakeBIOS);
+emulator.attachROM(rom);
 
-      emulator.play();
+emulator.play();
 
       timer = window.setInterval(() => {
         if (emulator) {
