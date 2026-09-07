@@ -196,10 +196,14 @@
       if (rom.length < 1024) {
         throw new Error("ROM inválida");
       }
+if (typeof GameBoyAdvanceEmulator !== "function") {
+  throw new Error("Falta GameBoyAdvanceEmulator");
+}
 
-      if (typeof GameBoyAdvanceEmulator !== "function") {
-        throw new Error("IodineGBA no se cargó correctamente");
-      }
+if (typeof GameBoyAdvanceMemory !== "function") {
+  throw new Error("Falta GameBoyAdvanceMemory");
+}
+     
 
      emulator = new GameBoyAdvanceEmulator();
 
