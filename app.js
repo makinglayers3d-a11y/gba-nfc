@@ -206,7 +206,7 @@ if (typeof GameBoyAdvanceMemory !== "function") {
      
 
      emulator = new GameBoyAdvanceEmulator();
-
+emulator.attachPlayStatusHandler(() => {});
 /*
  * Arranque sin BIOS.
  */
