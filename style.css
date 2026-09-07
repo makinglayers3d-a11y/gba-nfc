@@ -1,0 +1,545 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0b0f15;
+  --panel: #151b24;
+  --panel-2: #202938;
+  --button: #273244;
+  --button-active: #354158;
+  --text: #ffffff;
+  --muted: #9da8b8;
+  --accent: #69a7ff;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100dvh;
+  touch-action: manipulation;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.app {
+  width: 100%;
+  min-height: 100dvh;
+  padding:
+    max(14px, env(safe-area-inset-top))
+    14px
+    max(18px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(
+      circle at 50% 20%,
+      #253143 0%,
+      #101721 38%,
+      #0b0f15 72%
+    );
+}
+
+.topbar {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 12px;
+  min-height: 52px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 2px 0 0;
+  font-size: 1.3rem;
+  line-height: 1.1;
+  font-weight: 850;
+}
+
+.icon-button {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+
+  border-radius: 14px;
+  background: #ffffff12;
+  border: 1px solid #ffffff1c;
+  font-size: 1.35rem;
+}
+
+.icon-button:active {
+  background: #ffffff20;
+  transform: scale(0.96);
+}
+
+.console {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.screen-frame {
+  position: relative;
+  width: 100%;
+
+  aspect-ratio: 3 / 2;
+
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+
+  box-shadow:
+    0 18px 50px #0009,
+    inset 0 0 0 1px #ffffff10;
+}
+
+#screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+
+  background: #000;
+}
+
+#status {
+  position: absolute;
+  inset: 0;
+
+  display: grid;
+  place-items: center;
+
+  padding: 20px;
+  text-align: center;
+
+  color: var(--muted);
+  background: #000;
+  font-size: 0.95rem;
+}
+
+.controls {
+  position: relative;
+  width: 100%;
+  min-height: 330px;
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 56px 190px 56px;
+  gap: 8px 12px;
+
+  padding: 2px 4px 0;
+}
+
+/* L / R */
+
+.shoulder {
+  align-self: center;
+
+  width: min(120px, 80%);
+  height: 42px;
+
+  border-radius: 22px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #354257 0%,
+      #202a3a 100%
+    );
+
+  box-shadow: 0 7px 14px #0007;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.shoulder:active {
+  transform: translateY(2px);
+  background: var(--button-active);
+}
+
+.shoulder.left {
+  justify-self: start;
+}
+
+.shoulder.right {
+  justify-self: end;
+}
+
+/* Cruceta */
+
+.dpad {
+  grid-column: 1;
+  grid-row: 2;
+
+  position: relative;
+
+  width: 170px;
+  height: 170px;
+
+  align-self: center;
+  justify-self: start;
+}
+
+.dpad button {
+  position: absolute;
+
+  width: 58px;
+  height: 58px;
+
+  background: #ffffff0c;
+  border: 1px solid #ffffff08;
+
+  font-size: 1.4rem;
+  font-weight: 800;
+
+  box-shadow: 0 5px 12px #0005;
+}
+
+.dpad button:active {
+  background: var(--button-active);
+  transform: scale(0.95);
+}
+
+.dpad button[data-key="UP"] {
+  left: 56px;
+  top: 0;
+
+  border-radius: 14px 14px 8px 8px;
+}
+
+.dpad button[data-key="DOWN"] {
+  left: 56px;
+  bottom: 0;
+
+  border-radius: 8px 8px 14px 14px;
+}
+
+.dpad button[data-key="LEFT"] {
+  left: 0;
+  top: 56px;
+
+  border-radius: 14px 8px 8px 14px;
+}
+
+.dpad button[data-key="RIGHT"] {
+  right: 0;
+  top: 56px;
+
+  border-radius: 8px 14px 14px 8px;
+}
+
+/* A / B */
+
+.face-buttons {
+  grid-column: 2;
+  grid-row: 2;
+
+  position: relative;
+
+  width: 170px;
+  height: 170px;
+
+  align-self: center;
+  justify-self: end;
+}
+
+.face {
+  position: absolute;
+
+  width: 76px;
+  height: 76px;
+
+  border-radius: 50%;
+
+  background:
+    linear-gradient(
+      180deg,
+      #46546a 0%,
+      #273244 100%
+    );
+
+  box-shadow: 0 7px 16px #0008;
+
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.face:active {
+  transform: scale(0.94);
+  background: var(--button-active);
+}
+
+.face.b {
+  left: 0;
+  bottom: 0;
+}
+
+.face.a {
+  right: 0;
+  top: 0;
+}
+
+/* SELECT / START */
+
+.start-select {
+  grid-column: 1 / 3;
+  grid-row: 3;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.start-select button {
+  min-width: 92px;
+  height: 38px;
+
+  padding: 0 16px;
+
+  border-radius: 20px;
+
+  background: #ffffff0d;
+  border: 1px solid #ffffff10;
+
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.start-select button:active {
+  background: #ffffff1b;
+  transform: scale(0.96);
+}
+
+/* Menú */
+
+dialog {
+  width: min(92vw, 420px);
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+
+  background: transparent;
+}
+
+dialog::backdrop {
+  background: #0009;
+  backdrop-filter: blur(8px);
+}
+
+.menu-card {
+  position: relative;
+
+  padding: 22px;
+
+  border-radius: 22px;
+
+  background: #151b24;
+  border: 1px solid #ffffff12;
+
+  box-shadow: 0 25px 80px #000b;
+}
+
+.menu-card h2 {
+  margin: 0 0 16px;
+  font-size: 1.15rem;
+}
+
+.menu-card > button:not(#close-menu) {
+  width: 100%;
+  height: 48px;
+
+  margin-top: 10px;
+
+  border-radius: 12px;
+
+  background: #ffffff0b;
+  border: 1px solid #ffffff0a;
+
+  text-align: left;
+  padding: 0 14px;
+}
+
+.menu-card > button:not(#close-menu):active {
+  background: #ffffff18;
+}
+
+#close-menu {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+
+  width: 38px;
+  height: 38px;
+
+  border-radius: 10px;
+  background: #ffffff0a;
+
+  font-size: 1.4rem;
+}
+
+/* Móviles pequeños */
+
+@media (max-width: 420px) {
+  .controls {
+    min-height: 300px;
+    grid-template-rows: 50px 175px 50px;
+  }
+
+  .dpad,
+  .face-buttons {
+    width: 150px;
+    height: 150px;
+  }
+
+  .dpad button {
+    width: 52px;
+    height: 52px;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 49px;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 49px;
+  }
+
+  .face {
+    width: 68px;
+    height: 68px;
+  }
+}
+
+/* Horizontal: aprovechamos el ancho disponible */
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .app {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .topbar {
+    min-height: 42px;
+    margin-bottom: 6px;
+  }
+
+  h1 {
+    font-size: 1rem;
+  }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+
+  .console {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .screen-frame {
+    max-height: calc(100dvh - 66px);
+  }
+
+  .controls {
+    min-height: 0;
+    height: 100%;
+    grid-template-columns: 1fr;
+    grid-template-rows: 44px 1fr 44px;
+
+    padding: 0;
+  }
+
+  .shoulder.left {
+    justify-self: start;
+  }
+
+  .shoulder.right {
+    justify-self: end;
+  }
+
+  .dpad {
+    grid-column: 1;
+    grid-row: 2;
+
+    width: 125px;
+    height: 125px;
+
+    justify-self: center;
+  }
+
+  .dpad button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 41px;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 41px;
+  }
+
+  .face-buttons {
+    width: 125px;
+    height: 125px;
+
+    justify-self: end;
+  }
+
+  .face {
+    width: 58px;
+    height: 58px;
+  }
+
+  .start-select {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
