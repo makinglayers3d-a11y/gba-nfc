@@ -210,6 +210,7 @@ emulator.attachPlayStatusHandler(() => {});
 /*
  * Arranque sin BIOS.
  */
+emulator.settings.offthreadGfxEnabled = false;
 emulator.settings.SKIPBoot = true;
 
 /*
