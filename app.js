@@ -219,7 +219,7 @@ emulator.settings.SKIPBoot = true;
 emulator.attachGraphicsFrameHandler(drawFrame);
 emulator.attachROM(rom);
 
-emulator.BIOS = new Uint8Array(0);
+emulator.attachBIOS(new Uint8Array(0x4000));
 emulator.settings.SKIPBoot = true;
 
 emulator.play();
