@@ -233,6 +233,7 @@ emulator.play();
       }, 8);
 
       status.hidden = true;
+      status.style.display = "none";
 
       console.log(
         "Juego iniciado:",
