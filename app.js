@@ -217,7 +217,11 @@ emulator.settings.SKIPBoot = true;
  * Le damos un buffer de BIOS de 16 KiB.
  * Como SKIPBoot está activado, no se ejecuta el arranque de la BIOS.
  */
-emulator.attachGraphicsFrameHandler(drawFrame);
+const blitter = new GfxGlueCode(240, 160);
+
+blitter.attachCanvas(canvas);
+
+emulator.attachGraphicsFrameHandler(blitter);
 emulator.attachROM(rom);
 
 emulator.attachBIOS(new Uint8Array(0x4000));
