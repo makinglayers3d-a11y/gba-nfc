@@ -223,6 +223,7 @@ emulator.attachBIOS(new Uint8Array(0x4000));
 emulator.settings.SKIPBoot = true;
 
 emulator.play();
+window.__gba = emulator;      
 
       timer = window.setInterval(() => {
         if (emulator) {
