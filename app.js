@@ -81,24 +81,71 @@
 
     emulator.keyUp(value);
   }
-  document.querySelectorAll("[data-key]").forEach((button) => {
+   document.querySelectorAll("[data-key]").forEach((button) => {
     const keyName = button.dataset.key;
     let pressed = false;
 
-    const down = (event) => {
-      event.preventDefault();
-
+    function press() {
       if (pressed) return;
 
       pressed = true;
       button.classList.add("pressed");
-
-      if (button.setPointerCapture) {
-        button.setPointerCapture(event.pointerId);
-      }
-
       pressKey(keyName);
-    };
+    }
+
+    function release() {
+      if (!pressed) return;
+
+      pressed = false;
+      button.classList.remove("pressed");
+      releaseKey(keyName);
+    }
+
+    // Táctil: respuesta inmediata
+    button.addEventListener(
+      "touchstart",
+      (event) => {
+        event.preventDefault();
+        press();
+      },
+      { passive: false }
+    );
+
+    button.addEventListener(
+      "touchend",
+      (event) => {
+        event.preventDefault();
+        release();
+      },
+      { passive: false }
+    );
+
+    button.addEventListener(
+      "touchcancel",
+      (event) => {
+        event.preventDefault();
+        release();
+      },
+      { passive: false }
+    );
+
+    // PC / ratón
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      press();
+    });
+
+    button.addEventListener("mouseup", (event) => {
+      event.preventDefault();
+      release();
+    });
+
+    button.addEventListener("mouseleave", (event) => {
+      if (event.buttons === 0) {
+        release();
+      }
+    });
+  });
 
     const up = (event) => {
       event.preventDefault();
