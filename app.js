@@ -147,29 +147,7 @@
     });
   });
 
-    const up = (event) => {
-      event.preventDefault();
-
-      if (!pressed) return;
-
-      pressed = false;
-      button.classList.remove("pressed");
-
-      releaseKey(keyName);
-
-      if (
-        button.releasePointerCapture &&
-        button.hasPointerCapture &&
-        button.hasPointerCapture(event.pointerId)
-      ) {
-        button.releasePointerCapture(event.pointerId);
-      }
-    };
-
-    button.addEventListener("pointerdown", down);
-    button.addEventListener("pointerup", up);
-    button.addEventListener("pointercancel", up);
-  });
+    
   
   /*
    * Teclado físico también funciona.
