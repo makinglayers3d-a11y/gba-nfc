@@ -241,22 +241,25 @@ function applyVolume(volume) {
    * Pantalla completa con el primer toque/clic.
    * El navegador exige interacción del usuario.
    */
-  async function enterFullscreen() {
-    if (fullscreenRequested) return;
+ async function enterFullscreen() {
+  if (fullscreenRequested) return;
 
-    fullscreenRequested = true;
+  fullscreenRequested = true;
 
-    try {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        fullscreenTransition = true;
-        
-        await document.documentElement.requestFullscreen();
-      }
-    } catch (error) {
-      console.log("Pantalla completa no disponible:", error);
+  try {
+    if (
+      !document.fullscreenElement &&
+      document.documentElement.requestFullscreen
+    ) {
+      fullscreenTransition = true;
+      await document.documentElement.requestFullscreen();
     }
+  } catch (error) {
+    console.log("Pantalla completa no disponible:", error);
+  } finally {
+    fullscreenTransition = false;
   }
-
+}
   /*
    * Intentamos entrar en pantalla completa con la primera interacción.
    */
@@ -283,7 +286,7 @@ function applyVolume(volume) {
   }
 }
   
- document.querySelectorAll("[data-key]").forEach((button) => {
+document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
 
@@ -326,34 +329,36 @@ function applyVolume(volume) {
 
   button.addEventListener("lostpointercapture", () => {
     release();
-    button.addEventListener(
-  "touchstart",
-  (event) => {
-    event.preventDefault();
-    unlockAudio();
-    press();
-  },
-  { passive: false }
-);
-
-button.addEventListener(
-  "touchend",
-  (event) => {
-    event.preventDefault();
-    release();
-  },
-  { passive: false }
-);
-
-button.addEventListener(
-  "touchcancel",
-  (event) => {
-    event.preventDefault();
-    release();
-  },
-  { passive: false }
-);
   });
+
+  button.addEventListener(
+    "touchstart",
+    (event) => {
+      event.preventDefault();
+      unlockAudio();
+      press();
+    },
+    { passive: false }
+  );
+
+  button.addEventListener(
+    "touchend",
+    (event) => {
+      event.preventDefault();
+      release();
+    },
+    { passive: false }
+  );
+
+  button.addEventListener(
+    "touchcancel",
+    (event) => {
+      event.preventDefault();
+      release();
+    },
+    { passive: false }
+  );
+});
 
    
 
@@ -619,20 +624,19 @@ updateVolumeUI();
   });
 
   fullscreenButton.addEventListener("click", async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch (error) {
-      console.error("Fullscreen:", error);
+  try {
+    if (!document.fullscreenElement) {
+      fullscreenTransition = true;
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
     }
-  });
-
-  reloadButton.addEventListener("click", () => {
-    window.location.reload();
-  });
+  } catch (error) {
+    console.error("Fullscreen:", error);
+  } finally {
+    fullscreenTransition = false;
+  }
+});
 
    function shutdownEmulator() {
     if (timer) {
