@@ -267,26 +267,231 @@ function applyVolume(volume) {
 
   updateVolumeUI();
 }
-  
+function isIOS() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (
+      navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1
+    )
+  );
+}
+
+function createIOSAudioHandler() {
+  const AudioContextClass =
+    window.AudioContext ||
+    window.webkitAudioContext;
+
+  if (!AudioContextClass) {
+    throw new Error("Web Audio no disponible");
+  }
+
+  const context =
+    window.gbaIOSAudioContext instanceof AudioContextClass
+      ? window.gbaIOSAudioContext
+      : new AudioContextClass();
+
+  window.gbaIOSAudioContext = context;
+
+  const processor =
+    context.createScriptProcessor(4096, 0, 2);
+
+  const queue = [];
+  let volume = audioVolume;
+  let registered = false;
+
+  let bufferedSamples = 0;
+
+  processor.onaudioprocess = (event) => {
+    const outputLeft = event.outputBuffer.getChannelData(0);
+    const outputRight = event.outputBuffer.getChannelData(1);
+
+    outputLeft.fill(0);
+    outputRight.fill(0);
+
+    let outputIndex = 0;
+
+    while (
+      outputIndex < outputLeft.length &&
+      queue.length > 0
+    ) {
+      const chunk = queue[0];
+
+      while (
+        outputIndex < outputLeft.length &&
+        chunk.position < chunk.length
+      ) {
+        outputLeft[outputIndex] =
+          chunk.buffer[chunk.position++] * volume;
+
+        outputRight[outputIndex] =
+          chunk.buffer[chunk.position++] * volume;
+
+        outputIndex++;
+        bufferedSamples -= 2;
+      }
+
+      if (chunk.position >= chunk.length) {
+        queue.shift();
+      }
+    }
+  };
+
+  processor.connect(context.destination);
+
+  return {
+    initialize(
+      channelCount,
+      sampleRate,
+      bufferAmount,
+      underRunCallback,
+      heartBeatCallback,
+      postHeartBeatCallback,
+      errorCallback
+    ) {
+      this.channelCount = channelCount;
+      this.sampleRate = sampleRate;
+      this.bufferAmount = bufferAmount;
+      this.underRunCallback = underRunCallback;
+      this.heartBeatCallback = heartBeatCallback;
+      this.postHeartBeatCallback = postHeartBeatCallback;
+      this.errorCallback = errorCallback;
+    },
+
+    register() {
+      registered = true;
+
+      if (
+        context.state === "suspended" ||
+        context.state === "interrupted"
+      ) {
+        const result = context.resume();
+
+        if (result && typeof result.catch === "function") {
+          result.catch(() => {});
+        }
+      }
+    },
+
+    unregister() {
+      registered = false;
+      queue.length = 0;
+      bufferedSamples = 0;
+    },
+
+    push(buffer, start, end) {
+      if (!registered) return;
+
+      const source =
+        buffer instanceof Float32Array
+          ? buffer
+          : new Float32Array(buffer);
+
+      const length =
+        Math.min(end | 0, source.length) - (start | 0);
+
+      if (length <= 0) return;
+
+      const copy = new Float32Array(length);
+
+      copy.set(
+        source.subarray(
+          start | 0,
+          (start | 0) + length
+        )
+      );
+
+      queue.push({
+        buffer: copy,
+        position: 0,
+        length: copy.length
+      });
+
+      bufferedSamples += copy.length;
+    },
+
+    pushDeferred(buffer, start, end) {
+      this.push(buffer, start, end);
+    },
+
+    flush() {},
+
+    remainingBuffer() {
+      return bufferedSamples;
+    },
+
+    setBufferSpace(bufferAmount) {
+      this.bufferAmount = bufferAmount;
+    },
+
+    setVolume(newVolume) {
+      volume = Math.min(
+        Math.max(Number(newVolume), 0),
+        1
+      );
+    }
+  };
+}  
 
 
 function initializeAudio() {
-  if (!emulator || audioInput) return;
+  if (!emulator || audioInput) {
+    return;
+  }
 
   try {
+    if (isIOS()) {
+      audioInput = createIOSAudioHandler();
+
+      emulator.attachAudioHandler(audioInput);
+      emulator.enableAudio();
+
+      audioInput.setVolume(
+        audioMuted ? 0 : audioVolume
+      );
+
+      if (
+        window.gbaIOSAudioContext &&
+        (
+          window.gbaIOSAudioContext.state === "suspended" ||
+          window.gbaIOSAudioContext.state === "interrupted"
+        )
+      ) {
+        const result =
+          window.gbaIOSAudioContext.resume();
+
+        if (
+          result &&
+          typeof result.catch === "function"
+        ) {
+          result.catch(() => {});
+        }
+      }
+
+      return;
+    }
+
+    /*
+     * PC y Android siguen usando XAudioJS,
+     * que ya funciona correctamente.
+     */
     const audioMixer = new GlueCodeMixer(null);
 
-    audioInput = new GlueCodeMixerInput(audioMixer);
+    audioInput =
+      new GlueCodeMixerInput(audioMixer);
 
     emulator.attachAudioHandler(audioInput);
     emulator.enableAudio();
 
     applyVolume(audioVolume);
+
   } catch (error) {
-    console.error("No se pudo iniciar el audio:", error);
+    console.error(
+      "No se pudo iniciar el audio:",
+      error
+    );
   }
 }
-
 function unlockAudio() {
   try {
     const context = XAudioJSWebAudioContextHandle;
