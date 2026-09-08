@@ -680,8 +680,10 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   pressed = true;
   button.classList.add("pressed");
 
- initializeAudio();
-unlockAudio();
+ if (isIOS()) {
+    initializeAudio();
+    unlockAudio();
+  }
 
   pressKey(keyName);
 }
@@ -782,8 +784,10 @@ window.addEventListener(
      * La propia pulsación del teclado sirve como gesto
      * del usuario para iniciar WebAudio.
      */
- initializeAudio();
-unlockAudio();
+ if (isIOS()) {
+  initializeAudio();
+  unlockAudio();
+}
 
 pressKey(keyName);
   },
@@ -890,10 +894,7 @@ emulator.attachSaveImportHandler((name, callback, errorCallback) => {
       emulator.settings.SKIPBoot = true;
 
      emulator.play();
-if (!isIOS()) {
-  window.setTimeout(() => {
-    initializeAudio();
-  }, 0);
+
 }
 /*
  * Cargar partida guardada después de iniciar el emulador.
