@@ -681,21 +681,7 @@ if (saveTimer) {
   window.addEventListener("pagehide", shutdownEmulator);
   window.addEventListener("beforeunload", shutdownEmulator);
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    if (document.fullscreenElement || fullscreenTransition) {
-      return;
-    }
 
-    if (emulator) {
-      try {
-        emulator.pause();
-      } catch (error) {
-        console.error("Guardado al ocultar:", error);
-      }
-    }
-  }
-});
    
 /* =========================
  * Personalización de colores
