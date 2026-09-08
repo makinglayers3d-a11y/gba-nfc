@@ -1452,3 +1452,33 @@ dialog::backdrop {
 .speed-control {
   margin-top: 4px;
 }
+/* Botones principales del menú */
+#select-game-button,
+#reload-game {
+  width: 100% !important;
+  height: 48px !important;
+  margin-top: 10px !important;
+  padding: 0 14px !important;
+
+  border-radius: 12px !important;
+
+  background: var(--button) !important;
+  border: 1px solid #ffffff08 !important;
+
+  color: var(--text) !important;
+  text-align: left !important;
+  font: inherit !important;
+  font-weight: 700 !important;
+
+  cursor: pointer;
+}
+
+#select-game-button {
+  margin-bottom: 24px !important;
+}
+
+#select-game-button:active,
+#reload-game:active {
+  background: var(--button-active) !important;
+  transform: scale(0.98);
+}
