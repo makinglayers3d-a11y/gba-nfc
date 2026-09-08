@@ -14,10 +14,6 @@
   const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
 
-  const ctx = canvas.getContext("2d", {
-    alpha: false
-  });
-
   const gameConfig = {
     pokemon: {
       name: "Pokémon",
@@ -35,6 +31,8 @@
 
   let emulator = null;
   let timer = null;
+  let startTime = 0;
+  let fullscreenRequested = false;
 
   /*
    * Mapa de botones IodineGBA:
@@ -62,7 +60,6 @@
     L: 9
   };
 
-
   function pressKey(keyName) {
     if (!emulator) return;
 
@@ -82,7 +79,40 @@
 
     emulator.keyUp(value);
   }
-   document.querySelectorAll("[data-key]").forEach((button) => {
+
+  /*
+   * Pantalla completa con el primer toque/clic.
+   * El navegador exige interacción del usuario.
+   */
+  async function enterFullscreen() {
+    if (fullscreenRequested) return;
+
+    fullscreenRequested = true;
+
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (error) {
+      console.log("Pantalla completa no disponible:", error);
+    }
+  }
+
+  /*
+   * Intentamos entrar en pantalla completa con la primera interacción.
+   */
+  window.addEventListener(
+    "pointerdown",
+    () => {
+      enterFullscreen();
+    },
+    {
+      once: true,
+      passive: true
+    }
+  );
+
+  document.querySelectorAll("[data-key]").forEach((button) => {
     const keyName = button.dataset.key;
     let pressed = false;
 
@@ -102,11 +132,11 @@
       releaseKey(keyName);
     }
 
-    // Táctil: respuesta inmediata
     button.addEventListener(
       "touchstart",
       (event) => {
         event.preventDefault();
+        enterFullscreen();
         press();
       },
       { passive: false }
@@ -130,9 +160,9 @@
       { passive: false }
     );
 
-    // PC / ratón
     button.addEventListener("mousedown", (event) => {
       event.preventDefault();
+      enterFullscreen();
       press();
     });
 
@@ -148,10 +178,8 @@
     });
   });
 
-    
-  
   /*
-   * Teclado físico también funciona.
+   * Teclado físico.
    */
   const keyboardMap = {
     x: "A",
@@ -194,9 +222,13 @@
     releaseKey(keyName);
   });
 
+  /*
+   * Carga del juego.
+   */
   async function loadGame() {
     try {
       status.hidden = false;
+      status.style.display = "";
       status.textContent = "Cargando Pokémon…";
 
       const response = await fetch(selected.rom, {
@@ -212,56 +244,65 @@
       if (rom.length < 1024) {
         throw new Error("ROM inválida");
       }
-if (typeof GameBoyAdvanceEmulator !== "function") {
-  throw new Error("Falta GameBoyAdvanceEmulator");
-}
 
-if (typeof GameBoyAdvanceMemory !== "function") {
-  throw new Error("Falta GameBoyAdvanceMemory");
-}
-     
+      if (typeof GameBoyAdvanceEmulator !== "function") {
+        throw new Error("Falta GameBoyAdvanceEmulator");
+      }
 
-     emulator = new GameBoyAdvanceEmulator();
-const savedSpeed = Number(
-  localStorage.getItem("gba-speed") || "0.95"
-);
+      if (typeof GameBoyAdvanceMemory !== "function") {
+        throw new Error("Falta GameBoyAdvanceMemory");
+      }
 
-emulator.setSpeed(savedSpeed);
+      emulator = new GameBoyAdvanceEmulator();
 
-if (speedSelect) {
-  speedSelect.value = String(savedSpeed);
-}
-      
-emulator.attachPlayStatusHandler(() => {});
-/*
- * Arranque sin BIOS.
- */
-emulator.settings.offthreadGfxEnabled = false;
-emulator.settings.SKIPBoot = true;
+      /*
+       * Velocidad guardada.
+       * 95% es el valor inicial.
+       */
+      const savedSpeed = Number(
+        localStorage.getItem("gba-speed") || "0.95"
+      );
 
-/*
- * Le damos un buffer de BIOS de 16 KiB.
- * Como SKIPBoot está activado, no se ejecuta el arranque de la BIOS.
- */
-const blitter = new GfxGlueCode(240, 160);
+      emulator.setSpeed(savedSpeed);
 
-blitter.attachCanvas(canvas);
+      if (speedSelect) {
+        speedSelect.value = String(savedSpeed);
+      }
 
-emulator.attachGraphicsFrameHandler(blitter);
-emulator.attachROM(rom);
+      emulator.attachPlayStatusHandler(() => {});
 
+      /*
+       * Arranque sin BIOS.
+       */
+      emulator.settings.offthreadGfxEnabled = false;
+      emulator.settings.SKIPBoot = true;
 
-emulator.settings.SKIPBoot = true;
+      const blitter = new GfxGlueCode(240, 160);
 
-emulator.play();
-window.__gba = emulator;      
+      blitter.attachCanvas(canvas);
+
+      emulator.attachGraphicsFrameHandler(blitter);
+      emulator.attachROM(rom);
+
+      emulator.settings.SKIPBoot = true;
+
+      emulator.play();
+      window.__gba = emulator;
+
+      /*
+       * Temporizador estable.
+       *
+       * IodineGBA espera el tiempo transcurrido,
+       * no performance.now() absoluto.
+       */
+      startTime = Date.now();
 
       timer = window.setInterval(() => {
-        if (emulator) {
-          emulator.timerCallback(
-            performance.now() | 0
-          );
-        }
+        if (!emulator) return;
+
+        const elapsed = (Date.now() - startTime) >>> 0;
+
+        emulator.timerCallback(elapsed);
       }, 8);
 
       status.hidden = true;
@@ -271,12 +312,15 @@ window.__gba = emulator;
         "Juego iniciado:",
         selected.rom,
         rom.length,
-        "bytes"
+        "bytes",
+        "velocidad:",
+        savedSpeed
       );
     } catch (error) {
       console.error(error);
 
       status.hidden = false;
+      status.style.display = "";
       status.textContent =
         "Error al iniciar el juego: " + error.message;
     }
@@ -285,15 +329,21 @@ window.__gba = emulator;
   menuButton.addEventListener("click", () => {
     menu.showModal();
   });
-speedSelect.addEventListener("change", () => {
-  const speed = Number(speedSelect.value);
 
-  if (emulator) {
-    emulator.setSpeed(speed);
-  }
+  speedSelect.addEventListener("change", () => {
+    const speed = Number(speedSelect.value);
 
-  localStorage.setItem("gba-speed", String(speed));
-});
+    if (!Number.isFinite(speed)) {
+      return;
+    }
+
+    if (emulator) {
+      emulator.setSpeed(speed);
+    }
+
+    localStorage.setItem("gba-speed", String(speed));
+  });
+
   closeMenu.addEventListener("click", () => {
     menu.close();
   });
@@ -317,6 +367,7 @@ speedSelect.addEventListener("change", () => {
   window.addEventListener("beforeunload", () => {
     if (timer) {
       clearInterval(timer);
+      timer = null;
     }
 
     if (emulator) {
