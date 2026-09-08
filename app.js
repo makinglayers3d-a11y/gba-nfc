@@ -81,7 +81,6 @@
 
     emulator.keyUp(value);
   }
-
   document.querySelectorAll("[data-key]").forEach((button) => {
     const keyName = button.dataset.key;
     let pressed = false;
@@ -93,6 +92,10 @@
 
       pressed = true;
       button.classList.add("pressed");
+
+      if (button.setPointerCapture) {
+        button.setPointerCapture(event.pointerId);
+      }
 
       pressKey(keyName);
     };
@@ -106,14 +109,21 @@
       button.classList.remove("pressed");
 
       releaseKey(keyName);
+
+      if (
+        button.releasePointerCapture &&
+        button.hasPointerCapture &&
+        button.hasPointerCapture(event.pointerId)
+      ) {
+        button.releasePointerCapture(event.pointerId);
+      }
     };
 
     button.addEventListener("pointerdown", down);
     button.addEventListener("pointerup", up);
     button.addEventListener("pointercancel", up);
-    button.addEventListener("pointerleave", up);
   });
-
+  
   /*
    * Teclado físico también funciona.
    */
