@@ -590,3 +590,6 @@ dialog::backdrop {
   display: block;
   flex: 0 0 20px;
 }
+.game-title-hidden {
+  display: none !important;
+}
