@@ -201,63 +201,154 @@ XAudioServer.prototype.initializeWebAudio = function () {
 	}
 }
 XAudioServer.prototype.setupWebAudio = function () {
-	if (XAudioJSWebAudioLaunchedContext) {
-		XAudioJSWebAudioContextHandle.close();
-	}
+    if (XAudioJSWebAudioLaunchedContext && XAudioJSWebAudioContextHandle) {
+        try {
+            if (XAudioJSWebAudioContextHandle.state !== "closed") {
+                XAudioJSWebAudioContextHandle.close();
+            }
+        }
+        catch (error) {}
+    }
+
     try {
-        XAudioJSWebAudioContextHandle = new AudioContext();								//Create a system audio context.
+        if (
+            typeof window.gbaIOSAudioContext !== "undefined" &&
+            window.gbaIOSAudioContext
+        ) {
+            XAudioJSWebAudioContextHandle =
+                window.gbaIOSAudioContext;
+
+            /*
+             * El contexto ya ha sido creado dentro de un
+             * gesto del usuario. En iOS esto es importante.
+             */
+            if (
+                XAudioJSWebAudioContextHandle.state === "suspended" ||
+                XAudioJSWebAudioContextHandle.state === "interrupted"
+            ) {
+                var resumePromise =
+                    XAudioJSWebAudioContextHandle.resume();
+
+                if (
+                    resumePromise &&
+                    typeof resumePromise.catch === "function"
+                ) {
+                    resumePromise.catch(function () {});
+                }
+            }
+        }
+        else {
+            try {
+                XAudioJSWebAudioContextHandle =
+                    new AudioContext();
+            }
+            catch (error) {
+                XAudioJSWebAudioContextHandle =
+                    new webkitAudioContext();
+            }
+        }
     }
     catch (error) {
-       XAudioJSWebAudioContextHandle = new webkitAudioContext();							//Create a system audio context.
+        try {
+            XAudioJSWebAudioContextHandle =
+                new webkitAudioContext();
+        }
+        catch (error2) {
+            throw error2;
+        }
     }
+
     XAudioJSWebAudioLaunchedContext = true;
+
     if (XAudioJSWebAudioAudioNode) {
         XAudioJSWebAudioAudioNode.disconnect();
         XAudioJSWebAudioAudioNode.onaudioprocess = null;
         XAudioJSWebAudioAudioNode = null;
     }
-	XAudioJSSamplesPerCallback = Math.pow(2, 11 + Math.floor(XAudioJSWebAudioContextHandle.sampleRate / 96000));
-	XAudioJSMaxBufferSize = Math.max(XAudioJSSamplesPerCallback * XAudioJSChannelsAllocated, XAudioJSMaxBufferSize);
+
+    XAudioJSSamplesPerCallback =
+        Math.pow(
+            2,
+            11 +
+            Math.floor(
+                XAudioJSWebAudioContextHandle.sampleRate / 96000
+            )
+        );
+
+    XAudioJSMaxBufferSize = Math.max(
+        XAudioJSSamplesPerCallback *
+            XAudioJSChannelsAllocated,
+        XAudioJSMaxBufferSize
+    );
+
     try {
-        XAudioJSWebAudioAudioNode = XAudioJSWebAudioContextHandle.createScriptProcessor(XAudioJSSamplesPerCallback, 0, XAudioJSChannelsAllocated);	//Create the js event node.
+        XAudioJSWebAudioAudioNode =
+            XAudioJSWebAudioContextHandle.createScriptProcessor(
+                XAudioJSSamplesPerCallback,
+                0,
+                XAudioJSChannelsAllocated
+            );
     }
     catch (error) {
-        XAudioJSWebAudioAudioNode = XAudioJSWebAudioContextHandle.createJavaScriptNode(XAudioJSSamplesPerCallback, 0, XAudioJSChannelsAllocated);	//Create the js event node.
+        XAudioJSWebAudioAudioNode =
+            XAudioJSWebAudioContextHandle.createJavaScriptNode(
+                XAudioJSSamplesPerCallback,
+                0,
+                XAudioJSChannelsAllocated
+            );
     }
-    XAudioJSWebAudioAudioNode.onaudioprocess = XAudioJSWebAudioEvent;																			//Connect the audio processing event to a handling function so we can manipulate output
-    XAudioJSWebAudioAudioNode.connect(XAudioJSWebAudioContextHandle.destination);																//Send and chain the output of the audio manipulation to the system audio output.
-	this.resetCallbackAPIAudioBuffer(XAudioJSWebAudioContextHandle.sampleRate);
-	/*
-     Firefox has a bug in its web audio implementation...
-     The node may randomly stop playing on Mac OS X for no
-     good reason. Keep a watchdog timer to restart the failed
-     node if it glitches. Google Chrome never had this issue.
-     */
-    XAudioJSWebAudioWatchDogLast = (new Date()).getTime();
-    if (!XAudioJSWebAudioWatchDogTimer && navigator.userAgent.indexOf('Gecko/') > -1) {
-        if (XAudioJSWebAudioWatchDogTimer) {
-            clearInterval(XAudioJSWebAudioWatchDogTimer);
-        }
+
+    XAudioJSWebAudioAudioNode.onaudioprocess =
+        XAudioJSWebAudioEvent;
+
+    XAudioJSWebAudioAudioNode.connect(
+        XAudioJSWebAudioContextHandle.destination
+    );
+
+    this.resetCallbackAPIAudioBuffer(
+        XAudioJSWebAudioContextHandle.sampleRate
+    );
+
+    XAudioJSWebAudioWatchDogLast =
+        (new Date()).getTime();
+
+    if (
+        !XAudioJSWebAudioWatchDogTimer &&
+        navigator.userAgent.indexOf("Gecko/") > -1
+    ) {
         var parentObj = this;
-        XAudioJSWebAudioWatchDogTimer = setInterval(function () {
-			if(typeof XAudioJSWebAudioContextHandle.state != "undefined") {
-				if (XAudioJSWebAudioContextHandle.state === 'suspended') {
-					XAudioJSWebAudioWatchDogLast = (new Date()).getTime();
-					try {
-						XAudioJSWebAudioContextHandle.resume();
-					}
-					catch (e) {}
-				}
-				else {
-					var timeDiff = (new Date()).getTime() - XAudioJSWebAudioWatchDogLast;
-					if (timeDiff > 500) {
-						parentObj.setupWebAudio();
-					}
-				}
-			}
-        }, 500);
+
+        XAudioJSWebAudioWatchDogTimer =
+            setInterval(function () {
+                if (
+                    typeof XAudioJSWebAudioContextHandle.state !==
+                    "undefined"
+                ) {
+                    if (
+                        XAudioJSWebAudioContextHandle.state ===
+                        "suspended"
+                    ) {
+                        XAudioJSWebAudioWatchDogLast =
+                            (new Date()).getTime();
+
+                        try {
+                            XAudioJSWebAudioContextHandle.resume();
+                        }
+                        catch (e) {}
+                    }
+                    else {
+                        var timeDiff =
+                            (new Date()).getTime() -
+                            XAudioJSWebAudioWatchDogLast;
+
+                        if (timeDiff > 500) {
+                            parentObj.setupWebAudio();
+                        }
+                    }
+                }
+            }, 500);
     }
-}
+};
 XAudioServer.prototype.initializeFlashAudio = function () {
 	var existingFlashload = document.getElementById("XAudioJS");
 	this.flashInitialized = false;
