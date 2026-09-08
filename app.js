@@ -204,7 +204,7 @@ blitter.attachCanvas(canvas);
 emulator.attachGraphicsFrameHandler(blitter);
 emulator.attachROM(rom);
 
-emulator.attachBIOS(new Uint8Array(0x4000));
+
 emulator.settings.SKIPBoot = true;
 
 emulator.play();
