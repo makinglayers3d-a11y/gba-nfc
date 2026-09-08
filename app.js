@@ -2,7 +2,10 @@
   "use strict";
 
   const params = new URLSearchParams(window.location.search);
-  const game = (params.get("game") || "pokemon").toLowerCase();
+
+const requestedRom = params.get("rom");
+
+const game = (params.get("game") || "pokemon").toLowerCase();
 
   const title = document.getElementById("game-title");
   const status = document.getElementById("status");
@@ -37,7 +40,13 @@ const gameConfig = {
   }
 }; 
 
-  const selected = gameConfig[game] || gameConfig.pokemon;
+const selected =
+  requestedRom
+    ? {
+        name: requestedRom,
+        rom: "games/" + requestedRom
+      }
+    : (gameConfig[game] || gameConfig.pokemon); 
 
   const savedBackground = localStorage.getItem("gba-background");
 const savedButtonColor = localStorage.getItem("gba-button-color");
