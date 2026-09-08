@@ -11,6 +11,7 @@
   const closeMenu = document.getElementById("close-menu");
   const fullscreenButton = document.getElementById("fullscreen");
   const reloadButton = document.getElementById("reload-game");
+  const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
 
   const ctx = canvas.getContext("2d", {
