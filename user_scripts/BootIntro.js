@@ -70,50 +70,134 @@
 
   window.gbaBootIntro = {
     started: false,
+start() {
+  if (this.started) {
+    return Promise.resolve();
+  }
 
-    start() {
-      if (this.started) {
-        return Promise.resolve();
-      }
+  this.started = true;
 
-      this.started = true;
+  return new Promise((resolve) => {
+    const bootScreen =
+      document.getElementById("boot-screen");
 
-      return new Promise((resolve) => {
-        const bootScreen =
-          document.getElementById("boot-screen");
+    const bootBrand =
+      document.getElementById("boot-brand");
 
-        if (!bootScreen) {
-          resolve();
-          return;
-        }
+    if (!bootScreen) {
+      resolve();
+      return;
+    }
 
-        bootScreen.classList.remove(
-          "boot-active",
-          "update-active",
-          "boot-finished"
-        );
+    /*
+     * Convertimos:
+     *
+     * Makinglayers3d creations
+     *
+     * en letras individuales.
+     */
 
-        bootScreen.classList.add("boot-active");
+    if (bootBrand) {
+      const text =
+        bootBrand.textContent.trim();
+
+      bootBrand.textContent = "";
+
+      [...text].forEach((character, index) => {
+        const letter =
+          document.createElement("span");
+
+        letter.className =
+          "boot-letter";
 
         /*
-         * Funciona automáticamente en PC.
-         * En móviles el navegador puede bloquear
-         * audio automático hasta una interacción.
+         * Los espacios normales no se conservan
+         * visualmente de la misma forma dentro de
+         * spans, así que usamos un espacio especial.
          */
-        playBootSound();
 
-        window.setTimeout(() => {
-          bootScreen.classList.add("update-active");
-        }, LOGO_TIME);
+        letter.textContent =
+          character === " "
+            ? "\u00A0"
+            : character;
 
-        window.setTimeout(() => {
-          bootScreen.classList.add("boot-finished");
-        }, LOGO_TIME + WARNING_TIME);
+        /*
+         * Cada letra recibe un retraso distinto.
+         *
+         * Primera letra:
+         * 0.80 segundos
+         *
+         * Segunda:
+         * 0.845 segundos
+         *
+         * Tercera:
+         * 0.89 segundos
+         *
+         * etc.
+         */
 
-        window.setTimeout(() => {
-          resolve();
-        }, LOGO_TIME + WARNING_TIME + FADE_TIME);
+        letter.style.setProperty(
+          "--letter-delay",
+          `${0.8 + index * 0.045}s`
+        );
+
+        bootBrand.appendChild(letter);
       });
     }
+
+    /*
+     * Comenzamos la pantalla de arranque.
+     */
+
+    bootScreen.classList.remove(
+      "boot-active",
+      "update-active",
+      "boot-finished"
+    );
+
+    bootScreen.classList.add(
+      "boot-active"
+    );
+
+    /*
+     * Sonido de inicio.
+     */
+
+    playBootSound();
+
+    /*
+     * Después de 3,8 segundos:
+     * pasamos al aviso.
+     */
+
+    window.setTimeout(() => {
+      bootScreen.classList.add(
+        "update-active"
+      );
+    }, LOGO_TIME);
+
+    /*
+     * Después del tiempo del aviso:
+     * comienza el desvanecimiento.
+     */
+
+    window.setTimeout(() => {
+      bootScreen.classList.add(
+        "boot-finished"
+      );
+    }, LOGO_TIME + WARNING_TIME);
+
+    /*
+     * Cuando termina completamente
+     * el desvanecimiento, permitimos
+     * que app.js cargue el juego.
+     */
+
+    window.setTimeout(() => {
+      resolve();
+    }, LOGO_TIME + WARNING_TIME + FADE_TIME);
+  });
+}
+    
   };
 })();
