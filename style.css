@@ -1431,3 +1431,24 @@ dialog::backdrop {
   text-align: center;
   opacity: 0.8;
 }
+/* Ajustes del menú */
+
+#select-game-button,
+#reload-game {
+  background: var(--button) !important;
+  border: 1px solid #ffffff08 !important;
+}
+
+#select-game-button:active,
+#reload-game:active {
+  background: var(--button-active) !important;
+  transform: scale(0.98);
+}
+
+#select-game-button {
+  margin-bottom: 18px !important;
+}
+
+.speed-control {
+  margin-top: 4px;
+}
