@@ -98,6 +98,34 @@
     <option value="1.5">150%</option>
   </select>
 </div>
+ <section class="audio-control">
+  <h3>Sonido</h3>
+
+  <div class="volume-row">
+    <label for="volume-slider">Volumen</label>
+
+    <div class="volume-controls">
+      <input
+        id="volume-slider"
+        type="range"
+        min="0"
+        max="100"
+        value="100"
+        step="1"
+      >
+
+      <button
+        id="mute-button"
+        type="button"
+      >
+        Silenciar
+      </button>
+    </div>
+
+    <span id="volume-value">100%</span>
+  </div>
+</section>
+        
 <section class="appearance-control">
   <h3>Apariencia</h3>
 
