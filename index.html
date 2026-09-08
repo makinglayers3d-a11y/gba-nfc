@@ -133,6 +133,9 @@
       <div class="menu-card">
         <button id="close-menu" type="button">×</button>
         <h2>GBA NFC</h2>
+        <button id="select-game-button" type="button">
+  Seleccionar juego
+</button>
 <div class="speed-control">
   <label for="speed-select">Velocidad</label>
 
@@ -210,7 +213,17 @@
        
       </div>
     </dialog>
+<dialog id="game-selector">
+  <div class="menu-card game-selector-card">
+    <button id="close-game-selector" type="button">×</button>
 
+    <h2>Seleccionar juego</h2>
+
+    <div id="game-list">
+      <div class="game-list-status">Cargando juegos…</div>
+    </div>
+  </div>
+</dialog>
   </main>
 <script src="IodineGBA/includes/TypedArrayShim.js"></script>
 
