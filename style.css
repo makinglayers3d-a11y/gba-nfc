@@ -1261,3 +1261,185 @@ dialog::backdrop {
   animation:
     bootScreenFade 0.8s ease 3.6s forwards;
 }
+
+/* =========================
+   INTRO DE ML3DEmuler
+   ========================= */
+
+#boot-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+
+  background: #000;
+  overflow: hidden;
+
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#boot-logo-screen,
+#update-screen {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  background: #000;
+}
+
+#boot-logo-screen {
+  opacity: 1;
+  transform: scale(1);
+}
+
+#boot-logo {
+  width: min(58%, 210px);
+  height: auto;
+
+  opacity: 0;
+  transform: scale(0.72);
+
+  animation: bootLogoAppear 1.2s cubic-bezier(.2,.8,.2,1) 0.2s forwards;
+}
+
+#boot-brand {
+  margin-top: 16px;
+
+  color: #fff;
+
+  font-size: clamp(12px, 2vw, 17px);
+  font-weight: 600;
+
+  letter-spacing: 0.08em;
+  text-align: center;
+
+  opacity: 0;
+  transform: translateY(10px);
+
+  animation: bootBrandAppear 0.9s ease 0.8s forwards;
+}
+
+#update-screen {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.update-message {
+  max-width: 90%;
+
+  color: #fff;
+
+  text-align: center;
+
+  font-size: clamp(11px, 1.8vw, 16px);
+  line-height: 1.6;
+  letter-spacing: 0.025em;
+
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Estado inicial */
+#boot-screen.boot-active {
+  opacity: 1;
+}
+
+/* Cambio de logo -> mensaje */
+#boot-screen.update-active #boot-logo-screen {
+  animation: bootLogoScreenOut 0.7s ease forwards;
+}
+
+#boot-screen.update-active #update-screen {
+  visibility: visible;
+  animation: updateScreenAppear 0.7s ease forwards;
+}
+
+#boot-screen.update-active .update-message {
+  animation: updateMessageAppear 0.7s ease 0.15s forwards;
+}
+
+/* Desaparición completa durante 2 segundos */
+#boot-screen.boot-finished {
+  animation: bootWholeScreenOut 2s ease forwards;
+  pointer-events: none;
+}
+
+/* =========================
+   Keyframes
+   ========================= */
+
+@keyframes bootLogoAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  65% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bootBrandAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bootLogoScreenOut {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes updateScreenAppear {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes updateMessageAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bootWholeScreenOut {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
