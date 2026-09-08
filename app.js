@@ -356,23 +356,7 @@ function loadGameType(name, callback) {
 });
 
 emulator.attachSaveImportHandler((name, callback, errorCallback) => {
-  if (name.startsWith("TYPE_")) {
-    loadGameType(name.substring(5), (saveType) => {
-      if (saveType) {
-        callback(saveType);
-      } else {
-        errorCallback();
-      }
-    });
-  } else {
-    loadGameSave(name, (save) => {
-      if (save) {
-        callback(save);
-      } else {
-        errorCallback();
-      }
-    });
-  }
+  errorCallback();
 });
       
       /*
