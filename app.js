@@ -313,22 +313,46 @@ function handleFirstAudioGesture() {
 
   audioGestureUnlocked = true;
 
+  try {
+    if (
+      typeof window.gbaIOSAudioContext === "undefined" ||
+      !window.gbaIOSAudioContext ||
+      window.gbaIOSAudioContext.state === "closed"
+    ) {
+      const AudioContextClass =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (AudioContextClass) {
+        window.gbaIOSAudioContext =
+          new AudioContextClass();
+      }
+    }
+
+    if (
+      window.gbaIOSAudioContext &&
+      (
+        window.gbaIOSAudioContext.state === "suspended" ||
+        window.gbaIOSAudioContext.state === "interrupted"
+      )
+    ) {
+      const promise =
+        window.gbaIOSAudioContext.resume();
+
+      if (
+        promise &&
+        typeof promise.catch === "function"
+      ) {
+        promise.catch(() => {});
+      }
+    }
+  } catch (error) {
+    console.log("Audio iOS:", error);
+  }
+
   initializeAudio();
   unlockAudio();
 }
-
-document.addEventListener(
-  "touchstart",
-  handleFirstAudioGesture,
-  { passive: true, once: true }
-);
-
-document.addEventListener(
-  "click",
-  handleFirstAudioGesture,
-  { passive: true, once: true }
-);
-
  
 
 
