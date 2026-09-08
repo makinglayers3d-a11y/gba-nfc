@@ -359,6 +359,12 @@ function loadGameType(name, callback) {
       }
 
       emulator = new GameBoyAdvanceEmulator();
+      
+const audioUnlockElement = document.querySelector("[data-key]");
+const audioMixer = new GlueCodeMixer(audioUnlockElement);
+const audioInput = new GlueCodeMixerInput(audioMixer);
+
+emulator.attachAudioHandler(audioInput);
       emulator.attachSaveExportHandler((name, save) => {
   if (name.startsWith("TYPE_")) {
     saveGameType(name.substring(5), save);
