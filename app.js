@@ -66,6 +66,7 @@ if (Number.isFinite(savedVolume)) {
 }  
   
   let fullscreenRequested = false;
+  let fullscreenTransition = false;
   const SAVE_PREFIX = "gba-save:";
 const SAVE_TYPE_PREFIX = "gba-save-type:";
 
@@ -247,6 +248,8 @@ function applyVolume(volume) {
 
     try {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        fullscreenTransition = true;
+        
         await document.documentElement.requestFullscreen();
       }
     } catch (error) {
@@ -655,11 +658,9 @@ if (saveTimer) {
   window.addEventListener("pagehide", shutdownEmulator);
   window.addEventListener("beforeunload", shutdownEmulator);
 
- document.addEventListener("visibilitychange", () => {
+document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    // No pausar el emulador si el navegador está entrando
-    // o ya está en pantalla completa.
-    if (document.fullscreenElement) {
+    if (document.fullscreenElement || fullscreenTransition) {
       return;
     }
 
