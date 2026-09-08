@@ -654,25 +654,30 @@ dialog::backdrop {
    */
 
   .start-select {
-    grid-column: 2;
-    grid-row: 3;
+  grid-column: 3;
+  grid-row: 2;
 
-    justify-self: center;
-    align-self: center;
+  justify-self: center;
+  align-self: end;
 
-    gap: 8px;
+  display: flex;
+  flex-direction: column;
 
-    pointer-events: auto;
-  }
+  gap: 8px;
 
-  .start-select button {
-    min-width: 72px;
-    height: 32px;
+  margin-bottom: 4px;
 
-    padding: 0 10px;
+  pointer-events: auto;
+}
 
-    font-size: 0.62rem;
-  }
+.start-select button {
+  min-width: 80px;
+  height: 32px;
+
+  padding: 0 10px;
+
+  font-size: 0.62rem;
+}
 
   /*
    * MARCA INFERIOR
