@@ -20,12 +20,22 @@ const muteButton = document.getElementById("mute-button");
   
 const backgroundColors = document.getElementById("background-colors");
 const buttonColors = document.getElementById("button-colors");
-  const gameConfig = {
-    pokemon: {
-      name: "Pokémon",
-      rom: "games/PokemonRF.gba"
-    }
-  };
+const gameConfig = {
+  pokemon: {
+    name: "Pokémon FireRed",
+    rom: "games/PokemonRF.gba"
+  },
+
+  mario3: {
+    name: "Super Mario Bros. 3",
+    rom: "games/Super Mario Bros. 3.gba"
+  },
+
+  minishcap: {
+    name: "The Legend of Zelda: The Minish Cap",
+    rom: "games/The Legend of Zelda - The Minish Cap.gba"
+  }
+}; 
 
   const selected = gameConfig[game] || gameConfig.pokemon;
 
