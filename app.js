@@ -331,31 +331,7 @@ document.querySelectorAll("[data-key]").forEach((button) => {
     releaseKey(keyName);
   }
 
-  button.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-
-    if (button.setPointerCapture) {
-      button.setPointerCapture(event.pointerId);
-    }
-
-    unlockAudio();
-    press();
-  });
-
-  button.addEventListener("pointerup", (event) => {
-    event.preventDefault();
-    release();
-  });
-
-  button.addEventListener("pointercancel", (event) => {
-    event.preventDefault();
-    release();
-  });
-
-  button.addEventListener("lostpointercapture", () => {
-    release();
-  });
-
+  
   button.addEventListener(
     "touchstart",
     (event) => {
