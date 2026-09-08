@@ -33,6 +33,99 @@
   let timer = null;
   let startTime = 0;
   let fullscreenRequested = false;
+  const SAVE_PREFIX = "gba-save:";
+const SAVE_TYPE_PREFIX = "gba-save-type:";
+
+function saveKey(name) {
+  return SAVE_PREFIX + game + ":" + name;
+}
+
+function saveTypeKey(name) {
+  return SAVE_TYPE_PREFIX + game + ":" + name;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(
+      offset,
+      Math.min(offset + chunkSize, bytes.length)
+    );
+
+    for (let i = 0; i < chunk.length; i++) {
+      binary += String.fromCharCode(chunk[i]);
+    }
+  }
+
+  return btoa(binary);
+}
+
+function base64ToBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+function saveGame(name, save) {
+  try {
+    if (!save) return;
+
+    const bytes = save instanceof Uint8Array
+      ? save
+      : new Uint8Array(save);
+
+    localStorage.setItem(saveKey(name), bytesToBase64(bytes));
+  } catch (error) {
+    console.error("No se pudo guardar la partida:", error);
+  }
+}
+
+function loadGameSave(name, callback) {
+  try {
+    const encoded = localStorage.getItem(saveKey(name));
+
+    if (!encoded) {
+      callback(null);
+      return;
+    }
+
+    callback(base64ToBytes(encoded));
+  } catch (error) {
+    console.error("No se pudo cargar la partida:", error);
+    callback(null);
+  }
+}
+
+function saveGameType(name, saveType) {
+  try {
+    localStorage.setItem(saveTypeKey(name), JSON.stringify(saveType));
+  } catch (error) {
+    console.error("No se pudo guardar el tipo de partida:", error);
+  }
+}
+
+function loadGameType(name, callback) {
+  try {
+    const stored = localStorage.getItem(saveTypeKey(name));
+
+    if (!stored) {
+      callback(null);
+      return;
+    }
+
+    callback(JSON.parse(stored));
+  } catch (error) {
+    console.error("No se pudo cargar el tipo de partida:", error);
+    callback(null);
+  }
+}
   /*
    * =========================
    * GUARDADO DE PARTIDA
