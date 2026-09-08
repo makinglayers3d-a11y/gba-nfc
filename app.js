@@ -268,6 +268,18 @@ function applyVolume(volume) {
     }
   );
 
+  function unlockAudio() {
+  try {
+    const context = XAudioJSWebAudioContextHandle;
+
+    if (context && context.state === "suspended") {
+      context.resume().catch(() => {});
+    }
+  } catch (error) {
+    console.log("No se pudo desbloquear el audio:", error);
+  }
+}
+  
  document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
@@ -315,41 +327,7 @@ function applyVolume(volume) {
 });
    
 
-    button.addEventListener(
-      "touchend",
-      (event) => {
-        event.preventDefault();
-        release();
-      },
-      { passive: false }
-    );
-
-    button.addEventListener(
-      "touchcancel",
-      (event) => {
-        event.preventDefault();
-        release();
-      },
-      { passive: false }
-    );
-
-    button.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-      enterFullscreen();
-      press();
-    });
-
-    button.addEventListener("mouseup", (event) => {
-      event.preventDefault();
-      release();
-    });
-
-    button.addEventListener("mouseleave", (event) => {
-      if (event.buttons === 0) {
-        release();
-      }
-    });
-  });
+   
 
   /*
    * Teclado físico.
@@ -436,17 +414,7 @@ audioInput = new GlueCodeMixerInput(audioMixer);
 emulator.attachAudioHandler(audioInput);
 emulator.enableAudio();
       
-function unlockAudio() {
-  try {
-    const context = XAudioJSWebAudioContextHandle;
 
-    if (context && context.state === "suspended") {
-      context.resume().catch(() => {});
-    }
-  } catch (error) {
-    console.log("No se pudo desbloquear el audio:", error);
-  }
-}      
 emulator.attachSaveExportHandler((name, save) => {
   if (name.startsWith("TYPE_")) {
     saveGameType(name.substring(5), save);
