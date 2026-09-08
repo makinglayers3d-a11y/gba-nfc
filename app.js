@@ -284,32 +284,47 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
 
- function press() {
-  if (pressed) return;
+  function press() {
+    if (pressed) return;
 
-  pressed = true;
-  button.classList.add("pressed");
+    pressed = true;
+    button.classList.add("pressed");
 
-  initializeAudio();
-  unlockAudio();
+    initializeAudio();
+    unlockAudio();
 
-  pressKey(keyName);
-}
+    pressKey(keyName);
+  }
 
   function release() {
     if (!pressed) return;
 
     pressed = false;
     button.classList.remove("pressed");
+
     releaseKey(keyName);
   }
 
-  
+  // PC / ratón
+  button.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    press();
+  });
+
+  button.addEventListener("mouseup", (event) => {
+    event.preventDefault();
+    release();
+  });
+
+  button.addEventListener("mouseleave", () => {
+    release();
+  });
+
+  // Móvil
   button.addEventListener(
     "touchstart",
     (event) => {
       event.preventDefault();
-      unlockAudio();
       press();
     },
     { passive: false }
@@ -333,7 +348,6 @@ document.querySelectorAll("[data-key]").forEach((button) => {
     { passive: false }
   );
 });
-
    
 
    
