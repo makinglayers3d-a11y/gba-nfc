@@ -135,31 +135,7 @@
          * Crear las letras individualmente.
          */
 
-        if (bootBrand) {
-          const text =
-            bootBrand.textContent.trim();
-
-          bootBrand.textContent = "";
-
-          [...text].forEach((character, index) => {
-            const letter =
-              document.createElement("span");
-
-            letter.className = "boot-letter";
-
-            letter.textContent =
-              character === " "
-                ? "\u00A0"
-                : character;
-
-            letter.style.setProperty(
-              "--letter-delay",
-              `${0.7 + index * 0.055}s`
-            );
-
-            bootBrand.appendChild(letter);
-          });
-        }
+       
 
         /*
          * Mostrar intro.
