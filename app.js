@@ -38,6 +38,10 @@ const gameConfig = {
     name: "The Legend of Zelda: The Minish Cap",
     rom: "games/The Legend of Zelda - The Minish Cap.gba"
   }
+  tetrisworlds: {
+    name: "Tetris Worlds",
+    rom: "games/Tetris Worlds.gba"
+  }
 }; 
 
 const selected =
