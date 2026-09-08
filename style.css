@@ -51,7 +51,7 @@ button {
     max(14px, env(safe-area-inset-top))
     14px
     max(18px, env(safe-area-inset-bottom));
-  background:
+  background: var(--bg);
     radial-gradient(
       circle at 50% 20%,
       #253143 0%,
