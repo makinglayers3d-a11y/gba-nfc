@@ -652,33 +652,38 @@ dialog::backdrop {
   /*
    * SELECT / START debajo de la pantalla.
    */
+.start-select {
+  position: absolute;
 
-  .start-select {
-  grid-column: 3;
-  grid-row: 2;
+  right: 0;
+  top: 50%;
 
-  justify-self: center;
-  align-self: end;
+  transform: translateY(62px);
 
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
 
-  gap: 8px;
+  justify-content: center;
+  align-items: center;
 
-  margin-bottom: 4px;
+  gap: 6px;
+
+  width: 150px;
 
   pointer-events: auto;
 }
 
 .start-select button {
-  min-width: 80px;
-  height: 32px;
+  min-width: 68px;
+  height: 30px;
 
-  padding: 0 10px;
+  padding: 0 8px;
 
-  font-size: 0.62rem;
+  border-radius: 16px;
+
+  font-size: 0.58rem;
 }
-
+  
   /*
    * MARCA INFERIOR
    */
