@@ -655,17 +655,24 @@ if (saveTimer) {
   window.addEventListener("pagehide", shutdownEmulator);
   window.addEventListener("beforeunload", shutdownEmulator);
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      if (emulator) {
-        try {
-          emulator.pause();
-        } catch (error) {
-          console.error("Guardado al ocultar:", error);
-        }
+ document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    // No pausar el emulador si el navegador está entrando
+    // o ya está en pantalla completa.
+    if (document.fullscreenElement) {
+      return;
+    }
+
+    if (emulator) {
+      try {
+        emulator.pause();
+      } catch (error) {
+        console.error("Guardado al ocultar:", error);
       }
     }
-  });
+  }
+});
+   
 /* =========================
  * Personalización de colores
  * ========================= */
