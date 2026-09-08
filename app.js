@@ -61,26 +61,6 @@
     L: 9
   };
 
-  function drawFrame(buffer) {
-    if (!buffer || buffer.length < 240 * 160 * 3) {
-      return;
-    }
-
-    const image = ctx.createImageData(240, 160);
-    const data = image.data;
-
-    let source = 0;
-    let target = 0;
-
-    while (source < 240 * 160 * 3) {
-      data[target++] = buffer[source++];
-      data[target++] = buffer[source++];
-      data[target++] = buffer[source++];
-      data[target++] = 255;
-    }
-
-    ctx.putImageData(image, 0, 0);
-  }
 
   function pressKey(keyName) {
     if (!emulator) return;
