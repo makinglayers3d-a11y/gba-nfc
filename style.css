@@ -1127,49 +1127,7 @@ dialog::backdrop {
 }
 
 #boot-brand {
-  .boot-letter {
-  display: inline-block;
-
-  opacity: 0;
-
-  transform:
-    translateY(8px)
-    scale(0.92);
-
-  animation:
-    bootLetterAppear
-    0.35s
-    ease
-    var(--letter-delay)
-    forwards;
-}
-  @keyframes bootLetterAppear {
-  0% {
-    opacity: 0;
-
-    transform:
-      translateY(8px)
-      scale(0.92);
-  }
-
-  70% {
-    opacity: 1;
-
-    transform:
-      translateY(-1px)
-      scale(1.04);
-  }
-
-  100% {
-    opacity: 1;
-
-    transform:
-      translateY(0)
-      scale(1);
-  }
-}
   display: block;
-
   margin-top: 10px;
 
   color: #fff;
@@ -1178,13 +1136,45 @@ dialog::backdrop {
   line-height: 1.15;
 
   font-weight: 700;
-
   letter-spacing: 0.06em;
 
   text-align: center;
-
   white-space: nowrap;
 }
+
+.boot-letter {
+  display: inline-block;
+
+  opacity: 0;
+
+  transform: translateY(8px) scale(0.92);
+
+  animation:
+    bootLetterAppear
+    0.35s
+    ease
+    var(--letter-delay)
+    forwards;
+}
+
+@keyframes bootLetterAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.04);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+
 /*
  * Cuando empieza la segunda pantalla,
  * desaparece el logo.
