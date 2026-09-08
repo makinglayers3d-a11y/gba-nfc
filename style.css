@@ -757,3 +757,207 @@ dialog::backdrop {
 .game-title-hidden {
   display: none !important;
 }
+/* ==========================================
+   MODO GBA HORIZONTAL - AJUSTE FINAL
+   ========================================== */
+
+@media (orientation: landscape) {
+
+  .console {
+    position: relative !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+  }
+
+  /*
+   * PANTALLA CENTRAL
+   */
+
+  .screen-frame {
+    position: relative !important;
+
+    width: min(62vw, 720px) !important;
+    aspect-ratio: 3 / 2 !important;
+
+    margin: 0 auto !important;
+
+    max-height: none !important;
+
+    z-index: 1;
+  }
+
+  /*
+   * CONTROLES COMO UNA GBA
+   */
+
+  .controls {
+    position: absolute !important;
+
+    inset: 0 !important;
+
+    width: 100% !important;
+    height: 100% !important;
+
+    display: block !important;
+
+    min-height: 0 !important;
+
+    padding: 0 !important;
+
+    pointer-events: none !important;
+
+    z-index: 5;
+  }
+
+  .controls button {
+    pointer-events: auto !important;
+  }
+
+  /*
+   * L - arriba izquierda
+   */
+
+  .shoulder.left {
+    position: absolute !important;
+
+    left: 2% !important;
+    top: 0 !important;
+
+    width: 100px !important;
+    height: 38px !important;
+
+    margin: 0 !important;
+  }
+
+  /*
+   * R - arriba derecha
+   */
+
+  .shoulder.right {
+    position: absolute !important;
+
+    right: 2% !important;
+    top: 0 !important;
+
+    width: 100px !important;
+    height: 38px !important;
+
+    margin: 0 !important;
+  }
+
+  /*
+   * CRUCETA - lateral izquierdo
+   */
+
+  .dpad {
+    position: absolute !important;
+
+    left: 1% !important;
+    top: 50% !important;
+
+    transform: translateY(-50%) !important;
+
+    width: 120px !important;
+    height: 120px !important;
+
+    margin: 0 !important;
+  }
+
+  .dpad button {
+    width: 40px !important;
+    height: 40px !important;
+
+    font-size: 1rem !important;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 40px !important;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 40px !important;
+  }
+
+  /*
+   * A / B - lateral derecho
+   */
+
+  .face-buttons {
+    position: absolute !important;
+
+    right: 1% !important;
+    top: 50% !important;
+
+    transform: translateY(-50%) !important;
+
+    width: 120px !important;
+    height: 120px !important;
+
+    margin: 0 !important;
+  }
+
+  .face {
+    width: 58px !important;
+    height: 58px !important;
+
+    font-size: 1rem !important;
+  }
+
+  /*
+   * SELECT / START
+   * JUSTO DEBAJO DE A / B
+   */
+
+  .start-select {
+    position: absolute !important;
+
+    right: 1% !important;
+    top: calc(50% + 72px) !important;
+
+    width: 120px !important;
+
+    display: flex !important;
+
+    flex-direction: row !important;
+
+    justify-content: center !important;
+    align-items: center !important;
+
+    gap: 5px !important;
+
+    margin: 0 !important;
+
+    transform: none !important;
+  }
+
+  .start-select button {
+    min-width: 56px !important;
+    width: 56px !important;
+    height: 28px !important;
+
+    padding: 0 !important;
+
+    font-size: 0.54rem !important;
+
+    border-radius: 15px !important;
+  }
+
+  /*
+   * LOGO INFERIOR
+   */
+
+  .bottom-brand {
+    margin-top: 8px !important;
+
+    font-size: 11px !important;
+  }
+
+  .bottom-logo {
+    width: 20px !important;
+    height: 20px !important;
+  }
+}
