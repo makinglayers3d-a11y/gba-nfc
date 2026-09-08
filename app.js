@@ -33,7 +33,112 @@
   let timer = null;
   let startTime = 0;
   let fullscreenRequested = false;
+  /*
+   * =========================
+   * GUARDADO DE PARTIDA
+   * =========================
+   */
 
+  const SAVE_PREFIX = "gba-save:";
+  const SAVE_TYPE_PREFIX = "gba-save-type:";
+
+  function saveKey(name) {
+    return SAVE_PREFIX + name;
+  }
+
+  function saveTypeKey(name) {
+    return SAVE_TYPE_PREFIX + name;
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = "";
+
+    const chunkSize = 0x8000;
+
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.subarray(
+        offset,
+        Math.min(offset + chunkSize, bytes.length)
+      );
+
+      for (let i = 0; i < chunk.length; i++) {
+        binary += String.fromCharCode(chunk[i]);
+      }
+    }
+
+    return btoa(binary);
+  }
+
+  function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  }
+
+  function saveGame(name, save) {
+    try {
+      if (!save) return;
+
+      const bytes = save instanceof Uint8Array
+        ? save
+        : new Uint8Array(save);
+
+      localStorage.setItem(
+        saveKey(name),
+        bytesToBase64(bytes)
+      );
+    } catch (error) {
+      console.error("Error guardando partida:", error);
+    }
+  }
+
+  function loadGameSave(name, callback) {
+    try {
+      const encoded = localStorage.getItem(saveKey(name));
+
+      if (!encoded) {
+        callback(null);
+        return;
+      }
+
+      callback(base64ToBytes(encoded));
+    } catch (error) {
+      console.error("Error cargando partida:", error);
+      callback(null);
+    }
+  }
+
+  function saveGameType(name, saveType) {
+    try {
+      localStorage.setItem(
+        saveTypeKey(name),
+        JSON.stringify(saveType)
+      );
+    } catch (error) {
+      console.error("Error guardando tipo de partida:", error);
+    }
+  }
+
+  function loadGameType(name, callback) {
+    try {
+      const stored = localStorage.getItem(saveTypeKey(name));
+
+      if (!stored) {
+        callback(null);
+        return;
+      }
+
+      callback(JSON.parse(stored));
+    } catch (error) {
+      console.error("Error cargando tipo de partida:", error);
+      callback(null);
+    }
+  }
   /*
    * Mapa de botones IodineGBA:
    * 0 A
@@ -254,7 +359,35 @@
       }
 
       emulator = new GameBoyAdvanceEmulator();
+      /*
+       * Conectamos el guardado del emulador
+       * con localStorage.
+       */
 
+      emulator.attachSaveExportHandler((name, save) => {
+        if (name.startsWith("TYPE_")) {
+          saveGameType(name.substring(5), save);
+        } else {
+          saveGame(name, save);
+        }
+      });
+
+      emulator.attachSaveImportHandler(
+        (name, callback, errorCallback) => {
+          if (name.startsWith("TYPE_")) {
+            loadGameType(
+              name.substring(5),
+              (saveType) => {
+                callback(saveType);
+              }
+            );
+          } else {
+            loadGameSave(name, (save) => {
+              callback(save);
+            });
+          }
+        }
+      );
       /*
        * Velocidad guardada.
        * 95% es el valor inicial.
@@ -364,7 +497,7 @@
     window.location.reload();
   });
 
-  window.addEventListener("beforeunload", () => {
+   function shutdownEmulator() {
     if (timer) {
       clearInterval(timer);
       timer = null;
@@ -372,9 +505,27 @@
 
     if (emulator) {
       try {
+        /*
+         * pause() provoca el export del save.
+         */
         emulator.pause();
       } catch (error) {
-        console.error(error);
+        console.error("Cierre del emulador:", error);
+      }
+    }
+  }
+
+  window.addEventListener("pagehide", shutdownEmulator);
+  window.addEventListener("beforeunload", shutdownEmulator);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      if (emulator) {
+        try {
+          emulator.pause();
+        } catch (error) {
+          console.error("Guardado al ocultar:", error);
+        }
       }
     }
   });
