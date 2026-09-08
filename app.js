@@ -653,5 +653,14 @@ if (buttonColors) {
   });
 }
 
-loadGame();
+async function startApplication() {
+  if (window.gbaBootIntro) {
+    await window.gbaBootIntro.start();
+  }
+
+  await loadGame();
+}
+
+startApplication();
+
 })();
