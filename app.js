@@ -236,16 +236,18 @@ function loadGameType(name, callback) {
       button.classList.remove("pressed");
       releaseKey(keyName);
     }
-
-    button.addEventListener(
-      "touchstart",
-      (event) => {
-        event.preventDefault();
-        enterFullscreen();
-        press();
-      },
-      { passive: false }
-    );
+    
+button.addEventListener(
+  "touchstart",
+  (event) => {
+    event.preventDefault();
+    unlockAudio();
+    enterFullscreen();
+    press();
+  },
+  { passive: false }
+);
+   
 
     button.addEventListener(
       "touchend",
@@ -366,7 +368,17 @@ const audioInput = new GlueCodeMixerInput(audioMixer);
 
 emulator.attachAudioHandler(audioInput);
 emulator.enableAudio();
-      
+function unlockAudio() {
+  try {
+    const context = XAudioJSWebAudioContextHandle;
+
+    if (context && context.state === "suspended") {
+      context.resume().catch(() => {});
+    }
+  } catch (error) {
+    console.log("No se pudo desbloquear el audio:", error);
+  }
+}      
 emulator.attachSaveExportHandler((name, save) => {
   if (name.startsWith("TYPE_")) {
     saveGameType(name.substring(5), save);
