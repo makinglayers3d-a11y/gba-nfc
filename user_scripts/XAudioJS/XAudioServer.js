@@ -164,103 +164,16 @@ XAudioServer.prototype.initializeMozAudio = function () {
 	//}
     this.initializeResampler(XAudioJSMozAudioSampleRate);
 }
-XAudioServer.prototype.initializeWebAudio = function () {
-	if (typeof AudioContext == "undefined" || typeof XAudioJSWebAudioContextHandle == "undefined") {
-		throw null;
-	}
-	else {
-		if (!this.userEventLatch) {
-			this.setupWebAudio();
-		}
-		else {
-			var parentObj = this;
-			var XAudioJSWebAudioDelayedEvent = 0;
-			this.userEventLatch.addEventListener("click", function () {
-				if (XAudioJSWebAudioDelayedEvent == 0) {
-					parentObj.setupWebAudio();
-					XAudioJSWebAudioDelayedEvent |= 1;
-				}
-			}, false);
-			this.userEventLatch.addEventListener("touchstart", function () {
-				if (XAudioJSWebAudioDelayedEvent < 2) {
-					parentObj.setupWebAudio();
-					XAudioJSWebAudioDelayedEvent |= 2;
-				}
-			}, false);
-			this.userEventLatch.addEventListener("touchend", function () {
-				if (XAudioJSWebAudioDelayedEvent < 4) {
-					parentObj.setupWebAudio();
-					XAudioJSWebAudioDelayedEvent |= 4;
-				}
-			}, false);
-			//TODO: Restructure API to not have to potentially lie to end client about
-			//the samples in buffer before user driven event callback that actually starts WA.
-			this.resetCallbackAPIAudioBuffer(44100);
-		}
-		this.audioType = 1;
-	}
-}
-    /*
-     * En iOS usamos el AudioContext compartido que fue creado
-     * dentro del gesto del usuario.
-     *
-     * IMPORTANTE:
-     * no cerrar ese contexto antes de reutilizarlo.
-     */
-    if (
-        typeof window.gbaIOSAudioContext !== "undefined" &&
-        window.gbaIOSAudioContext &&
-        window.gbaIOSAudioContext.state !== "closed"
-    ) {
-        XAudioJSWebAudioContextHandle =
-            window.gbaIOSAudioContext;
-
-        if (
-            XAudioJSWebAudioContextHandle.state === "suspended" ||
-            XAudioJSWebAudioContextHandle.state === "interrupted"
-        ) {
-            try {
-                var resumePromise =
-                    XAudioJSWebAudioContextHandle.resume();
-
-                if (
-                    resumePromise &&
-                    typeof resumePromise.catch === "function"
-                ) {
-                    resumePromise.catch(function () {});
-                }
-            }
-            catch (error) {}
-        }
+XAudioServer.prototype.setupWebAudio = function () {
+    if (XAudioJSWebAudioLaunchedContext) {
+        XAudioJSWebAudioContextHandle.close();
     }
-    else {
-        /*
-         * Si no existe un contexto compartido,
-         * creamos uno normalmente.
-         */
-        if (
-            XAudioJSWebAudioLaunchedContext &&
-            XAudioJSWebAudioContextHandle
-        ) {
-            try {
-                if (
-                    XAudioJSWebAudioContextHandle.state !==
-                    "closed"
-                ) {
-                    XAudioJSWebAudioContextHandle.close();
-                }
-            }
-            catch (error) {}
-        }
 
-        try {
-            XAudioJSWebAudioContextHandle =
-                new AudioContext();
-        }
-        catch (error) {
-            XAudioJSWebAudioContextHandle =
-                new webkitAudioContext();
-        }
+    try {
+        XAudioJSWebAudioContextHandle = new AudioContext();
+    }
+    catch (error) {
+        XAudioJSWebAudioContextHandle = new webkitAudioContext();
     }
 
     XAudioJSWebAudioLaunchedContext = true;
@@ -282,7 +195,7 @@ XAudioServer.prototype.initializeWebAudio = function () {
 
     XAudioJSMaxBufferSize = Math.max(
         XAudioJSSamplesPerCallback *
-            XAudioJSChannelsAllocated,
+        XAudioJSChannelsAllocated,
         XAudioJSMaxBufferSize
     );
 
@@ -326,7 +239,7 @@ XAudioServer.prototype.initializeWebAudio = function () {
         XAudioJSWebAudioWatchDogTimer =
             setInterval(function () {
                 if (
-                    typeof XAudioJSWebAudioContextHandle.state !==
+                    typeof XAudioJSWebAudioContextHandle.state !=
                     "undefined"
                 ) {
                     if (
