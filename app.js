@@ -323,8 +323,35 @@ function applyVolume(volume) {
 
   button.addEventListener("lostpointercapture", () => {
     release();
+    button.addEventListener(
+  "touchstart",
+  (event) => {
+    event.preventDefault();
+    unlockAudio();
+    press();
+  },
+  { passive: false }
+);
+
+button.addEventListener(
+  "touchend",
+  (event) => {
+    event.preventDefault();
+    release();
+  },
+  { passive: false }
+);
+
+button.addEventListener(
+  "touchcancel",
+  (event) => {
+    event.preventDefault();
+    release();
+  },
+  { passive: false }
+);
   });
-});
+
    
 
    
