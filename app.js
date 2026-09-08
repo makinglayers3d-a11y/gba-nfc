@@ -550,6 +550,12 @@ window.__gba = emulator;
       return;
     }
 
+     if (emulator) {
+      emulator.setSpeed(speed);
+    }
+
+    localStorage.setItem("gba-speed", String(speed));
+  });
 if (volumeSlider) {
   volumeSlider.addEventListener("input", () => {
     const volume = Number(volumeSlider.value) / 100;
@@ -572,21 +578,12 @@ if (muteButton) {
       updateVolumeUI();
     } else {
       audioMuted = false;
-
       applyVolume(previousVolume > 0 ? previousVolume : 1);
     }
   });
 }
 
 updateVolumeUI();
-    
-    if (emulator) {
-      emulator.setSpeed(speed);
-    }
-
-    localStorage.setItem("gba-speed", String(speed));
-  });
-
   closeMenu.addEventListener("click", () => {
     menu.close();
   });
