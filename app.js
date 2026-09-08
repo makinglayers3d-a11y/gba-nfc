@@ -616,12 +616,6 @@ function initializeAudio() {
       return;
     }
 
-   setTimeout(() => {
-  if (!emulator || audioInput) {
-    return;
-  }
-
-  try {
     const audioMixer = new GlueCodeMixer(null);
 
     audioInput = new GlueCodeMixerInput(audioMixer);
@@ -630,13 +624,7 @@ function initializeAudio() {
     emulator.enableAudio();
 
     applyVolume(audioVolume);
-  } catch (error) {
-    console.error(
-      "No se pudo iniciar el audio:",
-      error
-    );
-  }
-}, 0); 
+
   } catch (error) {
     console.error(
       "No se pudo iniciar el audio:",
@@ -692,10 +680,8 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   pressed = true;
   button.classList.add("pressed");
 
-  if (isIOS()) {
-    initializeAudio();
-    unlockAudio();
-  }
+ initializeAudio();
+unlockAudio();
 
   pressKey(keyName);
 }
@@ -796,10 +782,8 @@ window.addEventListener(
      * La propia pulsación del teclado sirve como gesto
      * del usuario para iniciar WebAudio.
      */
-   if (isIOS()) {
-  initializeAudio();
-  unlockAudio();
-}
+ initializeAudio();
+unlockAudio();
 
 pressKey(keyName);
   },
@@ -858,9 +842,7 @@ window.addEventListener(
 
       emulator = new GameBoyAdvanceEmulator();
       
-      if (!isIOS()) {
-  initializeAudio();
-}
+    
 
       
 
