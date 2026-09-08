@@ -13,6 +13,11 @@
   const reloadButton = document.getElementById("reload-game");
   const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
+
+  const volumeSlider = document.getElementById("volume-slider");
+const volumeValue = document.getElementById("volume-value");
+const muteButton = document.getElementById("mute-button");
+  
 const backgroundColors = document.getElementById("background-colors");
 const buttonColors = document.getElementById("button-colors");
   const gameConfig = {
@@ -26,6 +31,14 @@ const buttonColors = document.getElementById("button-colors");
 
   const savedBackground = localStorage.getItem("gba-background");
 const savedButtonColor = localStorage.getItem("gba-button-color");
+
+  const savedVolume = Number(
+  localStorage.getItem("gba-volume") || "1"
+);
+
+if (Number.isFinite(savedVolume)) {
+  audioVolume = Math.min(Math.max(savedVolume, 0), 1);
+}
 
 if (savedBackground) {
   document.documentElement.style.setProperty("--bg", savedBackground);
@@ -44,6 +57,12 @@ if (savedButtonColor) {
 let timer = null;
 let saveTimer = null;
 let startTime = 0;
+
+let audioInput = null;
+let audioVolume = 1;
+let audioMuted = false;
+let previousVolume = 1;
+  
   let fullscreenRequested = false;
   const SAVE_PREFIX = "gba-save:";
 const SAVE_TYPE_PREFIX = "gba-save-type:";
@@ -185,6 +204,36 @@ function loadGameType(name, callback) {
     emulator.keyUp(value);
   }
 
+  function updateVolumeUI() {
+  const percentage = Math.round(audioVolume * 100);
+
+  if (volumeSlider) {
+    volumeSlider.value = String(percentage);
+  }
+
+  if (volumeValue) {
+    volumeValue.textContent = percentage + "%";
+  }
+
+  if (muteButton) {
+    muteButton.textContent = audioMuted ? "Activar sonido" : "Silenciar";
+  }
+}
+
+function applyVolume(volume) {
+  volume = Math.min(Math.max(Number(volume), 0), 1);
+
+  audioVolume = volume;
+
+  if (audioInput) {
+    audioInput.setVolume(audioMuted ? 0 : audioVolume);
+  }
+
+  localStorage.setItem("gba-volume", String(audioVolume));
+
+  updateVolumeUI();
+}
+  
   /*
    * Pantalla completa con el primer toque/clic.
    * El navegador exige interacción del usuario.
@@ -364,10 +413,12 @@ button.addEventListener(
       
 const audioUnlockElement = document.getElementById("controls");
 const audioMixer = new GlueCodeMixer(audioUnlockElement);
-const audioInput = new GlueCodeMixerInput(audioMixer);
+
+audioInput = new GlueCodeMixerInput(audioMixer);
 
 emulator.attachAudioHandler(audioInput);
 emulator.enableAudio();
+      
 function unlockAudio() {
   try {
     const context = XAudioJSWebAudioContextHandle;
@@ -514,6 +565,36 @@ window.__gba = emulator;
       return;
     }
 
+if (volumeSlider) {
+  volumeSlider.addEventListener("input", () => {
+    const volume = Number(volumeSlider.value) / 100;
+
+    audioMuted = false;
+    applyVolume(volume);
+  });
+}
+
+if (muteButton) {
+  muteButton.addEventListener("click", () => {
+    if (!audioMuted) {
+      previousVolume = audioVolume;
+      audioMuted = true;
+
+      if (audioInput) {
+        audioInput.setVolume(0);
+      }
+
+      updateVolumeUI();
+    } else {
+      audioMuted = false;
+
+      applyVolume(previousVolume > 0 ? previousVolume : 1);
+    }
+  });
+}
+
+updateVolumeUI();
+    
     if (emulator) {
       emulator.setSpeed(speed);
     }
