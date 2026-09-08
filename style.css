@@ -542,6 +542,7 @@ dialog::backdrop {
     grid-column: 1;
     grid-row: 3;
   }
+}
 /* =========================
    Branding ML3Demuler
    ========================= */
@@ -557,6 +558,7 @@ dialog::backdrop {
   height: 32px;
   object-fit: contain;
   display: block;
+  flex: 0 0 32px;
 }
 
 .brand-name {
@@ -567,20 +569,17 @@ dialog::backdrop {
   white-space: nowrap;
 }
 
-/* Marca inferior */
 .bottom-brand {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-
+  width: 100%;
   margin-top: 0;
-
   color: #ffffff;
   font-size: 14px;
   line-height: 1;
   font-weight: 700;
-
   opacity: 0.9;
 }
 
@@ -589,11 +588,5 @@ dialog::backdrop {
   height: 20px;
   object-fit: contain;
   display: block;
-}
-
-/* Ajuste para pantallas horizontales */
-@media (orientation: landscape) and (max-height: 600px) {
-  .bottom-brand {
-    grid-column: 1 / -1;
-  }
+  flex: 0 0 20px;
 }
