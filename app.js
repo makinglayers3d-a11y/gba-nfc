@@ -23,7 +23,7 @@ const muteButton = document.getElementById("mute-button");
   
 const backgroundColors = document.getElementById("background-colors");
 const buttonColors = document.getElementById("button-colors");
-const gameConfig = {
+ const gameConfig = {
   pokemon: {
     name: "Pokémon FireRed",
     rom: "games/PokemonRF.gba"
@@ -37,12 +37,13 @@ const gameConfig = {
   minishcap: {
     name: "The Legend of Zelda: The Minish Cap",
     rom: "games/The Legend of Zelda - The Minish Cap.gba"
-  }
+  },
+
   tetrisworlds: {
     name: "Tetris Worlds",
     rom: "games/Tetris Worlds.gba"
   }
-}; 
+};
 
 const selected =
   requestedRom
