@@ -69,14 +69,29 @@
       <div class="menu-card">
         <button id="close-menu" type="button">×</button>
         <h2>GBA NFC</h2>
+<div class="speed-control">
+  <label for="speed-select">Velocidad</label>
 
-        <button id="fullscreen" type="button">
-          Pantalla completa
-        </button>
+  <select id="speed-select">
+    <option value="0.5">50%</option>
+    <option value="0.75">75%</option>
+    <option value="0.9">90%</option>
+    <option value="0.95" selected>95%</option>
+    <option value="1">100%</option>
+    <option value="1.1">110%</option>
+    <option value="1.25">125%</option>
+    <option value="1.5">150%</option>
+  </select>
+</div>
 
-        <button id="reload-game" type="button">
-          Reiniciar juego
-        </button>
+<button id="fullscreen" type="button">
+  Pantalla completa
+</button>
+
+<button id="reload-game" type="button">
+  Reiniciar juego
+</button>
+       
       </div>
     </dialog>
 
