@@ -29,9 +29,10 @@
   canvas.width = 240;
   canvas.height = 160;
 
-  let emulator = null;
-  let timer = null;
-  let startTime = 0;
+ let emulator = null;
+let timer = null;
+let saveTimer = null;
+let startTime = 0;
   let fullscreenRequested = false;
   const SAVE_PREFIX = "gba-save:";
 const SAVE_TYPE_PREFIX = "gba-save-type:";
@@ -440,6 +441,16 @@ window.__gba = emulator;
         emulator.timerCallback(elapsed);
       }, 8);
 
+      saveTimer = window.setInterval(() => {
+  if (!emulator) return;
+
+  try {
+    emulator.exportSave();
+  } catch (error) {
+    console.error("Guardado automático:", error);
+  }
+}, 10000);
+      
       status.hidden = true;
       status.style.display = "none";
 
@@ -504,7 +515,10 @@ window.__gba = emulator;
       clearInterval(timer);
       timer = null;
     }
-
+if (saveTimer) {
+  clearInterval(saveTimer);
+  saveTimer = null;
+}
     if (emulator) {
       try {
         /*
