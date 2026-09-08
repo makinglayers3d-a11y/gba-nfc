@@ -32,13 +32,7 @@ const buttonColors = document.getElementById("button-colors");
   const savedBackground = localStorage.getItem("gba-background");
 const savedButtonColor = localStorage.getItem("gba-button-color");
 
-  const savedVolume = Number(
-  localStorage.getItem("gba-volume") || "1"
-);
 
-if (Number.isFinite(savedVolume)) {
-  audioVolume = Math.min(Math.max(savedVolume, 0), 1);
-}
 
 if (savedBackground) {
   document.documentElement.style.setProperty("--bg", savedBackground);
@@ -62,6 +56,14 @@ let audioInput = null;
 let audioVolume = 1;
 let audioMuted = false;
 let previousVolume = 1;
+
+const savedVolume = Number(
+  localStorage.getItem("gba-volume") || "1"
+);
+
+if (Number.isFinite(savedVolume)) {
+  audioVolume = Math.min(Math.max(savedVolume, 0), 1);
+}  
   
   let fullscreenRequested = false;
   const SAVE_PREFIX = "gba-save:";
