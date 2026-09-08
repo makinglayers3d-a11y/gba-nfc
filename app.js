@@ -256,15 +256,11 @@ function applyVolume(volume) {
   
 
 
-
-
- 
-
-function initializeAudio(audioUnlockElement = null) {
+function initializeAudio() {
   if (!emulator || audioInput) return;
 
   try {
-    const audioMixer = new GlueCodeMixer(audioUnlockElement);
+    const audioMixer = new GlueCodeMixer(null);
 
     audioInput = new GlueCodeMixerInput(audioMixer);
 
@@ -276,18 +272,66 @@ function initializeAudio(audioUnlockElement = null) {
     console.error("No se pudo iniciar el audio:", error);
   }
 }
-  
-  function unlockAudio() {
+
+function unlockAudio() {
   try {
     const context = XAudioJSWebAudioContextHandle;
 
-    if (context && context.state === "suspended") {
-      context.resume().catch(() => {});
+    if (!context) {
+      return;
+    }
+
+    if (
+      context.state === "suspended" ||
+      context.state === "interrupted"
+    ) {
+      const promise = context.resume();
+
+      if (promise && typeof promise.catch === "function") {
+        promise.catch((error) => {
+          console.log(
+            "No se pudo reanudar el audio:",
+            error
+          );
+        });
+      }
     }
   } catch (error) {
-    console.log("No se pudo desbloquear el audio:", error);
+    console.log(
+      "No se pudo desbloquear el audio:",
+      error
+    );
   }
 }
+
+let audioGestureUnlocked = false;
+
+function handleFirstAudioGesture() {
+  if (audioGestureUnlocked || !emulator) {
+    return;
+  }
+
+  audioGestureUnlocked = true;
+
+  initializeAudio();
+  unlockAudio();
+}
+
+document.addEventListener(
+  "touchstart",
+  handleFirstAudioGesture,
+  { passive: true, once: true }
+);
+
+document.addEventListener(
+  "click",
+  handleFirstAudioGesture,
+  { passive: true, once: true }
+);
+
+ 
+
+
   
 document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
