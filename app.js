@@ -452,35 +452,26 @@ function loadGameType(name, callback) {
       }
 
       emulator = new GameBoyAdvanceEmulator();
-      /*
-       * Conectamos el guardado del emulador
-       * con localStorage.
-       */
-
       emulator.attachSaveExportHandler((name, save) => {
-        if (name.startsWith("TYPE_")) {
-          saveGameType(name.substring(5), save);
-        } else {
-          saveGame(name, save);
-        }
-      });
+  if (name.startsWith("TYPE_")) {
+    saveGameType(name.substring(5), save);
+  } else {
+    saveGame(name, save);
+  }
+});
 
-      emulator.attachSaveImportHandler(
-        (name, callback, errorCallback) => {
-          if (name.startsWith("TYPE_")) {
-            loadGameType(
-              name.substring(5),
-              (saveType) => {
-                callback(saveType);
-              }
-            );
-          } else {
-            loadGameSave(name, (save) => {
-              callback(save);
-            });
-          }
-        }
-      );
+emulator.attachSaveImportHandler((name, callback, errorCallback) => {
+  if (name.startsWith("TYPE_")) {
+    loadGameType(name.substring(5), (saveType) => {
+      callback(saveType);
+    });
+  } else {
+    loadGameSave(name, (save) => {
+      callback(save);
+    });
+  }
+});
+      
       /*
        * Velocidad guardada.
        * 95% es el valor inicial.
