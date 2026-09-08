@@ -52,8 +52,7 @@ if (savedButtonColor) {
   document.documentElement.style.setProperty("--button", savedButtonColor);
 }
   title.textContent = selected.name;
-  status.textContent = "Cargando Pokémon…";
-
+  
   canvas.width = 240;
   canvas.height = 160;
 
