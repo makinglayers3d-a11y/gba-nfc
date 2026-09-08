@@ -348,18 +348,22 @@ document.querySelectorAll("[data-key]").forEach((button) => {
 
   const keyboardPressed = new Set();
 
-  window.addEventListener("keydown", (event) => {
-    const keyName = keyboardMap[event.key];
+ window.addEventListener("keydown", (event) => {
+  const keyName = keyboardMap[event.key];
 
-    if (!keyName || keyboardPressed.has(event.key)) {
-      return;
-    }
+  if (!keyName || keyboardPressed.has(event.key)) {
+    return;
+  }
 
-    event.preventDefault();
+  event.preventDefault();
 
-    keyboardPressed.add(event.key);
-    pressKey(keyName);
-  });
+  keyboardPressed.add(event.key);
+
+  initializeAudio();
+  unlockAudio();
+
+  pressKey(keyName);
+});
 
   window.addEventListener("keyup", (event) => {
     const keyName = keyboardMap[event.key];
