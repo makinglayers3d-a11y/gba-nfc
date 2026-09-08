@@ -200,32 +200,26 @@ XAudioServer.prototype.initializeWebAudio = function () {
 		this.audioType = 1;
 	}
 }
-XAudioServer.prototype.setupWebAudio = function () {
-    if (XAudioJSWebAudioLaunchedContext && XAudioJSWebAudioContextHandle) {
-        try {
-            if (XAudioJSWebAudioContextHandle.state !== "closed") {
-                XAudioJSWebAudioContextHandle.close();
-            }
-        }
-        catch (error) {}
-    }
+    /*
+     * En iOS usamos el AudioContext compartido que fue creado
+     * dentro del gesto del usuario.
+     *
+     * IMPORTANTE:
+     * no cerrar ese contexto antes de reutilizarlo.
+     */
+    if (
+        typeof window.gbaIOSAudioContext !== "undefined" &&
+        window.gbaIOSAudioContext &&
+        window.gbaIOSAudioContext.state !== "closed"
+    ) {
+        XAudioJSWebAudioContextHandle =
+            window.gbaIOSAudioContext;
 
-    try {
         if (
-            typeof window.gbaIOSAudioContext !== "undefined" &&
-            window.gbaIOSAudioContext
+            XAudioJSWebAudioContextHandle.state === "suspended" ||
+            XAudioJSWebAudioContextHandle.state === "interrupted"
         ) {
-            XAudioJSWebAudioContextHandle =
-                window.gbaIOSAudioContext;
-
-            /*
-             * El contexto ya ha sido creado dentro de un
-             * gesto del usuario. En iOS esto es importante.
-             */
-            if (
-                XAudioJSWebAudioContextHandle.state === "suspended" ||
-                XAudioJSWebAudioContextHandle.state === "interrupted"
-            ) {
+            try {
                 var resumePromise =
                     XAudioJSWebAudioContextHandle.resume();
 
@@ -236,25 +230,36 @@ XAudioServer.prototype.setupWebAudio = function () {
                     resumePromise.catch(function () {});
                 }
             }
-        }
-        else {
-            try {
-                XAudioJSWebAudioContextHandle =
-                    new AudioContext();
-            }
-            catch (error) {
-                XAudioJSWebAudioContextHandle =
-                    new webkitAudioContext();
-            }
+            catch (error) {}
         }
     }
-    catch (error) {
+    else {
+        /*
+         * Si no existe un contexto compartido,
+         * creamos uno normalmente.
+         */
+        if (
+            XAudioJSWebAudioLaunchedContext &&
+            XAudioJSWebAudioContextHandle
+        ) {
+            try {
+                if (
+                    XAudioJSWebAudioContextHandle.state !==
+                    "closed"
+                ) {
+                    XAudioJSWebAudioContextHandle.close();
+                }
+            }
+            catch (error) {}
+        }
+
         try {
             XAudioJSWebAudioContextHandle =
-                new webkitAudioContext();
+                new AudioContext();
         }
-        catch (error2) {
-            throw error2;
+        catch (error) {
+            XAudioJSWebAudioContextHandle =
+                new webkitAudioContext();
         }
     }
 
