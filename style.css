@@ -961,3 +961,64 @@ dialog::backdrop {
     height: 20px !important;
   }
 }
+/* =========================
+   PERSONALIZACIÓN
+   ========================= */
+
+.appearance-control {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #ffffff12;
+}
+
+.appearance-control h3 {
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.color-group {
+  margin-top: 14px;
+}
+
+.color-group > span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.color-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+
+  border-radius: 50%;
+
+  border: 2px solid #ffffff18;
+
+  box-shadow:
+    0 4px 10px #0006,
+    inset 0 0 0 1px #0003;
+
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.color-swatch:active {
+  transform: scale(0.92);
+}
+
+.color-swatch.selected {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 2px #ffffff33,
+    0 4px 10px #0006;
+}
