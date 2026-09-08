@@ -390,8 +390,39 @@ emulator.attachSaveImportHandler((name, callback, errorCallback) => {
 
       emulator.settings.SKIPBoot = true;
 
-      emulator.play();
-      window.__gba = emulator;
+     emulator.play();
+
+/*
+ * Cargar partida guardada después de iniciar el emulador.
+ */
+try {
+  const gameName = emulator.getGameName();
+
+  if (gameName) {
+    loadGameSave(gameName, (save) => {
+      if (!save) return;
+
+      loadGameType(gameName, (saveType) => {
+        if (!saveType) return;
+
+        try {
+          emulator.IOCore.saves.importSave(
+            new Uint8Array(save),
+            saveType[0] | 0
+          );
+
+          console.log("Partida restaurada:", gameName);
+        } catch (error) {
+          console.error("Error restaurando partida:", error);
+        }
+      });
+    });
+  }
+} catch (error) {
+  console.error("Error cargando partida guardada:", error);
+}
+
+window.__gba = emulator;
 
       /*
        * Temporizador estable.
