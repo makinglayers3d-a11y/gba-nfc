@@ -176,12 +176,7 @@ h1 {
 
   border-radius: 22px;
 
-  background:
-    linear-gradient(
-      180deg,
-      #354257 0%,
-      #202a3a 100%
-    );
+  background: var(--button);
 
   box-shadow: 0 7px 14px #0007;
   font-size: 1rem;
@@ -222,7 +217,7 @@ h1 {
   width: 58px;
   height: 58px;
 
-  background: #ffffff0c;
+  background: var(--button);
   border: 1px solid #ffffff08;
 
   font-size: 1.4rem;
@@ -287,13 +282,7 @@ h1 {
 
   border-radius: 50%;
 
-  background:
-    linear-gradient(
-      180deg,
-      #46546a 0%,
-      #273244 100%
-    );
-
+  background: var(--button);
   box-shadow: 0 7px 16px #0008;
 
   font-size: 1.35rem;
