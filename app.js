@@ -88,6 +88,7 @@ let audioInput = null;
 let audioVolume = 1;
 let audioMuted = false;
 let previousVolume = 1;
+let audioInitializationScheduled = false;
 
 const savedVolume = Number(
   localStorage.getItem("gba-volume") || "1"
@@ -598,12 +599,12 @@ function createIOSAudioHandler() {
 }
 
 function initializeAudio() {
-  if (!emulator || audioInput) {
+  if (!emulator || audioInput || audioInitializationScheduled) {
     return;
   }
 
-  try {
-    if (isIOS()) {
+  if (isIOS()) {
+    try {
       audioInput = createIOSAudioHandler();
 
       emulator.attachAudioHandler(audioInput);
@@ -612,27 +613,43 @@ function initializeAudio() {
       audioInput.setVolume(
         audioMuted ? 0 : audioVolume
       );
+    } catch (error) {
+      console.error(
+        "No se pudo iniciar el audio de iPhone:",
+        error
+      );
+    }
 
+    return;
+  }
+
+  audioInitializationScheduled = true;
+
+  window.setTimeout(() => {
+    if (!emulator || audioInput) {
+      audioInitializationScheduled = false;
       return;
     }
 
-    const audioMixer = new GlueCodeMixer(null);
+    try {
+      const audioMixer = new GlueCodeMixer(null);
 
-    audioInput = new GlueCodeMixerInput(audioMixer);
+      audioInput = new GlueCodeMixerInput(audioMixer);
 
-    emulator.attachAudioHandler(audioInput);
-    emulator.enableAudio();
+      emulator.attachAudioHandler(audioInput);
+      emulator.enableAudio();
 
-    applyVolume(audioVolume);
-
-  } catch (error) {
-    console.error(
-      "No se pudo iniciar el audio:",
-      error
-    );
-  }
+      applyVolume(audioVolume);
+    } catch (error) {
+      console.error(
+        "No se pudo iniciar el audio:",
+        error
+      );
+    } finally {
+      audioInitializationScheduled = false;
+    }
+  }, 50);
 }
-
 
 function unlockAudio() {
   try {
@@ -674,14 +691,15 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
 
- function press() {
+function press() {
   if (pressed) return;
 
   pressed = true;
   button.classList.add("pressed");
 
- if (isIOS()) {
-    initializeAudio();
+  initializeAudio();
+
+  if (isIOS()) {
     unlockAudio();
   }
 
@@ -784,8 +802,9 @@ window.addEventListener(
      * La propia pulsación del teclado sirve como gesto
      * del usuario para iniciar WebAudio.
      */
- if (isIOS()) {
-  initializeAudio();
+ initializeAudio();
+
+if (isIOS()) {
   unlockAudio();
 }
 
