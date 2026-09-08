@@ -13,7 +13,8 @@
   const reloadButton = document.getElementById("reload-game");
   const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
-
+const backgroundColors = document.getElementById("background-colors");
+const buttonColors = document.getElementById("button-colors");
   const gameConfig = {
     pokemon: {
       name: "Pokémon",
@@ -23,6 +24,16 @@
 
   const selected = gameConfig[game] || gameConfig.pokemon;
 
+  const savedBackground = localStorage.getItem("gba-background");
+const savedButtonColor = localStorage.getItem("gba-button-color");
+
+if (savedBackground) {
+  document.documentElement.style.setProperty("--bg", savedBackground);
+}
+
+if (savedButtonColor) {
+  document.documentElement.style.setProperty("--button", savedButtonColor);
+}
   title.textContent = selected.name;
   status.textContent = "Cargando Pokémon…";
 
@@ -545,6 +556,46 @@ if (saveTimer) {
       }
     }
   });
+/* =========================
+ * Personalización de colores
+ * ========================= */
 
+if (backgroundColors) {
+  backgroundColors.querySelectorAll(".color-swatch").forEach((button) => {
+    button.addEventListener("click", () => {
+      const color = button.dataset.bg;
+
+      if (!color) return;
+
+      document.documentElement.style.setProperty("--bg", color);
+      localStorage.setItem("gba-background", color);
+
+      backgroundColors
+        .querySelectorAll(".color-swatch")
+        .forEach((item) => item.classList.remove("selected"));
+
+      button.classList.add("selected");
+    });
+  });
+}
+
+if (buttonColors) {
+  buttonColors.querySelectorAll(".color-swatch").forEach((button) => {
+    button.addEventListener("click", () => {
+      const color = button.dataset.button;
+
+      if (!color) return;
+
+      document.documentElement.style.setProperty("--button", color);
+      localStorage.setItem("gba-button-color", color);
+
+      buttonColors
+        .querySelectorAll(".color-swatch")
+        .forEach((item) => item.classList.remove("selected"));
+
+      button.classList.add("selected");
+    });
+  });
+}
   loadGame();
 })();
