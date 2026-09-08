@@ -9,7 +9,7 @@
   const menu = document.getElementById("menu");
   const menuButton = document.getElementById("menu-button");
   const closeMenu = document.getElementById("close-menu");
-  const fullscreenButton = document.getElementById("fullscreen");
+  
   const reloadButton = document.getElementById("reload-game");
   const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
@@ -65,8 +65,7 @@ if (Number.isFinite(savedVolume)) {
   audioVolume = Math.min(Math.max(savedVolume, 0), 1);
 }  
   
-  let fullscreenRequested = false;
-  let fullscreenTransition = false;
+
   const SAVE_PREFIX = "gba-save:";
 const SAVE_TYPE_PREFIX = "gba-save-type:";
 
@@ -237,45 +236,11 @@ function applyVolume(volume) {
   updateVolumeUI();
 }
   
-  /*
-   * Pantalla completa con el primer toque/clic.
-   * El navegador exige interacción del usuario.
-   */
- async function enterFullscreen() {
-  if (fullscreenRequested) return;
 
-  fullscreenRequested = true;
 
-  try {
-    if (
-      !document.fullscreenElement &&
-      document.documentElement.requestFullscreen
-    ) {
-      fullscreenTransition = true;
-      await document.documentElement.requestFullscreen();
-    }
-  } catch (error) {
-    console.log("Pantalla completa no disponible:", error);
-  } finally {
-    fullscreenTransition = false;
-  }
-}
-  /*
-   * Intentamos entrar en pantalla completa con la primera interacción.
-   */
 
-  /*
-window.addEventListener(
-  "pointerdown",
-  () => {
-    enterFullscreen();
-  },
-  {
-    once: true,
-    passive: true
-  }
-);
-*/
+
+ 
 
   function initializeAudio() {
   if (!emulator || audioInput) return;
@@ -618,20 +583,7 @@ updateVolumeUI();
     menu.close();
   });
 
-  fullscreenButton.addEventListener("click", async () => {
-  try {
-    if (!document.fullscreenElement) {
-      fullscreenTransition = true;
-      await document.documentElement.requestFullscreen();
-    } else {
-      await document.exitFullscreen();
-    }
-  } catch (error) {
-    console.error("Fullscreen:", error);
-  } finally {
-    fullscreenTransition = false;
-  }
-});
+ 
 
    function shutdownEmulator() {
     if (timer) {
