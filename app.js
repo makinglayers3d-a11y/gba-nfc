@@ -895,7 +895,7 @@ emulator.attachSaveImportHandler((name, callback, errorCallback) => {
 
      emulator.play();
 
-}
+
 /*
  * Cargar partida guardada después de iniciar el emulador.
  */
