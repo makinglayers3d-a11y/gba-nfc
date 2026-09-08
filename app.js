@@ -365,7 +365,9 @@ const audioMixer = new GlueCodeMixer(audioUnlockElement);
 const audioInput = new GlueCodeMixerInput(audioMixer);
 
 emulator.attachAudioHandler(audioInput);
-      emulator.attachSaveExportHandler((name, save) => {
+emulator.enableAudio();
+      
+emulator.attachSaveExportHandler((name, save) => {
   if (name.startsWith("TYPE_")) {
     saveGameType(name.substring(5), save);
   } else {
