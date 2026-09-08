@@ -263,17 +263,38 @@ function applyVolume(volume) {
   /*
    * Intentamos entrar en pantalla completa con la primera interacción.
    */
-  window.addEventListener(
-    "pointerdown",
-    () => {
-      enterFullscreen();
-    },
-    {
-      once: true,
-      passive: true
-    }
-  );
 
+  /*
+window.addEventListener(
+  "pointerdown",
+  () => {
+    enterFullscreen();
+  },
+  {
+    once: true,
+    passive: true
+  }
+);
+*/
+
+  function initializeAudio() {
+  if (!emulator || audioInput) return;
+
+  try {
+    const audioUnlockElement = document.getElementById("controls");
+    const audioMixer = new GlueCodeMixer(audioUnlockElement);
+
+    audioInput = new GlueCodeMixerInput(audioMixer);
+
+    emulator.attachAudioHandler(audioInput);
+    emulator.enableAudio();
+
+    applyVolume(audioVolume);
+  } catch (error) {
+    console.error("No se pudo iniciar el audio:", error);
+  }
+}
+  
   function unlockAudio() {
   try {
     const context = XAudioJSWebAudioContextHandle;
@@ -290,13 +311,17 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
 
-  function press() {
-    if (pressed) return;
+ function press() {
+  if (pressed) return;
 
-    pressed = true;
-    button.classList.add("pressed");
-    pressKey(keyName);
-  }
+  pressed = true;
+  button.classList.add("pressed");
+
+  initializeAudio();
+  unlockAudio();
+
+  pressKey(keyName);
+}
 
   function release() {
     if (!pressed) return;
@@ -441,13 +466,7 @@ document.querySelectorAll("[data-key]").forEach((button) => {
 
       emulator = new GameBoyAdvanceEmulator();
       
-const audioUnlockElement = document.getElementById("controls");
-const audioMixer = new GlueCodeMixer(audioUnlockElement);
 
-audioInput = new GlueCodeMixerInput(audioMixer);
-
-emulator.attachAudioHandler(audioInput);
-emulator.enableAudio();
       
 
 emulator.attachSaveExportHandler((name, save) => {
