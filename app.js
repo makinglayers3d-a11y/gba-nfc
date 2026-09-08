@@ -266,36 +266,51 @@ function applyVolume(volume) {
     }
   );
 
-  document.querySelectorAll("[data-key]").forEach((button) => {
-    const keyName = button.dataset.key;
-    let pressed = false;
+ document.querySelectorAll("[data-key]").forEach((button) => {
+  const keyName = button.dataset.key;
+  let pressed = false;
 
-    function press() {
-      if (pressed) return;
+  function press() {
+    if (pressed) return;
 
-      pressed = true;
-      button.classList.add("pressed");
-      pressKey(keyName);
-    }
+    pressed = true;
+    button.classList.add("pressed");
+    pressKey(keyName);
+  }
 
-    function release() {
-      if (!pressed) return;
+  function release() {
+    if (!pressed) return;
 
-      pressed = false;
-      button.classList.remove("pressed");
-      releaseKey(keyName);
-    }
-    
-button.addEventListener(
-  "touchstart",
-  (event) => {
+    pressed = false;
+    button.classList.remove("pressed");
+    releaseKey(keyName);
+  }
+
+  button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
+
+    if (button.setPointerCapture) {
+      button.setPointerCapture(event.pointerId);
+    }
+
     unlockAudio();
-    enterFullscreen();
     press();
-  },
-  { passive: false }
-);
+  });
+
+  button.addEventListener("pointerup", (event) => {
+    event.preventDefault();
+    release();
+  });
+
+  button.addEventListener("pointercancel", (event) => {
+    event.preventDefault();
+    release();
+  });
+
+  button.addEventListener("lostpointercapture", () => {
+    release();
+  });
+});
    
 
     button.addEventListener(
