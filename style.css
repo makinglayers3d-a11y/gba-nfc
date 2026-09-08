@@ -1387,3 +1387,47 @@ dialog::backdrop {
     line-height: 1.5;
   }
 }
+#game-selector {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+#game-selector::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.game-selector-card {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.game-option {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--button);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-option:active {
+  transform: scale(0.98);
+}
+
+.game-list-status {
+  padding: 16px 4px;
+  text-align: center;
+  opacity: 0.8;
+}
