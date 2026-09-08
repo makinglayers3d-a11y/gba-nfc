@@ -360,7 +360,7 @@ function loadGameType(name, callback) {
 
       emulator = new GameBoyAdvanceEmulator();
       
-const audioUnlockElement = document.querySelector("[data-key]");
+const audioUnlockElement = document.getElementById("controls");
 const audioMixer = new GlueCodeMixer(audioUnlockElement);
 const audioInput = new GlueCodeMixerInput(audioMixer);
 
