@@ -252,11 +252,10 @@ function applyVolume(volume) {
 
  
 
-  function initializeAudio() {
+function initializeAudio(audioUnlockElement = null) {
   if (!emulator || audioInput) return;
 
   try {
-    const audioUnlockElement = document.getElementById("controls");
     const audioMixer = new GlueCodeMixer(audioUnlockElement);
 
     audioInput = new GlueCodeMixerInput(audioMixer);
@@ -340,53 +339,73 @@ document.querySelectorAll("[data-key]").forEach((button) => {
 
    
 
-  /*
-   * Teclado físico.
-   */
-  const keyboardMap = {
-    x: "A",
-    z: "B",
-    Enter: "START",
-    Shift: "SELECT",
-    ArrowRight: "RIGHT",
-    ArrowLeft: "LEFT",
-    ArrowUp: "UP",
-    ArrowDown: "DOWN",
-    s: "R",
-    a: "L"
-  };
+/*
+ * Teclado físico.
+ *
+ * Usamos event.code para que el teclado
+ * funcione independientemente del idioma/layout.
+ */
+const keyboardMap = {
+  KeyX: "A",
+  KeyZ: "B",
+  Enter: "START",
+  ShiftLeft: "SELECT",
+  ShiftRight: "SELECT",
+  ArrowRight: "RIGHT",
+  ArrowLeft: "LEFT",
+  ArrowUp: "UP",
+  ArrowDown: "DOWN",
+  KeyS: "R",
+  KeyA: "L"
+};
 
-  const keyboardPressed = new Set();
+const keyboardPressed = new Set();
 
- window.addEventListener("keydown", (event) => {
-  const keyName = keyboardMap[event.key];
+window.addEventListener(
+  "keydown",
+  (event) => {
+    const keyName = keyboardMap[event.code];
 
-  if (!keyName || keyboardPressed.has(event.key)) {
-    return;
-  }
+    if (!keyName || keyboardPressed.has(event.code)) {
+      return;
+    }
 
-  event.preventDefault();
+    event.preventDefault();
+    event.stopPropagation();
 
-  keyboardPressed.add(event.key);
+    keyboardPressed.add(event.code);
 
-  initializeAudio();
-  unlockAudio();
+    /*
+     * En PC no usamos #controls como desbloqueador.
+     * La propia pulsación del teclado sirve como gesto
+     * del usuario para iniciar WebAudio.
+     */
+    initializeAudio();
+    unlockAudio();
 
-  pressKey(keyName);
-});
+    pressKey(keyName);
+  },
+  true
+);
 
-  window.addEventListener("keyup", (event) => {
-    const keyName = keyboardMap[event.key];
+window.addEventListener(
+  "keyup",
+  (event) => {
+    const keyName = keyboardMap[event.code];
 
     if (!keyName) {
       return;
     }
 
     event.preventDefault();
+    event.stopPropagation();
 
-    keyboardPressed.delete(event.key);
+    keyboardPressed.delete(event.code);
+
     releaseKey(keyName);
-  });
+  },
+  true
+); 
 
   /*
    * Carga del juego.
@@ -395,7 +414,7 @@ document.querySelectorAll("[data-key]").forEach((button) => {
     try {
       status.hidden = false;
       status.style.display = "";
-      status.textContent = "Cargando Pokémon…";
+      status.textContent = "Cargando juego…";
 
       const response = await fetch(selected.rom, {
         cache: "no-store"
