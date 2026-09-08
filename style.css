@@ -1065,3 +1065,7 @@ dialog::backdrop {
   color: var(--muted);
   font-weight: 700;
 }
+.controls,
+.controls button {
+  touch-action: none;
+}
