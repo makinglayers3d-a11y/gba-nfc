@@ -1069,3 +1069,195 @@ dialog::backdrop {
 .controls button {
   touch-action: none;
 }
+
+/* =========================
+   Pantalla de inicio
+   ========================= */
+
+#boot-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+
+  background: #000;
+
+  overflow: hidden;
+}
+
+#boot-logo-screen {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  background: #000;
+
+  animation: bootScreenFade 4.8s ease forwards;
+}
+
+#boot-logo {
+  width: min(58%, 210px);
+  height: auto;
+
+  opacity: 0;
+
+  animation:
+    bootLogoIn 1.2s cubic-bezier(.2,.8,.2,1) .25s forwards,
+    bootLogoPulse 1.8s ease-in-out 1.5s infinite;
+}
+
+#boot-brand {
+  margin-top: 18px;
+
+  font-size: clamp(14px, 2.5vw, 20px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+
+  text-align: center;
+
+  color: #fff;
+
+  opacity: 0;
+
+  animation: bootTextIn 1s ease .9s forwards;
+}
+
+#update-screen {
+  position: absolute;
+  inset: 0;
+
+  display: grid;
+  place-items: center;
+
+  padding: 24px;
+
+  background: #000;
+
+  opacity: 0;
+
+  animation: updateScreenIn 0.8s ease 4s forwards;
+}
+
+.update-message {
+  max-width: 90%;
+
+  text-align: center;
+
+  color: #fff;
+
+  font-size: clamp(12px, 2vw, 17px);
+  line-height: 1.6;
+  letter-spacing: 0.03em;
+
+  opacity: 0;
+
+  animation: updateMessageIn 0.8s ease 4.25s forwards;
+}
+
+/*
+ * Después del aviso:
+ * el mensaje permanece visible brevemente
+ * y toda la pantalla desaparece.
+ */
+
+#boot-screen {
+  animation: bootScreenOut 2s ease 5.6s forwards;
+}
+
+@keyframes bootLogoIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+
+  70% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bootLogoPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.025);
+  }
+}
+
+@keyframes bootTextIn {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bootScreenFade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes updateScreenIn {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes updateMessageIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bootScreenOut {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+#update-screen {
+  animation:
+    updateScreenIn 0.8s ease 3.9s forwards;
+}
+
+#boot-logo-screen {
+  animation:
+    bootScreenFade 0.8s ease 3.6s forwards;
+}
