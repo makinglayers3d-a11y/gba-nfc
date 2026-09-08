@@ -1,721 +1,532 @@
-(() => {
-  "use strict";
-
-  const params = new URLSearchParams(window.location.search);
-
-const requestedRom = params.get("rom");
-
-const game = (params.get("game") || "pokemon").toLowerCase();
-
-  const title = document.getElementById("game-title");
-  const status = document.getElementById("status");
-  const menu = document.getElementById("menu");
-  const menuButton = document.getElementById("menu-button");
-  const closeMenu = document.getElementById("close-menu");
-  
-  const reloadButton = document.getElementById("reload-game");
-  const speedSelect = document.getElementById("speed-select");
-  const canvas = document.getElementById("screen");
-
-  const volumeSlider = document.getElementById("volume-slider");
-const volumeValue = document.getElementById("volume-value");
-const muteButton = document.getElementById("mute-button");
-  
-const backgroundColors = document.getElementById("background-colors");
-const buttonColors = document.getElementById("button-colors");
-const gameConfig = {
-  pokemon: {
-    name: "Pokémon FireRed",
-    rom: "games/PokemonRF.gba"
-  },
-
-  mario3: {
-    name: "Super Mario Bros. 3",
-    rom: "games/Super Mario Bros. 3.gba"
-  },
-
-  minishcap: {
-    name: "The Legend of Zelda: The Minish Cap",
-    rom: "games/The Legend of Zelda - The Minish Cap.gba"
-  }
-}; 
-
-const selected =
-  requestedRom
-    ? {
-        name: requestedRom,
-        rom: "games/" + requestedRom
-      }
-    : (gameConfig[game] || gameConfig.pokemon); 
-
-  const savedBackground = localStorage.getItem("gba-background");
-const savedButtonColor = localStorage.getItem("gba-button-color");
-
-
-
-if (savedBackground) {
-  document.documentElement.style.setProperty("--bg", savedBackground);
+//XAudioJS realtime audio output compatibility library
+//Copyright (C) 2010-2015 Grant Galitz
+//Released to Public Domain
+var XAudioJSscriptsHandle = document.getElementsByTagName("script");
+var XAudioJSsourceHandle = XAudioJSscriptsHandle[XAudioJSscriptsHandle.length-1].src;
+function XAudioServer(channels, sampleRate, minBufferSize, maxBufferSize, underRunCallback, heartbeatCallback, postheartbeatCallback, volume, failureCallback, userEventLatch) {
+	XAudioJSChannelsAllocated = Math.max(channels, 1);
+	this.XAudioJSSampleRate = Math.abs(sampleRate);
+	XAudioJSMinBufferSize = (minBufferSize >= (XAudioJSSamplesPerCallback * XAudioJSChannelsAllocated) && minBufferSize < maxBufferSize) ? (minBufferSize & (-XAudioJSChannelsAllocated)) : (XAudioJSSamplesPerCallback * XAudioJSChannelsAllocated);
+	XAudioJSMaxBufferSize = (Math.floor(maxBufferSize) > XAudioJSMinBufferSize + XAudioJSChannelsAllocated) ? (maxBufferSize & (-XAudioJSChannelsAllocated)) : (XAudioJSMinBufferSize * XAudioJSChannelsAllocated);
+	this.underRunCallback = (typeof underRunCallback == "function") ? underRunCallback : function () {};
+    XAudioJSCallbackAPIEventNotificationCallback = (typeof heartbeatCallback == "function") ? heartbeatCallback : null;
+    XAudioJSCallbackAPIEventNotificationCallback2 = (typeof postheartbeatCallback == "function") ? postheartbeatCallback : null;
+	XAudioJSVolume = (volume >= 0 && volume <= 1) ? volume : 1;
+	this.failureCallback = (typeof failureCallback == "function") ? failureCallback : function () { throw(new Error("XAudioJS has encountered a fatal error.")); };
+	this.userEventLatch = (typeof userEventLatch == "object") ? userEventLatch : null;
+	this.initializeAudio();
 }
-
-if (savedButtonColor) {
-  document.documentElement.style.setProperty("--button", savedButtonColor);
-}
-  title.textContent = selected.name;
-  
-  canvas.width = 240;
-  canvas.height = 160;
-
- let emulator = null;
-let timer = null;
-let saveTimer = null;
-let startTime = 0;
-
-let audioInput = null;
-let audioVolume = 1;
-let audioMuted = false;
-let previousVolume = 1;
-
-const savedVolume = Number(
-  localStorage.getItem("gba-volume") || "1"
-);
-
-if (Number.isFinite(savedVolume)) {
-  audioVolume = Math.min(Math.max(savedVolume, 0), 1);
-}  
-  
-
-  const SAVE_PREFIX = "gba-save:";
-const SAVE_TYPE_PREFIX = "gba-save-type:";
-
-function saveKey(name) {
-  return SAVE_PREFIX + game + ":" + name;
-}
-
-function saveTypeKey(name) {
-  return SAVE_TYPE_PREFIX + game + ":" + name;
-}
-
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(
-      offset,
-      Math.min(offset + chunkSize, bytes.length)
-    );
-
-    for (let i = 0; i < chunk.length; i++) {
-      binary += String.fromCharCode(chunk[i]);
-    }
-  }
-
-  return btoa(binary);
-}
-
-function base64ToBytes(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return bytes;
-}
-
-function saveGame(name, save) {
-  try {
-    if (!save) return;
-
-    const bytes = save instanceof Uint8Array
-      ? save
-      : new Uint8Array(save);
-
-    localStorage.setItem(saveKey(name), bytesToBase64(bytes));
-  } catch (error) {
-    console.error("No se pudo guardar la partida:", error);
-  }
-}
-
-function loadGameSave(name, callback) {
-  try {
-    const encoded = localStorage.getItem(saveKey(name));
-
-    if (!encoded) {
-      callback(null);
-      return;
-    }
-
-    callback(base64ToBytes(encoded));
-  } catch (error) {
-    console.error("No se pudo cargar la partida:", error);
-    callback(null);
-  }
-}
-
-function saveGameType(name, saveType) {
-  try {
-    localStorage.setItem(saveTypeKey(name), JSON.stringify(saveType));
-  } catch (error) {
-    console.error("No se pudo guardar el tipo de partida:", error);
-  }
-}
-
-function loadGameType(name, callback) {
-  try {
-    const stored = localStorage.getItem(saveTypeKey(name));
-
-    if (!stored) {
-      callback(null);
-      return;
-    }
-
-    callback(JSON.parse(stored));
-  } catch (error) {
-    console.error("No se pudo cargar el tipo de partida:", error);
-    callback(null);
-  }
-}
-
-  /*
-   * Mapa de botones IodineGBA:
-   * 0 A
-   * 1 B
-   * 2 SELECT
-   * 3 START
-   * 4 RIGHT
-   * 5 LEFT
-   * 6 UP
-   * 7 DOWN
-   * 8 R
-   * 9 L
-   */
-  const keyMap = {
-    A: 0,
-    B: 1,
-    SELECT: 2,
-    START: 3,
-    RIGHT: 4,
-    LEFT: 5,
-    UP: 6,
-    DOWN: 7,
-    R: 8,
-    L: 9
-  };
-
-  function pressKey(keyName) {
-    if (!emulator) return;
-
-    const value = keyMap[keyName];
-
-    if (value === undefined) return;
-
-    emulator.keyDown(value);
-  }
-
-  function releaseKey(keyName) {
-    if (!emulator) return;
-
-    const value = keyMap[keyName];
-
-    if (value === undefined) return;
-
-    emulator.keyUp(value);
-  }
-
-  function updateVolumeUI() {
-  const percentage = Math.round(audioVolume * 100);
-
-  if (volumeSlider) {
-    volumeSlider.value = String(percentage);
-  }
-
-  if (volumeValue) {
-    volumeValue.textContent = percentage + "%";
-  }
-
-  if (muteButton) {
-    muteButton.textContent = audioMuted ? "Activar sonido" : "Silenciar";
-  }
-}
-
-function applyVolume(volume) {
-  volume = Math.min(Math.max(Number(volume), 0), 1);
-
-  audioVolume = volume;
-
-  if (audioInput) {
-    audioInput.setVolume(audioMuted ? 0 : audioVolume);
-  }
-
-  localStorage.setItem("gba-volume", String(audioVolume));
-
-  updateVolumeUI();
-}
-  
-
-
-
-
- 
-
-function initializeAudio(audioUnlockElement = null) {
-  if (!emulator || audioInput) return;
-
-  try {
-    const audioMixer = new GlueCodeMixer(audioUnlockElement);
-
-    audioInput = new GlueCodeMixerInput(audioMixer);
-
-    emulator.attachAudioHandler(audioInput);
-    emulator.enableAudio();
-
-    applyVolume(audioVolume);
-  } catch (error) {
-    console.error("No se pudo iniciar el audio:", error);
-  }
-}
-  
-  function unlockAudio() {
-  try {
-    const context = XAudioJSWebAudioContextHandle;
-
-    if (context && context.state === "suspended") {
-      context.resume().catch(() => {});
-    }
-  } catch (error) {
-    console.log("No se pudo desbloquear el audio:", error);
-  }
-}
-  
-document.querySelectorAll("[data-key]").forEach((button) => {
-  const keyName = button.dataset.key;
-  let pressed = false;
-
-  function press() {
-    if (pressed) return;
-
-    pressed = true;
-    button.classList.add("pressed");
-
-    initializeAudio();
-    unlockAudio();
-
-    pressKey(keyName);
-  }
-
-  function release() {
-    if (!pressed) return;
-
-    pressed = false;
-    button.classList.remove("pressed");
-
-    releaseKey(keyName);
-  }
-
-  // PC / ratón
-  button.addEventListener("mousedown", (event) => {
-    event.preventDefault();
-    press();
-  });
-
-  button.addEventListener("mouseup", (event) => {
-    event.preventDefault();
-    release();
-  });
-
-  button.addEventListener("mouseleave", () => {
-    release();
-  });
-
-  // Móvil
-  button.addEventListener(
-    "touchstart",
-    (event) => {
-      event.preventDefault();
-      press();
-    },
-    { passive: false }
-  );
-
-  button.addEventListener(
-    "touchend",
-    (event) => {
-      event.preventDefault();
-      release();
-    },
-    { passive: false }
-  );
-
-  button.addEventListener(
-    "touchcancel",
-    (event) => {
-      event.preventDefault();
-      release();
-    },
-    { passive: false }
-  );
-});
-   
-
-   
-
-/*
- * Teclado físico.
- *
- * Usamos event.code para que el teclado
- * funcione independientemente del idioma/layout.
- */
-const keyboardMap = {
-  KeyX: "A",
-  KeyZ: "B",
-  Enter: "START",
-  ShiftLeft: "SELECT",
-  ShiftRight: "SELECT",
-  ArrowRight: "RIGHT",
-  ArrowLeft: "LEFT",
-  ArrowUp: "UP",
-  ArrowDown: "DOWN",
-  KeyS: "R",
-  KeyA: "L"
-};
-
-const keyboardPressed = new Set();
-
-window.addEventListener(
-  "keydown",
-  (event) => {
-    const keyName = keyboardMap[event.code];
-
-    if (!keyName || keyboardPressed.has(event.code)) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    keyboardPressed.add(event.code);
-
-    /*
-     * En PC no usamos #controls como desbloqueador.
-     * La propia pulsación del teclado sirve como gesto
-     * del usuario para iniciar WebAudio.
-     */
-    initializeAudio();
-    unlockAudio();
-
-    pressKey(keyName);
-  },
-  true
-);
-
-window.addEventListener(
-  "keyup",
-  (event) => {
-    const keyName = keyboardMap[event.code];
-
-    if (!keyName) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    keyboardPressed.delete(event.code);
-
-    releaseKey(keyName);
-  },
-  true
-); 
-
-  /*
-   * Carga del juego.
-   */
-  async function loadGame() {
-    try {
-      status.hidden = false;
-      status.style.display = "";
-      status.textContent = "Cargando juego…";
-
-      const response = await fetch(selected.rom, {
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const rom = new Uint8Array(await response.arrayBuffer());
-
-      if (rom.length < 1024) {
-        throw new Error("ROM inválida");
-      }
-
-      if (typeof GameBoyAdvanceEmulator !== "function") {
-        throw new Error("Falta GameBoyAdvanceEmulator");
-      }
-
-      if (typeof GameBoyAdvanceMemory !== "function") {
-        throw new Error("Falta GameBoyAdvanceMemory");
-      }
-
-      emulator = new GameBoyAdvanceEmulator();
-      
-
-      
-
-emulator.attachSaveExportHandler((name, save) => {
-  if (name.startsWith("TYPE_")) {
-    saveGameType(name.substring(5), save);
-  } else {
-    saveGame(name, save);
-  }
-});
-
-emulator.attachSaveImportHandler((name, callback, errorCallback) => {
-  errorCallback();
-});
-      
-      /*
-       * Velocidad guardada.
-       * 95% es el valor inicial.
-       */
-      const savedSpeed = Number(
-        localStorage.getItem("gba-speed") || "0.95"
-      );
-
-      emulator.setSpeed(savedSpeed);
-
-      if (speedSelect) {
-        speedSelect.value = String(savedSpeed);
-      }
-
-      emulator.attachPlayStatusHandler(() => {});
-
-      /*
-       * Arranque sin BIOS.
-       */
-      emulator.settings.offthreadGfxEnabled = false;
-      emulator.settings.SKIPBoot = true;
-
-      const blitter = new GfxGlueCode(240, 160);
-
-      blitter.attachCanvas(canvas);
-
-      emulator.attachGraphicsFrameHandler(blitter);
-      emulator.attachROM(rom);
-
-      emulator.settings.SKIPBoot = true;
-
-     emulator.play();
-
-/*
- * Cargar partida guardada después de iniciar el emulador.
- */
-try {
-  const gameName = emulator.getGameName();
-
-  if (gameName) {
-    loadGameSave(gameName, (save) => {
-      if (!save) return;
-
-      loadGameType(gameName, (saveType) => {
-        if (!saveType) return;
-
-        try {
-          emulator.IOCore.saves.importSave(
-            new Uint8Array(save),
-            saveType[0] | 0
-          );
-
-          console.log("Partida restaurada:", gameName);
-        } catch (error) {
-          console.error("Error restaurando partida:", error);
+XAudioServer.prototype.MOZWriteAudioNoCallback = function (buffer, upTo) {
+    //Resample before passing to the moz audio api:
+    var bufferLength  = Math.min(buffer.length, upTo);
+    for (var bufferIndex = 0; bufferIndex < bufferLength;) {
+        var sliceLength = Math.min(bufferLength - bufferIndex, XAudioJSMaxBufferSize);
+        for (var sliceIndex = 0; sliceIndex < sliceLength; ++sliceIndex) {
+            XAudioJSAudioContextSampleBuffer[sliceIndex] = buffer[bufferIndex++];
         }
-      });
-    });
-  }
-} catch (error) {
-  console.error("Error cargando partida guardada:", error);
-}
-
-window.__gba = emulator;
-
-      /*
-       * Temporizador estable.
-       *
-       * IodineGBA espera el tiempo transcurrido,
-       * no performance.now() absoluto.
-       */
-      startTime = Date.now();
-
-      timer = window.setInterval(() => {
-        if (!emulator) return;
-
-        const elapsed = (Date.now() - startTime) >>> 0;
-
-        emulator.timerCallback(elapsed);
-      }, 8);
-
-      saveTimer = window.setInterval(() => {
-  if (!emulator) return;
-
-  try {
-    emulator.exportSave();
-  } catch (error) {
-    console.error("Guardado automático:", error);
-  }
-}, 10000);
-      
-      status.hidden = true;
-      status.style.display = "none";
-
-      console.log(
-        "Juego iniciado:",
-        selected.rom,
-        rom.length,
-        "bytes",
-        "velocidad:",
-        savedSpeed
-      );
-    } catch (error) {
-      console.error(error);
-
-      status.hidden = false;
-      status.style.display = "";
-      status.textContent =
-        "Error al iniciar el juego: " + error.message;
+        var resampleLength = XAudioJSResampleControl.resampler(sliceIndex);
+        if (resampleLength > 0) {
+            var resampledResult = XAudioJSResampleControl.outputBuffer;
+            var resampledBuffer = XAudioJSGetArraySlice(resampledResult, resampleLength);
+            this.samplesAlreadyWritten += this.audioHandleMoz.mozWriteAudio(resampledBuffer);
+        }
     }
-  }
-
-  menuButton.addEventListener("click", () => {
-    menu.showModal();
-  });
-
-  speedSelect.addEventListener("change", () => {
-    const speed = Number(speedSelect.value);
-
-    if (!Number.isFinite(speed)) {
-      return;
+}
+XAudioServer.prototype.callbackBasedWriteAudioNoCallback = function (buffer, upTo) {
+	//Callback-centered audio APIs:
+    var bufferLength = Math.min(buffer.length, upTo);
+	for (var bufferCounter = 0; bufferCounter < bufferLength && XAudioJSAudioBufferSize < XAudioJSMaxBufferSize;) {
+		XAudioJSAudioContextSampleBuffer[XAudioJSAudioBufferSize++] = buffer[bufferCounter++];
+	}
+}
+/*Pass your samples into here!
+Pack your samples as a one-dimenional array
+With the channel samples packed uniformly.
+examples:
+    mono - [left, left, left, left]
+    stereo - [left, right, left, right, left, right, left, right]
+*/
+XAudioServer.prototype.writeAudio = function (buffer, upTo) {
+	switch (this.audioType) {
+		case 0:
+			this.MOZWriteAudioNoCallback(buffer, upTo);
+			this.MOZExecuteCallback();
+			break;
+		case 2:
+			this.checkFlashInit();
+		case 1:
+			this.callbackBasedWriteAudioNoCallback(buffer, upTo);
+			this.callbackBasedExecuteCallback();
+			break;
+		default:
+			this.failureCallback();
+	}
+}
+/*Pass your samples into here if you don't want automatic callback calling:
+Pack your samples as a one-dimenional array
+With the channel samples packed uniformly.
+examples:
+    mono - [left, left, left, left]
+    stereo - [left, right, left, right, left, right, left, right]
+Useful in preventing infinite recursion issues with calling writeAudio inside your callback.
+*/
+XAudioServer.prototype.writeAudioNoCallback = function (buffer, upTo) {
+	switch (this.audioType) {
+		case 0:
+			this.MOZWriteAudioNoCallback(buffer, upTo);
+			break;
+		case 2:
+			this.checkFlashInit();
+		case 1:
+			this.callbackBasedWriteAudioNoCallback(buffer, upTo);
+			break;
+		default:
+			this.failureCallback();
+	}
+}
+//Developer can use this to see how many samples to write (example: minimum buffer allotment minus remaining samples left returned from this function to make sure maximum buffering is done...)
+//If null is returned, then that means metric could not be done.
+XAudioServer.prototype.remainingBuffer = function () {
+	switch (this.audioType) {
+		case 0:
+			return Math.floor((this.samplesAlreadyWritten - this.audioHandleMoz.mozCurrentSampleOffset()) * XAudioJSResampleControl.ratioWeight / XAudioJSChannelsAllocated) * XAudioJSChannelsAllocated;
+		case 2:
+			this.checkFlashInit();
+		case 1:
+			return (Math.floor((XAudioJSResampledSamplesLeft() * XAudioJSResampleControl.ratioWeight) / XAudioJSChannelsAllocated) * XAudioJSChannelsAllocated) + XAudioJSAudioBufferSize;
+		default:
+			this.failureCallback();
+			return null;
+	}
+}
+XAudioServer.prototype.MOZExecuteCallback = function () {
+	//mozAudio:
+	var samplesRequested = XAudioJSMinBufferSize - this.remainingBuffer();
+	if (samplesRequested > 0) {
+        var buffer = this.underRunCallback(samplesRequested);
+		this.MOZWriteAudioNoCallback(buffer, buffer.length);
+	}
+}
+XAudioServer.prototype.callbackBasedExecuteCallback = function () {
+	//WebKit /Flash Audio:
+	var samplesRequested = XAudioJSMinBufferSize - this.remainingBuffer();
+	if (samplesRequested > 0) {
+        var buffer = this.underRunCallback(samplesRequested);
+		this.callbackBasedWriteAudioNoCallback(buffer, buffer.length);
+	}
+}
+//If you just want your callback called for any possible refill (Execution of callback is still conditional):
+XAudioServer.prototype.executeCallback = function () {
+	switch (this.audioType) {
+		case 0:
+			this.MOZExecuteCallback();
+			break;
+		case 2:
+			this.checkFlashInit();
+		case 1:
+			this.callbackBasedExecuteCallback();
+			break;
+		default:
+			this.failureCallback();
+	}
+}
+//DO NOT CALL THIS, the lib calls this internally!
+XAudioServer.prototype.initializeAudio = function () {
+    try {
+        this.initializeMozAudio();
     }
-
-     if (emulator) {
-      emulator.setSpeed(speed);
+    catch (error) {
+        try {
+            this.initializeWebAudio();
+        }
+        catch (error) {
+            try {
+                this.initializeFlashAudio();
+            }
+            catch (error) {
+                this.audioType = -1;
+                this.failureCallback();
+            }
+        }
     }
-
-    localStorage.setItem("gba-speed", String(speed));
-  });
-if (volumeSlider) {
-  volumeSlider.addEventListener("input", () => {
-    const volume = Number(volumeSlider.value) / 100;
-
-    audioMuted = false;
-    applyVolume(volume);
-  });
 }
-
-if (muteButton) {
-  muteButton.addEventListener("click", () => {
-    if (!audioMuted) {
-      previousVolume = audioVolume;
-      audioMuted = true;
-
-      if (audioInput) {
-        audioInput.setVolume(0);
-      }
-
-      updateVolumeUI();
-    } else {
-      audioMuted = false;
-      applyVolume(previousVolume > 0 ? previousVolume : 1);
+XAudioServer.prototype.initializeMozAudio = function () {
+    this.audioHandleMoz = new Audio();
+	this.audioHandleMoz.mozSetup(XAudioJSChannelsAllocated, XAudioJSMozAudioSampleRate);
+	this.audioHandleMoz.volume = XAudioJSVolume;
+	this.samplesAlreadyWritten = 0;
+	this.audioType = 0;
+	//if (navigator.platform != "MacIntel" && navigator.platform != "MacPPC") {
+		//Add some additional buffering space to workaround a moz audio api issue:
+		var bufferAmount = (this.XAudioJSSampleRate * XAudioJSChannelsAllocated / 10) | 0;
+		bufferAmount -= bufferAmount % XAudioJSChannelsAllocated;
+		this.samplesAlreadyWritten -= bufferAmount;
+	//}
+    this.initializeResampler(XAudioJSMozAudioSampleRate);
+}
+XAudioServer.prototype.initializeWebAudio = function () {
+	if (typeof AudioContext == "undefined" || typeof XAudioJSWebAudioContextHandle == "undefined") {
+		throw null;
+	}
+	else {
+		if (!this.userEventLatch) {
+			this.setupWebAudio();
+		}
+		else {
+			var parentObj = this;
+			var XAudioJSWebAudioDelayedEvent = 0;
+			this.userEventLatch.addEventListener("click", function () {
+				if (XAudioJSWebAudioDelayedEvent == 0) {
+					parentObj.setupWebAudio();
+					XAudioJSWebAudioDelayedEvent |= 1;
+				}
+			}, false);
+			this.userEventLatch.addEventListener("touchstart", function () {
+				if (XAudioJSWebAudioDelayedEvent < 2) {
+					parentObj.setupWebAudio();
+					XAudioJSWebAudioDelayedEvent |= 2;
+				}
+			}, false);
+			this.userEventLatch.addEventListener("touchend", function () {
+				if (XAudioJSWebAudioDelayedEvent < 4) {
+					parentObj.setupWebAudio();
+					XAudioJSWebAudioDelayedEvent |= 4;
+				}
+			}, false);
+			//TODO: Restructure API to not have to potentially lie to end client about
+			//the samples in buffer before user driven event callback that actually starts WA.
+			this.resetCallbackAPIAudioBuffer(44100);
+		}
+		this.audioType = 1;
+	}
+}
+XAudioServer.prototype.setupWebAudio = function () {
+	if (XAudioJSWebAudioLaunchedContext) {
+		XAudioJSWebAudioContextHandle.close();
+	}
+    try {
+        XAudioJSWebAudioContextHandle = new AudioContext();								//Create a system audio context.
     }
-  });
-}
-
-updateVolumeUI();
-  closeMenu.addEventListener("click", () => {
-    menu.close();
-  });
-
- 
-
-   function shutdownEmulator() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
+    catch (error) {
+       XAudioJSWebAudioContextHandle = new webkitAudioContext();							//Create a system audio context.
     }
-if (saveTimer) {
-  clearInterval(saveTimer);
-  saveTimer = null;
-}
-    if (emulator) {
-      try {
-        /*
-         * pause() provoca el export del save.
-         */
-        emulator.pause();
-      } catch (error) {
-        console.error("Cierre del emulador:", error);
-      }
+    XAudioJSWebAudioLaunchedContext = true;
+    if (XAudioJSWebAudioAudioNode) {
+        XAudioJSWebAudioAudioNode.disconnect();
+        XAudioJSWebAudioAudioNode.onaudioprocess = null;
+        XAudioJSWebAudioAudioNode = null;
     }
-  }
-
-  window.addEventListener("pagehide", shutdownEmulator);
-  window.addEventListener("beforeunload", shutdownEmulator);
-
-
-   
-/* =========================
- * Personalización de colores
- * ========================= */
-
-if (backgroundColors) {
-  backgroundColors.querySelectorAll(".color-swatch").forEach((button) => {
-    button.addEventListener("click", () => {
-      const color = button.dataset.bg;
-
-      if (!color) return;
-
-      document.documentElement.style.setProperty("--bg", color);
-      localStorage.setItem("gba-background", color);
-
-      backgroundColors
-        .querySelectorAll(".color-swatch")
-        .forEach((item) => item.classList.remove("selected"));
-
-      button.classList.add("selected");
-    });
-  });
+	XAudioJSSamplesPerCallback = Math.pow(2, 11 + Math.floor(XAudioJSWebAudioContextHandle.sampleRate / 96000));
+	XAudioJSMaxBufferSize = Math.max(XAudioJSSamplesPerCallback * XAudioJSChannelsAllocated, XAudioJSMaxBufferSize);
+    try {
+        XAudioJSWebAudioAudioNode = XAudioJSWebAudioContextHandle.createScriptProcessor(XAudioJSSamplesPerCallback, 0, XAudioJSChannelsAllocated);	//Create the js event node.
+    }
+    catch (error) {
+        XAudioJSWebAudioAudioNode = XAudioJSWebAudioContextHandle.createJavaScriptNode(XAudioJSSamplesPerCallback, 0, XAudioJSChannelsAllocated);	//Create the js event node.
+    }
+    XAudioJSWebAudioAudioNode.onaudioprocess = XAudioJSWebAudioEvent;																			//Connect the audio processing event to a handling function so we can manipulate output
+    XAudioJSWebAudioAudioNode.connect(XAudioJSWebAudioContextHandle.destination);																//Send and chain the output of the audio manipulation to the system audio output.
+	this.resetCallbackAPIAudioBuffer(XAudioJSWebAudioContextHandle.sampleRate);
+	/*
+     Firefox has a bug in its web audio implementation...
+     The node may randomly stop playing on Mac OS X for no
+     good reason. Keep a watchdog timer to restart the failed
+     node if it glitches. Google Chrome never had this issue.
+     */
+    XAudioJSWebAudioWatchDogLast = (new Date()).getTime();
+    if (!XAudioJSWebAudioWatchDogTimer && navigator.userAgent.indexOf('Gecko/') > -1) {
+        if (XAudioJSWebAudioWatchDogTimer) {
+            clearInterval(XAudioJSWebAudioWatchDogTimer);
+        }
+        var parentObj = this;
+        XAudioJSWebAudioWatchDogTimer = setInterval(function () {
+			if(typeof XAudioJSWebAudioContextHandle.state != "undefined") {
+				if (XAudioJSWebAudioContextHandle.state === 'suspended') {
+					XAudioJSWebAudioWatchDogLast = (new Date()).getTime();
+					try {
+						XAudioJSWebAudioContextHandle.resume();
+					}
+					catch (e) {}
+				}
+				else {
+					var timeDiff = (new Date()).getTime() - XAudioJSWebAudioWatchDogLast;
+					if (timeDiff > 500) {
+						parentObj.setupWebAudio();
+					}
+				}
+			}
+        }, 500);
+    }
 }
-
-if (buttonColors) {
-  buttonColors.querySelectorAll(".color-swatch").forEach((button) => {
-    button.addEventListener("click", () => {
-      const color = button.dataset.button;
-
-      if (!color) return;
-
-      document.documentElement.style.setProperty("--button", color);
-      localStorage.setItem("gba-button-color", color);
-
-      buttonColors
-        .querySelectorAll(".color-swatch")
-        .forEach((item) => item.classList.remove("selected"));
-
-      button.classList.add("selected");
-    });
-  });
+XAudioServer.prototype.initializeFlashAudio = function () {
+	var existingFlashload = document.getElementById("XAudioJS");
+	this.flashInitialized = false;
+	this.resetCallbackAPIAudioBuffer(44100);
+	switch (XAudioJSChannelsAllocated) {
+		case 1:
+			XAudioJSFlashTransportEncoder = XAudioJSGenerateFlashMonoString;
+			break;
+		case 2:
+			XAudioJSFlashTransportEncoder = XAudioJSGenerateFlashStereoString;
+			break;
+		default:
+			XAudioJSFlashTransportEncoder = XAudioJSGenerateFlashSurroundString;
+	}
+	if (existingFlashload == null) {
+		this.audioHandleFlash = null;
+		var thisObj = this;
+		var mainContainerNode = document.createElement("div");
+		mainContainerNode.setAttribute("style", "position: fixed; bottom: 0px; right: 0px; margin: 0px; padding: 0px; border: none; width: 8px; height: 8px; overflow: hidden; z-index: -1000; ");
+		var containerNode = document.createElement("div");
+		containerNode.setAttribute("style", "position: static; border: none; width: 0px; height: 0px; visibility: hidden; margin: 8px; padding: 0px;");
+		containerNode.setAttribute("id", "XAudioJS");
+		mainContainerNode.appendChild(containerNode);
+		document.getElementsByTagName("body")[0].appendChild(mainContainerNode);
+		swfobject.embedSWF(
+			XAudioJSsourceHandle.substring(0, XAudioJSsourceHandle.length - 9) + "JS.swf",
+			"XAudioJS",
+			"8",
+			"8",
+			"9.0.0",
+			"",
+			{},
+			{"allowscriptaccess":"always"},
+			{"style":"position: static; visibility: hidden; margin: 8px; padding: 0px; border: none"},
+			function (event) {
+				if (event.success) {
+					thisObj.audioHandleFlash = event.ref;
+					thisObj.checkFlashInit();
+				}
+				else {
+					thisObj.failureCallback();
+					thisObj.audioType = -1;
+				}
+			}
+		);
+	}
+	else {
+		this.audioHandleFlash = existingFlashload;
+		this.checkFlashInit();
+	}
+	this.audioType = 2;
 }
-
-async function startApplication() {
-  if (window.gbaBootIntro) {
-    await window.gbaBootIntro.start();
-  }
-
-  await loadGame();
+XAudioServer.prototype.changeVolume = function (newVolume) {
+	if (newVolume >= 0 && newVolume <= 1) {
+		XAudioJSVolume = newVolume;
+		switch (this.audioType) {
+			case 0:
+				this.audioHandleMoz.volume = XAudioJSVolume;
+			case 1:
+				break;
+			case 2:
+				if (this.flashInitialized) {
+					this.audioHandleFlash.changeVolume(XAudioJSVolume);
+				}
+				else {
+					this.checkFlashInit();
+				}
+				break;
+			default:
+				this.failureCallback();
+		}
+	}
 }
-
-startApplication();
-
-})();
+//Checks to see if the NPAPI Adobe Flash bridge is ready yet:
+XAudioServer.prototype.checkFlashInit = function () {
+	if (!this.flashInitialized) {
+		try {
+			if (this.audioHandleFlash && this.audioHandleFlash.initialize) {
+				this.flashInitialized = true;
+				this.audioHandleFlash.initialize(XAudioJSChannelsAllocated, XAudioJSVolume);
+			}
+		}
+		catch (error) {
+			this.flashInitialized = false;
+		}
+	}
+}
+//Set up the resampling:
+XAudioServer.prototype.resetCallbackAPIAudioBuffer = function (APISampleRate) {
+	XAudioJSAudioBufferSize = XAudioJSResampleBufferEnd = XAudioJSResampleBufferStart = 0;
+    this.initializeResampler(APISampleRate);
+    XAudioJSResampledBuffer = this.getFloat32(XAudioJSResampleBufferSize);
+}
+XAudioServer.prototype.initializeResampler = function (sampleRate) {
+    XAudioJSAudioContextSampleBuffer = this.getFloat32(XAudioJSMaxBufferSize);
+	XAudioJSResampleControl = new Resampler(this.XAudioJSSampleRate, sampleRate, XAudioJSChannelsAllocated, XAudioJSAudioContextSampleBuffer);
+    XAudioJSResampleBufferSize = XAudioJSResampleControl.outputBuffer.length;
+}
+XAudioServer.prototype.getFloat32 = function (size) {
+	try {
+		return new Float32Array(size);
+	}
+	catch (error) {
+		return [];
+	}
+}
+function XAudioJSFlashAudioEvent() {		//The callback that flash calls...
+    XAudioJSCallbackAPIEventNotificationCallbackCompatTimerClear();
+	XAudioJSCallbackAPIEventNotification();
+    XAudioJSResampleRefill();
+	var outputStr = XAudioJSFlashTransportEncoder();
+    XAudioJSCallbackAPIEventNotification2();
+    return outputStr;
+}
+function XAudioJSGenerateFlashSurroundString() {	//Convert the arrays to one long string for speed.
+	var XAudioJSTotalSamples = XAudioJSSamplesPerCallback << 1;
+	if (XAudioJSBinaryString.length > XAudioJSTotalSamples) {
+		XAudioJSBinaryString = [];
+	}
+	XAudioJSTotalSamples = 0;
+	for (var index = 0; index < XAudioJSSamplesPerCallback && XAudioJSResampleBufferStart != XAudioJSResampleBufferEnd; ++index) {
+		//Sanitize the buffer:
+		XAudioJSBinaryString[XAudioJSTotalSamples++] = String.fromCharCode(((Math.min(Math.max(XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] + 1, 0), 2) * 0x3FFF) | 0) + 0x3000);
+		XAudioJSBinaryString[XAudioJSTotalSamples++] = String.fromCharCode(((Math.min(Math.max(XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] + 1, 0), 2) * 0x3FFF) | 0) + 0x3000);
+		XAudioJSResampleBufferStart += XAudioJSChannelsAllocated - 2;
+		if (XAudioJSResampleBufferStart == XAudioJSResampleBufferSize) {
+			XAudioJSResampleBufferStart = 0;
+		}
+	}
+	return XAudioJSBinaryString.join("");
+}
+function XAudioJSGenerateFlashStereoString() {	//Convert the arrays to one long string for speed.
+	var XAudioJSTotalSamples = XAudioJSSamplesPerCallback << 1;
+	if (XAudioJSBinaryString.length > XAudioJSTotalSamples) {
+		XAudioJSBinaryString = [];
+	}
+	for (var index = 0; index < XAudioJSTotalSamples && XAudioJSResampleBufferStart != XAudioJSResampleBufferEnd;) {
+		//Sanitize the buffer:
+		XAudioJSBinaryString[index++] = String.fromCharCode(((Math.min(Math.max(XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] + 1, 0), 2) * 0x3FFF) | 0) + 0x3000);
+		XAudioJSBinaryString[index++] = String.fromCharCode(((Math.min(Math.max(XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] + 1, 0), 2) * 0x3FFF) | 0) + 0x3000);
+		if (XAudioJSResampleBufferStart == XAudioJSResampleBufferSize) {
+			XAudioJSResampleBufferStart = 0;
+		}
+	}
+	return XAudioJSBinaryString.join("");
+}
+function XAudioJSGenerateFlashMonoString() {	//Convert the array to one long string for speed.
+	if (XAudioJSBinaryString.length > XAudioJSSamplesPerCallback) {
+		XAudioJSBinaryString = [];
+	}
+	for (var index = 0; index < XAudioJSSamplesPerCallback && XAudioJSResampleBufferStart != XAudioJSResampleBufferEnd;) {
+		//Sanitize the buffer:
+		XAudioJSBinaryString[index++] = String.fromCharCode(((Math.min(Math.max(XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] + 1, 0), 2) * 0x3FFF) | 0) + 0x3000);
+		if (XAudioJSResampleBufferStart == XAudioJSResampleBufferSize) {
+			XAudioJSResampleBufferStart = 0;
+		}
+	}
+	return XAudioJSBinaryString.join("");
+}
+//Some Required Globals:
+var XAudioJSWebAudioContextHandle = null;
+var XAudioJSWebAudioAudioNode = null;
+var XAudioJSWebAudioWatchDogTimer = null;
+var XAudioJSCallbackAPIEventNotificationCallback = null;
+var XAudioJSCallbackAPIEventNotificationCallback2 = null;
+var XAudioJSCallbackAPIEventNotificationCallbackCompatTimer = setInterval(XAudioJSCallbackAPIEventNotificationDual, 16);
+var XAudioJSWebAudioWatchDogLast = false;
+var XAudioJSWebAudioLaunchedContext = false;
+var XAudioJSAudioContextSampleBuffer = [];
+var XAudioJSResampledBuffer = [];
+var XAudioJSMinBufferSize = 15000;
+var XAudioJSMaxBufferSize = 25000;
+var XAudioJSChannelsAllocated = 1;
+var XAudioJSVolume = 1;
+var XAudioJSResampleControl = null;
+var XAudioJSAudioBufferSize = 0;
+var XAudioJSResampleBufferStart = 0;
+var XAudioJSResampleBufferEnd = 0;
+var XAudioJSResampleBufferSize = 0;
+var XAudioJSMozAudioSampleRate = 44100;
+var XAudioJSSamplesPerCallback = 2048;			//Has to be between 2048 and 4096 (If over, then samples are ignored, if under then silence is added).
+var XAudioJSFlashTransportEncoder = null;
+var XAudioJSBinaryString = [];
+function XAudioJSWebAudioEvent(event) {		//Web Audio API callback...
+	if (XAudioJSWebAudioWatchDogTimer) {
+		XAudioJSWebAudioWatchDogLast = (new Date()).getTime();
+	}
+	//Find all output channels:
+	for (var bufferCount = 0, buffers = []; bufferCount < XAudioJSChannelsAllocated; ++bufferCount) {
+		buffers[bufferCount] = event.outputBuffer.getChannelData(bufferCount);
+	}
+    XAudioJSCallbackAPIEventNotificationCallbackCompatTimerClear();
+	XAudioJSCallbackAPIEventNotification();
+    //Make sure we have resampled samples ready:
+	XAudioJSResampleRefill();
+	//Copy samples from XAudioJS to the Web Audio API:
+	for (var index = 0; index < XAudioJSSamplesPerCallback && XAudioJSResampleBufferStart != XAudioJSResampleBufferEnd; ++index) {
+		for (bufferCount = 0; bufferCount < XAudioJSChannelsAllocated; ++bufferCount) {
+			buffers[bufferCount][index] = XAudioJSResampledBuffer[XAudioJSResampleBufferStart++] * XAudioJSVolume;
+		}
+		if (XAudioJSResampleBufferStart == XAudioJSResampleBufferSize) {
+			XAudioJSResampleBufferStart = 0;
+		}
+	}
+	//Pad with silence if we're underrunning:
+	while (index < XAudioJSSamplesPerCallback) {
+		for (bufferCount = 0; bufferCount < XAudioJSChannelsAllocated; ++bufferCount) {
+			buffers[bufferCount][index] = 0;
+		}
+		++index;
+	}
+    XAudioJSCallbackAPIEventNotification2();
+}
+function XAudioJSResampleRefill() {
+	if (XAudioJSAudioBufferSize > 0) {
+		//Resample a chunk of audio:
+		var resampleLength = XAudioJSResampleControl.resampler(XAudioJSAudioBufferSize);
+		var resampledResult = XAudioJSResampleControl.outputBuffer;
+		for (var index2 = 0; index2 < resampleLength;) {
+			XAudioJSResampledBuffer[XAudioJSResampleBufferEnd++] = resampledResult[index2++];
+			if (XAudioJSResampleBufferEnd == XAudioJSResampleBufferSize) {
+				XAudioJSResampleBufferEnd = 0;
+			}
+			if (XAudioJSResampleBufferStart == XAudioJSResampleBufferEnd) {
+				XAudioJSResampleBufferStart += XAudioJSChannelsAllocated;
+				if (XAudioJSResampleBufferStart == XAudioJSResampleBufferSize) {
+					XAudioJSResampleBufferStart = 0;
+				}
+			}
+		}
+		XAudioJSAudioBufferSize = 0;
+	}
+}
+function XAudioJSCallbackAPIEventNotificationCallbackCompatTimerClear() {
+    if (XAudioJSCallbackAPIEventNotificationCallbackCompatTimer) {
+        clearInterval(XAudioJSCallbackAPIEventNotificationCallbackCompatTimer);
+    }
+}
+function XAudioJSCallbackAPIEventNotification() {
+    if (typeof XAudioJSCallbackAPIEventNotificationCallback == "function") {
+        XAudioJSCallbackAPIEventNotificationCallback();
+    }
+}
+function XAudioJSCallbackAPIEventNotification2() {
+    if (typeof XAudioJSCallbackAPIEventNotificationCallback2 == "function") {
+        XAudioJSCallbackAPIEventNotificationCallback2();
+    }
+}
+function XAudioJSCallbackAPIEventNotificationDual() {
+    XAudioJSCallbackAPIEventNotification();
+    XAudioJSCallbackAPIEventNotification2();
+}
+function XAudioJSResampledSamplesLeft() {
+	return ((XAudioJSResampleBufferStart <= XAudioJSResampleBufferEnd) ? 0 : XAudioJSResampleBufferSize) + XAudioJSResampleBufferEnd - XAudioJSResampleBufferStart;
+}
+function XAudioJSGetArraySlice(buffer, lengthOf) {
+	//Typed array and normal array buffer section referencing:
+	try {
+		return buffer.subarray(0, lengthOf);
+	}
+	catch (error) {
+		try {
+			//Regular array pass:
+			buffer.length = lengthOf;
+			return buffer;
+		}
+		catch (error) {
+			//Nightly Firefox 4 used to have the subarray function named as slice:
+			return buffer.slice(0, lengthOf);
+		}
+	}
+}
