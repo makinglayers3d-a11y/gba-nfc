@@ -890,7 +890,11 @@ emulator.attachSaveImportHandler((name, callback, errorCallback) => {
       emulator.settings.SKIPBoot = true;
 
      emulator.play();
-
+if (!isIOS()) {
+  window.setTimeout(() => {
+    initializeAudio();
+  }, 0);
+}
 /*
  * Cargar partida guardada después de iniciar el emulador.
  */
