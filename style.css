@@ -452,7 +452,7 @@ dialog::backdrop {
 
 /* Horizontal: aprovechamos el ancho disponible */
 
-@media (orientation: landscape) and (max-height: 600px) {
+@media (orientation: landscape) {
 
   .app {
     padding-top: max(8px, env(safe-area-inset-top));
