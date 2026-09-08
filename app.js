@@ -1,5 +1,19 @@
 (() => {
   "use strict";
+  /*
+ * Audio de reproducción para iOS / Chrome.
+ * Web Audio puede utilizar el canal de timbre en iOS.
+ */
+try {
+  if (
+    navigator.audioSession &&
+    typeof navigator.audioSession.type !== "undefined"
+  ) {
+    navigator.audioSession.type = "playback";
+  }
+} catch (error) {
+  console.log("No se pudo configurar la sesión de audio:", error);
+}
 
   const params = new URLSearchParams(window.location.search);
 
