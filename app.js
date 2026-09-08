@@ -653,25 +653,5 @@ if (buttonColors) {
   });
 }
 
-  function startIntro() {
-  return new Promise((resolve) => {
-    const bootScreen = document.getElementById("boot-screen");
-
-    if (!bootScreen) {
-      resolve();
-      return;
-    }
-
-    window.setTimeout(() => {
-      resolve();
-    }, 7600);
-  });
-}
-
-async function startApplication() {
-  await startIntro();
-  await loadGame();
-}
-
-startApplication();
+loadGame();
 })();
