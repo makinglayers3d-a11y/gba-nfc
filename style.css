@@ -453,94 +453,247 @@ dialog::backdrop {
 /* Horizontal: aprovechamos el ancho disponible */
 
 @media (orientation: landscape) and (max-height: 600px) {
+
   .app {
     padding-top: max(8px, env(safe-area-inset-top));
     padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
   }
 
   .topbar {
     min-height: 42px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
 
-  h1 {
-    font-size: 1rem;
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand-name {
+    font-size: 17px;
   }
 
   .icon-button {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
   }
+
+  /*
+   * MODO GBA HORIZONTAL
+   *
+   * izquierda = controles
+   * centro    = pantalla
+   * derecha   = controles
+   */
 
   .console {
+    position: relative;
+
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 260px;
+
+    grid-template-columns:
+      minmax(105px, 150px)
+      minmax(280px, 1fr)
+      minmax(105px, 150px);
+
     align-items: center;
-    gap: 14px;
+
+    column-gap: 12px;
   }
+
+  /*
+   * La pantalla siempre queda en el centro.
+   */
 
   .screen-frame {
-    max-height: calc(100dvh - 66px);
+    grid-column: 2;
+    grid-row: 1;
+
+    width: 100%;
+    min-width: 0;
+
+    max-height: calc(100dvh - 80px);
   }
+
+  /*
+   * Los controles ocupan toda la anchura,
+   * pero cada botón se coloca en su lateral.
+   */
 
   .controls {
-    min-height: 0;
+    grid-column: 1 / 4;
+    grid-row: 1;
+
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
     height: 100%;
-    grid-template-columns: 1fr;
-    grid-template-rows: 44px 1fr 44px;
+    min-height: 0;
+
+    display: grid;
+
+    grid-template-columns:
+      minmax(105px, 150px)
+      minmax(280px, 1fr)
+      minmax(105px, 150px);
+
+    grid-template-rows:
+      42px
+      1fr
+      42px;
+
+    column-gap: 12px;
 
     padding: 0;
+
+    pointer-events: none;
   }
+
+  /*
+   * Los botones sí reciben el toque.
+   */
+
+  .controls button {
+    pointer-events: auto;
+  }
+
+  /*
+   * L
+   */
 
   .shoulder.left {
+    grid-column: 1;
+    grid-row: 1;
+
     justify-self: start;
+    align-self: center;
+
+    width: 90px;
+    height: 34px;
   }
 
+  /*
+   * R
+   */
+
   .shoulder.right {
+    grid-column: 3;
+    grid-row: 1;
+
     justify-self: end;
+    align-self: center;
+
+    width: 90px;
+    height: 34px;
   }
+
+  /*
+   * CRUCETA — izquierda
+   */
 
   .dpad {
     grid-column: 1;
     grid-row: 2;
 
-    width: 125px;
-    height: 125px;
+    width: 105px;
+    height: 105px;
 
     justify-self: center;
+    align-self: center;
   }
 
   .dpad button {
-    width: 42px;
-    height: 42px;
+    width: 35px;
+    height: 35px;
+
+    font-size: 1rem;
   }
 
   .dpad button[data-key="UP"],
   .dpad button[data-key="DOWN"] {
-    left: 41px;
+    left: 35px;
   }
 
   .dpad button[data-key="LEFT"],
   .dpad button[data-key="RIGHT"] {
-    top: 41px;
+    top: 35px;
   }
 
-  .face-buttons {
-    width: 125px;
-    height: 125px;
+  /*
+   * A / B — derecha
+   */
 
-    justify-self: end;
+  .face-buttons {
+    grid-column: 3;
+    grid-row: 2;
+
+    width: 110px;
+    height: 110px;
+
+    justify-self: center;
+    align-self: center;
   }
 
   .face {
-    width: 58px;
-    height: 58px;
+    width: 52px;
+    height: 52px;
+
+    font-size: 1rem;
   }
 
+  /*
+   * SELECT / START debajo de la pantalla.
+   */
+
   .start-select {
-    grid-column: 1;
+    grid-column: 2;
     grid-row: 3;
+
+    justify-self: center;
+    align-self: center;
+
+    gap: 8px;
+
+    pointer-events: auto;
+  }
+
+  .start-select button {
+    min-width: 72px;
+    height: 32px;
+
+    padding: 0 10px;
+
+    font-size: 0.62rem;
+  }
+
+  /*
+   * MARCA INFERIOR
+   */
+
+  .bottom-brand {
+    grid-column: 1 / 4;
+    grid-row: 2;
+
+    align-self: end;
+
+    margin-bottom: 2px;
+
+    font-size: 11px;
+
+    pointer-events: none;
+  }
+
+  .bottom-logo {
+    width: 20px;
+    height: 20px;
   }
 }
 /* =========================
