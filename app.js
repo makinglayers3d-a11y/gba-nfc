@@ -222,6 +222,16 @@ if (typeof GameBoyAdvanceMemory !== "function") {
      
 
      emulator = new GameBoyAdvanceEmulator();
+const savedSpeed = Number(
+  localStorage.getItem("gba-speed") || "0.95"
+);
+
+emulator.setSpeed(savedSpeed);
+
+if (speedSelect) {
+  speedSelect.value = String(savedSpeed);
+}
+      
 emulator.attachPlayStatusHandler(() => {});
 /*
  * Arranque sin BIOS.
@@ -275,7 +285,15 @@ window.__gba = emulator;
   menuButton.addEventListener("click", () => {
     menu.showModal();
   });
+speedSelect.addEventListener("change", () => {
+  const speed = Number(speedSelect.value);
 
+  if (emulator) {
+    emulator.setSpeed(speed);
+  }
+
+  localStorage.setItem("gba-speed", String(speed));
+});
   closeMenu.addEventListener("click", () => {
     menu.close();
   });
