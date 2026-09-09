@@ -402,34 +402,49 @@ Object.assign(
     title.textContent =
       "SELECT GAME";
 
-    Object.assign(
-      title.style,
-      {
-        fontSize:
-          "clamp(11px, 3vw, 18px)",
-        fontWeight: "900",
-        letterSpacing: "0.08em",
-        marginBottom: "2%",
-        zIndex: "2"
-      }
-    );
+   Object.assign(
+  title.style,
+  {
+    position: "absolute",
+    top: "5%",
+    right: "5%",
+
+    fontSize:
+      "clamp(10px, 2.8vw, 16px)",
+
+    fontWeight: "900",
+
+    letterSpacing:
+      "0.08em",
+
+    marginBottom: "0",
+
+    textAlign: "right",
+
+    zIndex: "2"
+  }
+);
 
     listViewport =
       document.createElement("div");
 
     Object.assign(
-      listViewport.style,
-      {
-        position: "relative",
-        flex: "1",
-        overflow: "hidden",
-        maskImage:
-          "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)",
-        webkitMaskImage:
-          "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)",
-        zIndex: "2"
-      }
-    );
+  listViewport.style,
+  {
+    position: "absolute",
+    inset: "0",
+
+    overflow: "hidden",
+
+    maskImage:
+      "linear-gradient(to bottom, transparent 0%, #000 8%, #000 92%, transparent 100%)",
+
+    webkitMaskImage:
+      "linear-gradient(to bottom, transparent 0%, #000 8%, #000 92%, transparent 100%)",
+
+    zIndex: "2"
+  }
+);
 
     listTrack =
       document.createElement("div");
@@ -451,18 +466,31 @@ Object.assign(
     footer.textContent =
       "▲ ▼ MOVER   A / START ELEGIR   B VOLVER";
 
-    Object.assign(
-      footer.style,
-      {
-        fontSize:
-          "clamp(6px, 1.7vw, 10px)",
-        fontWeight: "800",
-        letterSpacing: "0.02em",
-        opacity: "0.52",
-        marginTop: "2%",
-        zIndex: "2"
-      }
-    );
+   Object.assign(
+  footer.style,
+  {
+    position: "absolute",
+
+    right: "4%",
+    bottom: "3%",
+
+    fontSize:
+      "clamp(6px, 1.6vw, 9px)",
+
+    fontWeight: "800",
+
+    letterSpacing:
+      "0.02em",
+
+    opacity: "0.52",
+
+    marginTop: "0",
+
+    textAlign: "right",
+
+    zIndex: "2"
+  }
+); 
 
     listViewport.appendChild(
       listTrack
