@@ -431,7 +431,7 @@ Object.assign(
     );
   }
 
- function renderList() {
+function renderList() {
   if (
     !listTrack ||
     !listViewport ||
@@ -448,9 +448,7 @@ Object.assign(
   const items = [];
 
   /*
-   * Primero creamos todos los elementos.
-   * Necesitamos conocer después la altura
-   * real del seleccionado.
+   * Creamos primero todos los títulos.
    */
   games.forEach(
     (game, index) => {
@@ -475,6 +473,15 @@ Object.assign(
       const selected =
         relative === 0;
 
+      const item =
+        document.createElement("div");
+
+      item.textContent =
+        friendlyName(game.filename);
+
+      /*
+       * Tamaño progresivo.
+       */
       let fontSize;
       let opacity;
       let fontWeight;
@@ -493,10 +500,10 @@ Object.assign(
       } else if (distance === 1) {
 
         fontSize =
-          "clamp(12px, 3.2vw, 19px)";
+          "clamp(12px, 3.3vw, 19px)";
 
         opacity =
-          "0.68";
+          "0.72";
 
         fontWeight =
           "800";
@@ -504,10 +511,21 @@ Object.assign(
       } else if (distance === 2) {
 
         fontSize =
-          "clamp(9px, 2.4vw, 14px)";
+          "clamp(9px, 2.5vw, 14px)";
 
         opacity =
-          "0.42";
+          "0.45";
+
+        fontWeight =
+          "700";
+
+      } else if (distance === 3) {
+
+        fontSize =
+          "clamp(8px, 2.1vw, 12px)";
+
+        opacity =
+          "0.32";
 
         fontWeight =
           "700";
@@ -515,20 +533,14 @@ Object.assign(
       } else {
 
         fontSize =
-          "clamp(7px, 1.9vw, 11px)";
+          "clamp(7px, 1.8vw, 10px)";
 
         opacity =
-          "0.25";
+          "0.22";
 
         fontWeight =
           "700";
       }
-
-      const item =
-        document.createElement("div");
-
-      item.textContent =
-        friendlyName(game.filename);
 
       Object.assign(
         item.style,
@@ -554,7 +566,7 @@ Object.assign(
           padding:
             selected
               ? "9px 14px"
-              : "4px 8px",
+              : "3px 8px",
 
           borderRadius:
             selected
@@ -601,7 +613,14 @@ Object.assign(
             opacity,
 
           transition:
-            "top 140ms ease, font-size 120ms steps(3, end), opacity 120ms ease, background 120ms ease, box-shadow 120ms ease"
+            [
+              "top 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+              "font-size 220ms ease",
+              "opacity 180ms ease",
+              "padding 220ms ease",
+              "background 220ms ease",
+              "box-shadow 220ms ease"
+            ].join(", ")
         }
       );
 
@@ -617,8 +636,7 @@ Object.assign(
   );
 
   /*
-   * Buscamos el elemento seleccionado para
-   * medir su altura real.
+   * Medimos el cuadro gris real.
    */
   const selectedData =
     items.find(
@@ -632,40 +650,43 @@ Object.assign(
   const selectedElement =
     selectedData.element;
 
-  /*
-   * Forzamos al navegador a calcular
-   * las dimensiones reales.
-   */
   const selectedHeight =
     selectedElement.getBoundingClientRect().height;
 
-  /*
-   * Altura del área visible.
-   */
   const viewportHeight =
     listViewport.clientHeight;
 
-  /*
-   * Centro exacto del viewport.
-   */
   const centerY =
     viewportHeight / 2;
 
   /*
-   * Separación mínima respecto al cuadro gris.
+   * Pequeñísimo margen entre el cuadro
+   * gris y los títulos inmediatamente
+   * anterior y siguiente.
    */
   const gap =
-    3;
+    4;
 
   /*
-   * Distancia vertical que debe existir
-   * entre el centro del seleccionado y
-   * el centro del anterior/siguiente.
+   * Separación del primer título respecto
+   * al cuadro gris.
    */
-  const neighbourDistance =
+  const firstDistance =
     (selectedHeight / 2) +
     gap +
-    18;
+    4;
+
+  /*
+   * A partir del centro, los títulos
+   * se van juntando progresivamente.
+   *
+   * distance 1 = separado
+   * distance 2 = algo más cerca
+   * distance 3 = más comprimido
+   * etc.
+   */
+  const spacingAfterFirst =
+    30;
 
   items.forEach(
     (item) => {
@@ -674,46 +695,35 @@ Object.assign(
         item.relative;
 
       const distance =
-        Math.abs(relative);
+        item.distance;
 
       let offset;
 
       if (distance === 0) {
 
-        offset = 0;
+        offset =
+          0;
 
       } else if (distance === 1) {
 
-        /*
-         * El anterior y siguiente se calculan
-         * respecto al tamaño del cuadro gris.
-         */
         offset =
-          neighbourDistance;
-
-      } else if (distance === 2) {
-
-        /*
-         * Los siguientes se van juntando.
-         */
-        offset =
-          neighbourDistance +
-          26;
+          firstDistance;
 
       } else {
 
         offset =
-          neighbourDistance +
-          26 +
+          firstDistance +
           (
-            (distance - 2) * 20
+            spacingAfterFirst *
+            (
+              1 +
+              Math.log2(
+                distance
+              )
+            )
           );
       }
 
-      /*
-       * Arriba = negativo.
-       * Abajo = positivo.
-       */
       const y =
         centerY +
         (
