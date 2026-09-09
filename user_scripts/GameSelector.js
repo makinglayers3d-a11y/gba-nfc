@@ -337,7 +337,25 @@
 
     const title =
       document.createElement("div");
-
+Object.assign(
+  overlay.style,
+  {
+    position: "absolute",
+    inset: "0",
+    zIndex: "1000",
+    display: "flex",
+    flexDirection: "column",
+    background: "#05080c",
+    color: "#ffffff",
+    fontFamily:
+      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    overflow: "hidden",
+    userSelect: "none",
+    webkitUserSelect: "none",
+    touchAction: "none",
+    padding: "7% 6% 5% 6%"
+  }
+);
     title.textContent =
       "SELECT GAME";
 
