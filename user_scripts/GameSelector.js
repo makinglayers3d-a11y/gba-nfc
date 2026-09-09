@@ -35,7 +35,7 @@
     "Super Mario Bros. 3.gba": "Super Mario Bros. 3",
     "The Legend of Zelda - The Minish Cap.gba":
       "The Legend of Zelda: The Minish Cap",
-    "Tetris Worlds.gba": "Tetris Worlds"
+    
   };
 
   const knownSlugs = {
@@ -43,7 +43,7 @@
     "Super Mario Bros. 3.gba": "mario3",
     "The Legend of Zelda - The Minish Cap.gba":
       "minishcap",
-    "Tetris Worlds.gba": "tetrisworlds"
+    
   };
 
   let games = [];
