@@ -43,7 +43,10 @@ let authenticated =
   sessionStorage.getItem(
     NFC_SESSION_KEY
   ) === "1" ||
-  IOS_NFC_TOKEN_FROM_URL === IOS_NFC_TOKEN;
+  (
+    IS_IOS &&
+    IOS_NFC_TOKEN_FROM_URL === IOS_NFC_TOKEN
+  );
 
 let scanStarted = false;
 
