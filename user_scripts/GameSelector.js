@@ -440,32 +440,88 @@ function renderList() {
     return;
   }
 
-  listTrack.innerHTML = "";
+  /*
+   * Guardamos los elementos para reutilizarlos
+   * entre cambios de selección.
+   *
+   * Esto permite que las transiciones CSS
+   * sean realmente animadas.
+   */
+  if (!listTrack._gameItems) {
+    listTrack._gameItems = new Map();
+  }
+
+  const itemMap =
+    listTrack._gameItems;
 
   const count =
     games.length;
 
-  const items = [];
+  /*
+   * Relación de cada juego respecto
+   * al seleccionado.
+   *
+   * -3 = tres posiciones arriba
+   * -2 = dos posiciones arriba
+   * -1 = una posición arriba
+   *  0 = seleccionado
+   * +1 = una posición abajo
+   * +2 = dos posiciones abajo
+   * +3 = tres posiciones abajo
+   */
+  function getRelative(index) {
+    let relative =
+      index - selectedIndex;
+
+    /*
+     * Lista circular.
+     */
+    if (relative > count / 2) {
+      relative -= count;
+    }
+
+    if (relative < -count / 2) {
+      relative += count;
+    }
+
+    return relative;
+  }
 
   /*
-   * Creamos primero todos los títulos.
+   * Actualizamos / creamos los elementos.
    */
   games.forEach(
     (game, index) => {
 
-      let relative =
-        index - selectedIndex;
+      let item =
+        itemMap.get(
+          game.filename
+        );
 
-      /*
-       * Lista circular.
-       */
-      if (relative > count / 2) {
-        relative -= count;
+      if (!item) {
+
+        item =
+          document.createElement(
+            "div"
+          );
+
+        itemMap.set(
+          game.filename,
+          item
+        );
+
+        listTrack.appendChild(
+          item
+        );
       }
 
-      if (relative < -count / 2) {
-        relative += count;
-      }
+      item.textContent =
+        friendlyName(
+          game.filename
+        );
+
+      const relative =
+        getRelative(index);
 
       const distance =
         Math.abs(relative);
@@ -473,11 +529,15 @@ function renderList() {
       const selected =
         relative === 0;
 
-      const item =
-        document.createElement("div");
-
-      item.textContent =
-        friendlyName(game.filename);
+      /*
+       * Solo mostramos:
+       *
+       * 3 arriba
+       * seleccionado
+       * 3 abajo
+       */
+      const visible =
+        distance <= 3;
 
       /*
        * Tamaño progresivo.
@@ -485,6 +545,7 @@ function renderList() {
       let fontSize;
       let opacity;
       let fontWeight;
+      let padding;
 
       if (distance === 0) {
 
@@ -497,49 +558,50 @@ function renderList() {
         fontWeight =
           "900";
 
+        padding =
+          "9px 14px";
+
       } else if (distance === 1) {
 
         fontSize =
-          "clamp(12px, 3.3vw, 19px)";
+          "clamp(13px, 3.5vw, 20px)";
 
         opacity =
-          "0.72";
+          "0.78";
 
         fontWeight =
           "800";
 
+        padding =
+          "3px 8px";
+
       } else if (distance === 2) {
 
         fontSize =
-          "clamp(9px, 2.5vw, 14px)";
+          "clamp(10px, 2.7vw, 15px)";
 
         opacity =
-          "0.45";
+          "0.50";
 
         fontWeight =
           "700";
 
-      } else if (distance === 3) {
+        padding =
+          "2px 8px";
+
+      } else {
 
         fontSize =
           "clamp(8px, 2.1vw, 12px)";
 
         opacity =
-          "0.32";
+          "0.30";
 
         fontWeight =
           "700";
 
-      } else {
-
-        fontSize =
-          "clamp(7px, 1.8vw, 10px)";
-
-        opacity =
-          "0.22";
-
-        fontWeight =
-          "700";
+        padding =
+          "1px 8px";
       }
 
       Object.assign(
@@ -548,34 +610,46 @@ function renderList() {
           position:
             "absolute",
 
+          /*
+           * Pegados al lateral izquierdo.
+           */
           left:
             "0",
 
           width:
             "84%",
 
+          minHeight:
+            selected
+              ? "48px"
+              : "0",
+
           boxSizing:
             "border-box",
 
           display:
-            "flex",
+            visible
+              ? "flex"
+              : "none",
 
           alignItems:
             "center",
 
           padding:
-            selected
-              ? "9px 14px"
-              : "3px 8px",
+            padding,
 
           borderRadius:
             selected
               ? "14px"
               : "8px",
 
+          /*
+           * El cuadro gris solo pertenece
+           * al juego seleccionado.
+           */
           background:
             selected
-              ? "rgba(105, 105, 105, 0.50)"
+              ? "rgba(105,105,105,0.50)"
               : "transparent",
 
           border:
@@ -610,135 +684,320 @@ function renderList() {
             "break-word",
 
           opacity:
-            opacity,
+            visible
+              ? opacity
+              : "0",
 
+          /*
+           * Animación tipo carrusel/rueda.
+           */
           transition:
             [
-              "top 260ms cubic-bezier(0.22, 1, 0.36, 1)",
-              "font-size 220ms ease",
-              "opacity 180ms ease",
-              "padding 220ms ease",
-              "background 220ms ease",
-              "box-shadow 220ms ease"
+              "top 420ms cubic-bezier(0.22,0.61,0.36,1)",
+              "font-size 360ms cubic-bezier(0.22,0.61,0.36,1)",
+              "opacity 300ms ease",
+              "padding 360ms ease",
+              "background 360ms ease",
+              "box-shadow 360ms ease",
+              "min-height 360ms ease"
             ].join(", ")
         }
       );
-
-      listTrack.appendChild(item);
-
-      items.push({
-        element: item,
-        relative: relative,
-        distance: distance,
-        selected: selected
-      });
     }
   );
 
   /*
-   * Medimos el cuadro gris real.
+   * Ocultamos elementos que hayan desaparecido
+   * del conjunto visible, pero los conservamos
+   * en el DOM para poder reutilizarlos.
    */
-  const selectedData =
-    items.find(
-      (item) => item.selected
-    );
+  itemMap.forEach(
+    (item, filename) => {
 
-  if (!selectedData) {
+      const index =
+        games.findIndex(
+          (game) =>
+            game.filename === filename
+        );
+
+      if (index < 0) {
+        item.remove();
+        itemMap.delete(
+          filename
+        );
+        return;
+      }
+
+      const relative =
+        getRelative(index);
+
+      if (
+        Math.abs(relative) > 3
+      ) {
+        item.style.display =
+          "none";
+
+        item.style.opacity =
+          "0";
+      }
+    }
+  );
+
+  /*
+   * Buscamos el elemento seleccionado.
+   */
+  const selectedGame =
+    games[selectedIndex];
+
+  if (!selectedGame) {
     return;
   }
 
   const selectedElement =
-    selectedData.element;
+    itemMap.get(
+      selectedGame.filename
+    );
 
+  if (!selectedElement) {
+    return;
+  }
+
+  /*
+   * Forzamos el cálculo de layout.
+   */
   const selectedHeight =
     selectedElement.getBoundingClientRect().height;
 
   const viewportHeight =
     listViewport.clientHeight;
 
+  /*
+   * Centro fijo.
+   */
   const centerY =
     viewportHeight / 2;
 
   /*
-   * Pequeñísimo margen entre el cuadro
-   * gris y los títulos inmediatamente
-   * anterior y siguiente.
+   * Margen mínimo entre el cuadro gris
+   * y el título inmediatamente anterior
+   * o siguiente.
    */
-  const gap =
+  const firstGap =
     4;
 
   /*
-   * Separación del primer título respecto
-   * al cuadro gris.
-   */
-  const firstDistance =
-    (selectedHeight / 2) +
-    gap +
-    4;
-
-  /*
-   * A partir del centro, los títulos
-   * se van juntando progresivamente.
+   * A partir del primero, la separación
+   * va disminuyendo.
    *
-   * distance 1 = separado
-   * distance 2 = algo más cerca
-   * distance 3 = más comprimido
-   * etc.
+   * 1 -> 4 px
+   * 2 -> 3 px
+   * 3 -> 2 px
    */
-  const spacingAfterFirst =
-    30;
+  function gapForDistance(distance) {
 
-  items.forEach(
-    (item) => {
+    if (distance === 1) {
+      return firstGap;
+    }
+
+    if (distance === 2) {
+      return 3;
+    }
+
+    return 2;
+  }
+
+  /*
+   * Colocamos el seleccionado.
+   */
+  selectedElement.style.display =
+    "flex";
+
+  selectedElement.style.top =
+    `${centerY}px`;
+
+  selectedElement.style.transform =
+    "translateY(-50%)";
+
+  /*
+   * Medimos de nuevo por seguridad.
+   */
+  const selectedRect =
+    selectedElement.getBoundingClientRect();
+
+  /*
+   * Altura real de cada lado del
+   * cuadro seleccionado.
+   */
+  const selectedHalfHeight =
+    selectedRect.height / 2;
+
+  /*
+   * Recogemos los juegos visibles
+   * de cada lado.
+   */
+  const above = [];
+  const below = [];
+
+  games.forEach(
+    (game, index) => {
 
       const relative =
-        item.relative;
+        getRelative(index);
 
       const distance =
-        item.distance;
+        Math.abs(relative);
 
-      let offset;
-
-      if (distance === 0) {
-
-        offset =
-          0;
-
-      } else if (distance === 1) {
-
-        offset =
-          firstDistance;
-
-      } else {
-
-        offset =
-          firstDistance +
-          (
-            spacingAfterFirst *
-            (
-              1 +
-              Math.log2(
-                distance
-              )
-            )
-          );
+      if (
+        distance === 0 ||
+        distance > 3
+      ) {
+        return;
       }
 
-      const y =
-        centerY +
-        (
-          relative < 0
-            ? -offset
-            : relative > 0
-              ? offset
-              : 0
+      const item =
+        itemMap.get(
+          game.filename
         );
 
-      item.element.style.top =
-        `${y}px`;
+      if (!item) {
+        return;
+      }
 
-      item.element.style.transform =
+      item.style.display =
+        "flex";
+
+      if (relative < 0) {
+        above.push({
+          item,
+          distance
+        });
+      } else {
+        below.push({
+          item,
+          distance
+        });
+      }
+    }
+  );
+
+  /*
+   * Los ordenamos desde el centro
+   * hacia fuera.
+   */
+  above.sort(
+    (a, b) =>
+      a.distance -
+      b.distance
+  );
+
+  below.sort(
+    (a, b) =>
+      a.distance -
+      b.distance
+  );
+
+  /*
+   * Colocamos los títulos superiores.
+   *
+   * Cada uno se calcula a partir
+   * del anterior, así nunca invade
+   * el cuadro gris ni otro título.
+   */
+  let previousCenter =
+    centerY;
+
+  let previousHalfHeight =
+    selectedHalfHeight;
+
+  above.forEach(
+    (entry) => {
+
+      const item =
+        entry.item;
+
+      const distance =
+        entry.distance;
+
+      const height =
+        item.getBoundingClientRect().height;
+
+      const halfHeight =
+        height / 2;
+
+      const gap =
+        gapForDistance(
+          distance
+        );
+
+      const center =
+        previousCenter -
+        previousHalfHeight -
+        gap -
+        halfHeight;
+
+      item.style.top =
+        `${center}px`;
+
+      item.style.transform =
         "translateY(-50%)";
+
+      previousCenter =
+        center;
+
+      previousHalfHeight =
+        halfHeight;
+    }
+  );
+
+  /*
+   * Colocamos los títulos inferiores.
+   *
+   * Exactamente el mismo sistema,
+   * pero hacia abajo.
+   */
+  previousCenter =
+    centerY;
+
+  previousHalfHeight =
+    selectedHalfHeight;
+
+  below.forEach(
+    (entry) => {
+
+      const item =
+        entry.item;
+
+      const distance =
+        entry.distance;
+
+      const height =
+        item.getBoundingClientRect().height;
+
+      const halfHeight =
+        height / 2;
+
+      const gap =
+        gapForDistance(
+          distance
+        );
+
+      const center =
+        previousCenter +
+        previousHalfHeight +
+        gap +
+        halfHeight;
+
+      item.style.top =
+        `${center}px`;
+
+      item.style.transform =
+        "translateY(-50%)";
+
+      previousCenter =
+        center;
+
+      previousHalfHeight =
+        halfHeight;
     }
   );
 }
