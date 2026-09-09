@@ -445,22 +445,6 @@ Object.assign(
   const count =
     games.length;
 
-  /*
-   * Posiciones verticales fijas.
-   *
-   * El seleccionado siempre queda en el centro.
-   * Los demás juegos se colocan arriba y abajo.
-   *
-   * No desplazamos horizontalmente los títulos.
-   */
-  const slots = [
-    18,
-    34,
-    50,
-    66,
-    82
-  ];
-
   games.forEach(
     (game, index) => {
 
@@ -468,7 +452,7 @@ Object.assign(
         index - selectedIndex;
 
       /*
-       * Hacemos que la lista sea circular.
+       * La lista es circular.
        */
       if (relative > count / 2) {
         relative -= count;
@@ -478,81 +462,95 @@ Object.assign(
         relative += count;
       }
 
-      /*
-       * Limitamos la posición al rango visible.
-       */
-      const slotIndex =
-        Math.max(
-          -2,
-          Math.min(
-            2,
-            relative
-          )
-        );
-
-      const slot =
-        slots[slotIndex + 2];
-
       const distance =
         Math.abs(relative);
 
       const selected =
         relative === 0;
 
+      /*
+       * El seleccionado siempre queda
+       * exactamente en el centro.
+       *
+       * Cuanto más lejos está un juego:
+       * - más pequeño es
+       * - más transparente es
+       * - más cerca se encuentra de los extremos
+       *
+       * Esto crea el efecto de media luna
+       * sin mover horizontalmente los títulos.
+       */
+      let top;
+
+      if (distance === 0) {
+        top = 50;
+      } else if (distance === 1) {
+        top =
+          relative < 0
+            ? 31
+            : 69;
+      } else if (distance === 2) {
+        top =
+          relative < 0
+            ? 17
+            : 83;
+      } else {
+        top =
+          relative < 0
+            ? 7
+            : 93;
+      }
+
+      let fontSize;
+      let opacity;
+      let fontWeight;
+
+      if (distance === 0) {
+        fontSize =
+          "clamp(17px, 4.9vw, 28px)";
+
+        opacity =
+          "1";
+
+        fontWeight =
+          "900";
+
+      } else if (distance === 1) {
+        fontSize =
+          "clamp(12px, 3.2vw, 19px)";
+
+        opacity =
+          "0.68";
+
+        fontWeight =
+          "800";
+
+      } else if (distance === 2) {
+        fontSize =
+          "clamp(9px, 2.4vw, 14px)";
+
+        opacity =
+          "0.42";
+
+        fontWeight =
+          "700";
+
+      } else {
+        fontSize =
+          "clamp(7px, 1.9vw, 11px)";
+
+        opacity =
+          "0.25";
+
+        fontWeight =
+          "700";
+      }
+
       const item =
         document.createElement("div");
 
       item.textContent =
         friendlyName(game.filename);
-
-      /*
-       * El tamaño crea la sensación de
-       * profundidad / media luna.
-       */
-     let fontSize;
-let opacity;
-let fontWeight;
-let letterSpacing;
-
-if (distance === 0) {
-  fontSize =
-    "clamp(17px, 4.9vw, 28px)";
-
-  opacity =
-    "1";
-
-  fontWeight =
-    "900";
-
-  letterSpacing =
-    "0.06em";
-
-} else if (distance === 1) {
-  fontSize =
-    "clamp(12px, 3.2vw, 19px)";
-
-  opacity =
-    "0.65";
-
-  fontWeight =
-    "800";
-
-  letterSpacing =
-    "0.01em";
-
-} else {
-  fontSize =
-    "clamp(8px, 2.2vw, 13px)";
-
-  opacity =
-    "0.32";
-
-  fontWeight =
-    "700";
-
-  letterSpacing =
-    "-0.035em";
-}
 
       Object.assign(
         item.style,
@@ -561,13 +559,14 @@ if (distance === 0) {
             "absolute",
 
           /*
-           * TODOS permanecen pegados a la izquierda.
+           * Todos los títulos parten
+           * exactamente del mismo lado.
            */
           left:
             "2%",
 
           top:
-            `${slot}%`,
+            `${top}%`,
 
           transform:
             "translateY(-50%)",
@@ -575,13 +574,19 @@ if (distance === 0) {
           transformOrigin:
             "left center",
 
+          /*
+           * El seleccionado tiene una tarjeta
+           * más ancha.
+           */
           width:
-            "84%",
+            selected
+              ? "84%"
+              : "84%",
 
           minHeight:
             selected
               ? "48px"
-              : "30px",
+              : "28px",
 
           boxSizing:
             "border-box",
@@ -595,7 +600,7 @@ if (distance === 0) {
           padding:
             selected
               ? "9px 14px"
-              : "5px 8px",
+              : "4px 8px",
 
           borderRadius:
             selected
@@ -603,8 +608,8 @@ if (distance === 0) {
               : "8px",
 
           /*
-           * El cuadro gris solamente existe
-           * para el juego seleccionado.
+           * Solo el seleccionado tiene
+           * fondo gris semitransparente.
            */
           background:
             selected
@@ -625,16 +630,13 @@ if (distance === 0) {
             "#ffffff",
 
           fontSize:
-  fontSize,
+            fontSize,
 
-fontWeight:
-  fontWeight,
+          fontWeight:
+            fontWeight,
 
-letterSpacing:
-  letterSpacing,
-
-lineHeight:
-  "1.08",
+          lineHeight:
+            "1.08",
 
           textAlign:
             "left",
@@ -648,8 +650,12 @@ lineHeight:
           opacity:
             opacity,
 
+          /*
+           * El cambio de tamaño, posición y
+           * opacidad será suave al navegar.
+           */
           transition:
-            "all 120ms steps(2, end)"
+            "top 120ms ease, font-size 120ms steps(3, end), opacity 120ms ease, background 120ms ease, box-shadow 120ms ease"
         }
       );
 
