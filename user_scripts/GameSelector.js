@@ -353,7 +353,7 @@ Object.assign(
     userSelect: "none",
     webkitUserSelect: "none",
     touchAction: "none",
-    padding: "7% 6% 5% 6%"
+    padding: "7% 6% 5% 0"
   }
 );
     title.textContent =
@@ -563,7 +563,7 @@ Object.assign(
            * exactamente del mismo lado.
            */
           left:
-            "2%",
+            "0",
 
           top:
             `${top}%`,
