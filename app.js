@@ -727,10 +727,40 @@ async function startApplication() {
     document.getElementById("boot-screen");
 
   /*
-   * El selector NFC y los juegos elegidos
-   * desde el selector no muestran el intro.
+   * NFC -> MENÚ
+   *
+   * Logo -> advertencia -> selector.
+   *
+   * Aquí NO cargamos ningún juego.
    */
-  if (menuOnly || skipIntro) {
+  if (menuOnly) {
+
+    if (window.gbaBootIntro) {
+      await window.gbaBootIntro.start();
+    }
+
+    if (bootScreen) {
+      bootScreen.classList.add("boot-finished");
+      bootScreen.style.display = "none";
+      bootScreen.style.visibility = "hidden";
+      bootScreen.style.opacity = "0";
+      bootScreen.style.pointerEvents = "none";
+    }
+
+    if (window.gbaOpenGameSelector) {
+      await window.gbaOpenGameSelector();
+    }
+
+    return;
+  }
+
+  /*
+   * Juego elegido desde cualquier selector.
+   *
+   * Entra directamente al juego.
+   */
+  if (skipIntro) {
+
     if (bootScreen) {
       bootScreen.classList.add("boot-finished");
       bootScreen.style.display = "none";
@@ -744,8 +774,9 @@ async function startApplication() {
   }
 
   /*
-   * Un acceso directo a un juego sí muestra:
-   * logo → aviso → juego.
+   * NFC -> JUEGO DIRECTO
+   *
+   * Logo -> advertencia -> juego.
    */
   if (window.gbaBootIntro) {
     await window.gbaBootIntro.start();
