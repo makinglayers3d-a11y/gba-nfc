@@ -930,10 +930,10 @@ function renderList() {
    * comprimiendo.
    */
   const gap2 =
-    18;
+    12;
 
   const gap3 =
-    10;
+    3;
 
   /*
    * Separamos arriba y abajo.
