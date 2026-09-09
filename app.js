@@ -642,7 +642,28 @@ updateVolumeUI();
   closeMenu.addEventListener("click", () => {
     menu.close();
   });
+if (reloadButton) {
+  reloadButton.addEventListener("click", () => {
+    try {
+      if (emulator) {
+        emulator.pause();
+      }
+    } catch (error) {
+      console.error("Error preparando el reinicio:", error);
+    }
 
+    const url = new URL(window.location.href);
+
+    /*
+     * Al reiniciar queremos volver directamente
+     * al juego, sin repetir logo ni advertencia.
+     */
+    url.searchParams.set("skipintro", "1");
+    url.searchParams.delete("menu");
+
+    window.location.href = url.toString();
+  });
+}
  
 
    function shutdownEmulator() {
