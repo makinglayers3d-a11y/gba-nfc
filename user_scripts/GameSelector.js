@@ -333,25 +333,16 @@
       "Seleccionar juego"
     );
 
-    Object.assign(
-      overlay.style,
-      {
-        position: "absolute",
-        inset: "0",
-        zIndex: "1000",
-        display: "flex",
-        flexDirection: "column",
-        background: "#05080c",
-        color: "#ffffff",
-        fontFamily:
-          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        overflow: "hidden",
-        userSelect: "none",
-        webkitUserSelect: "none",
-        touchAction: "none",
-        padding: "7% 6% 5% 6%"
-      }
-    );
+  Object.assign(
+  listTrack.style,
+  {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    transform: "none"
+  }
+);
 
     const title =
       document.createElement("div");
@@ -437,86 +428,158 @@
     );
   }
 
-  function renderList() {
-    if (
-      !listTrack ||
-      !listViewport ||
-      !games.length
-    ) {
-      return;
-    }
-
-    listTrack.innerHTML = "";
-
-    games.forEach(
-      (game, index) => {
-        const item =
-          document.createElement("div");
-
-        item.textContent =
-          friendlyName(game.filename);
-
-        Object.assign(
-          item.style,
-          {
-            width: "94%",
-            lineHeight: "1.04",
-            textAlign: "left",
-            whiteSpace: "normal",
-            wordBreak: "break-word",
-
-            fontWeight:
-              index === selectedIndex
-                ? "900"
-                : "700",
-
-            fontSize:
-              index === selectedIndex
-                ? "clamp(18px, 5.5vw, 30px)"
-                : "clamp(9px, 2.4vw, 14px)",
-
-            opacity:
-              index === selectedIndex
-                ? "1"
-                : "0.42",
-
-            transform:
-              index === selectedIndex
-                ? "translateX(3px)"
-                : "none",
-
-            transition:
-              "font-size 90ms steps(2, end), opacity 90ms linear, transform 90ms steps(2, end)"
-          }
-        );
-
-        listTrack.appendChild(
-          item
-        );
-      }
-    );
-
-    const selectedItem =
-      listTrack.children[selectedIndex];
-
-    if (!selectedItem) {
-      return;
-    }
-
-    const viewportCenter =
-      listViewport.clientHeight / 2;
-
-    const itemCenter =
-      selectedItem.offsetTop +
-      selectedItem.offsetHeight / 2;
-
-    const translateY =
-      viewportCenter - itemCenter;
-
-    listTrack.style.transform =
-      `translateY(${translateY}px)`;
+ function renderList() {
+  if (
+    !listTrack ||
+    !listViewport ||
+    !games.length
+  ) {
+    return;
   }
 
+  listTrack.innerHTML = "";
+
+  const count =
+    games.length;
+
+  games.forEach(
+    (game, index) => {
+
+      const item =
+        document.createElement("div");
+
+      item.textContent =
+        friendlyName(game.filename);
+
+      const t =
+        count === 1
+          ? 0.5
+          : index / (count - 1);
+
+      /*
+       * Curva de media luna.
+       *
+       * Arriba y abajo:
+       *     cerca del borde izquierdo
+       *
+       * Centro:
+       *     se desplaza hacia la derecha
+       */
+      const top =
+        4 + (t * 88);
+
+      const curve =
+        Math.sin(t * Math.PI);
+
+      const left =
+        2 + (curve * 24);
+
+      const selected =
+        index === selectedIndex;
+
+      Object.assign(
+        item.style,
+        {
+          position: "absolute",
+
+          top:
+            `${top}%`,
+
+          left:
+            `${left}%`,
+
+          transform:
+            selected
+              ? "translateY(-50%) scale(1)"
+              : "translateY(-50%) scale(0.88)",
+
+          transformOrigin:
+            "left center",
+
+          width:
+            selected
+              ? "68%"
+              : "52%",
+
+          minHeight:
+            selected
+              ? "44px"
+              : "30px",
+
+          boxSizing:
+            "border-box",
+
+          display:
+            "flex",
+
+          alignItems:
+            "center",
+
+          padding:
+            selected
+              ? "10px 15px"
+              : "6px 10px",
+
+          borderRadius:
+            selected
+              ? "14px"
+              : "10px",
+
+          background:
+            selected
+              ? "rgba(105, 105, 105, 0.48)"
+              : "transparent",
+
+          border:
+            selected
+              ? "1px solid rgba(255,255,255,0.16)"
+              : "1px solid transparent",
+
+          boxShadow:
+            selected
+              ? "0 7px 18px rgba(0,0,0,0.32)"
+              : "none",
+
+          color:
+            "#ffffff",
+
+          fontWeight:
+            selected
+              ? "900"
+              : "700",
+
+          fontSize:
+            selected
+              ? "clamp(17px, 4.9vw, 28px)"
+              : "clamp(10px, 2.8vw, 16px)",
+
+          lineHeight:
+            "1.08",
+
+          textAlign:
+            "left",
+
+          whiteSpace:
+            "normal",
+
+          wordBreak:
+            "break-word",
+
+          opacity:
+            selected
+              ? "1"
+              : "0.40",
+
+          transition:
+            "all 110ms steps(2, end)"
+        }
+      );
+
+      listTrack.appendChild(item);
+    }
+  );
+}
+  
   function moveSelection(delta) {
     if (
       !menuOpen ||
