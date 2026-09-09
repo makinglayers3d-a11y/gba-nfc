@@ -440,13 +440,6 @@ function renderList() {
     return;
   }
 
-  /*
-   * Guardamos los elementos para reutilizarlos
-   * entre cambios de selección.
-   *
-   * Esto permite que las transiciones CSS
-   * sean realmente animadas.
-   */
   if (!listTrack._gameItems) {
     listTrack._gameItems = new Map();
   }
@@ -457,25 +450,10 @@ function renderList() {
   const count =
     games.length;
 
-  /*
-   * Relación de cada juego respecto
-   * al seleccionado.
-   *
-   * -3 = tres posiciones arriba
-   * -2 = dos posiciones arriba
-   * -1 = una posición arriba
-   *  0 = seleccionado
-   * +1 = una posición abajo
-   * +2 = dos posiciones abajo
-   * +3 = tres posiciones abajo
-   */
   function getRelative(index) {
     let relative =
       index - selectedIndex;
 
-    /*
-     * Lista circular.
-     */
     if (relative > count / 2) {
       relative -= count;
     }
@@ -488,37 +466,25 @@ function renderList() {
   }
 
   /*
-   * Actualizamos / creamos los elementos.
+   * Creamos o reutilizamos cada título.
    */
   games.forEach(
     (game, index) => {
 
       let item =
-        itemMap.get(
-          game.filename
-        );
+        itemMap.get(game.filename);
 
       if (!item) {
-
         item =
-          document.createElement(
-            "div"
-          );
+          document.createElement("div");
 
         itemMap.set(
           game.filename,
           item
         );
 
-        listTrack.appendChild(
-          item
-        );
+        listTrack.appendChild(item);
       }
-
-      item.textContent =
-        friendlyName(
-          game.filename
-        );
 
       const relative =
         getRelative(index);
@@ -529,23 +495,17 @@ function renderList() {
       const selected =
         relative === 0;
 
-      /*
-       * Solo mostramos:
-       *
-       * 3 arriba
-       * seleccionado
-       * 3 abajo
-       */
       const visible =
         distance <= 3;
 
-      /*
-       * Tamaño progresivo.
-       */
+      item.textContent =
+        friendlyName(
+          game.filename
+        );
+
       let fontSize;
       let opacity;
       let fontWeight;
-      let padding;
 
       if (distance === 0) {
 
@@ -558,13 +518,10 @@ function renderList() {
         fontWeight =
           "900";
 
-        padding =
-          "9px 14px";
-
       } else if (distance === 1) {
 
         fontSize =
-          "clamp(13px, 3.5vw, 20px)";
+          "clamp(13px, 3.4vw, 19px)";
 
         opacity =
           "0.78";
@@ -572,36 +529,27 @@ function renderList() {
         fontWeight =
           "800";
 
-        padding =
-          "3px 8px";
-
       } else if (distance === 2) {
 
         fontSize =
-          "clamp(10px, 2.7vw, 15px)";
+          "clamp(10px, 2.6vw, 15px)";
 
         opacity =
-          "0.50";
+          "0.48";
 
         fontWeight =
           "700";
 
-        padding =
-          "2px 8px";
-
       } else {
 
         fontSize =
-          "clamp(8px, 2.1vw, 12px)";
+          "clamp(8px, 2.0vw, 12px)";
 
         opacity =
           "0.30";
 
         fontWeight =
           "700";
-
-        padding =
-          "1px 8px";
       }
 
       Object.assign(
@@ -610,19 +558,11 @@ function renderList() {
           position:
             "absolute",
 
-          /*
-           * Pegados al lateral izquierdo.
-           */
           left:
             "0",
 
           width:
             "84%",
-
-          minHeight:
-            selected
-              ? "48px"
-              : "0",
 
           boxSizing:
             "border-box",
@@ -636,17 +576,15 @@ function renderList() {
             "center",
 
           padding:
-            padding,
+            selected
+              ? "9px 14px"
+              : "2px 8px",
 
           borderRadius:
             selected
               ? "14px"
               : "8px",
 
-          /*
-           * El cuadro gris solo pertenece
-           * al juego seleccionado.
-           */
           background:
             selected
               ? "rgba(105,105,105,0.50)"
@@ -689,17 +627,16 @@ function renderList() {
               : "0",
 
           /*
-           * Animación tipo carrusel/rueda.
+           * Movimiento fluido.
            */
           transition:
             [
               "top 420ms cubic-bezier(0.22,0.61,0.36,1)",
               "font-size 360ms cubic-bezier(0.22,0.61,0.36,1)",
-              "opacity 300ms ease",
+              "opacity 320ms ease",
               "padding 360ms ease",
               "background 360ms ease",
-              "box-shadow 360ms ease",
-              "min-height 360ms ease"
+              "box-shadow 360ms ease"
             ].join(", ")
         }
       );
@@ -707,9 +644,7 @@ function renderList() {
   );
 
   /*
-   * Ocultamos elementos que hayan desaparecido
-   * del conjunto visible, pero los conservamos
-   * en el DOM para poder reutilizarlos.
+   * Eliminamos elementos que ya no existen.
    */
   itemMap.forEach(
     (item, filename) => {
@@ -722,30 +657,11 @@ function renderList() {
 
       if (index < 0) {
         item.remove();
-        itemMap.delete(
-          filename
-        );
-        return;
-      }
-
-      const relative =
-        getRelative(index);
-
-      if (
-        Math.abs(relative) > 3
-      ) {
-        item.style.display =
-          "none";
-
-        item.style.opacity =
-          "0";
+        itemMap.delete(filename);
       }
     }
   );
 
-  /*
-   * Buscamos el elemento seleccionado.
-   */
   const selectedGame =
     games[selectedIndex];
 
@@ -763,54 +679,17 @@ function renderList() {
   }
 
   /*
-   * Forzamos el cálculo de layout.
+   * El cuadro gris siempre está
+   * exactamente en el centro.
    */
-  const selectedHeight =
-    selectedElement.getBoundingClientRect().height;
+  selectedElement.style.display =
+    "flex";
 
   const viewportHeight =
     listViewport.clientHeight;
 
-  /*
-   * Centro fijo.
-   */
   const centerY =
     viewportHeight / 2;
-
-  /*
-   * Margen mínimo entre el cuadro gris
-   * y el título inmediatamente anterior
-   * o siguiente.
-   */
-  const firstGap =
-    4;
-
-  /*
-   * A partir del primero, la separación
-   * va disminuyendo.
-   *
-   * 1 -> 4 px
-   * 2 -> 3 px
-   * 3 -> 2 px
-   */
-  function gapForDistance(distance) {
-
-    if (distance === 1) {
-      return firstGap;
-    }
-
-    if (distance === 2) {
-      return 3;
-    }
-
-    return 2;
-  }
-
-  /*
-   * Colocamos el seleccionado.
-   */
-  selectedElement.style.display =
-    "flex";
 
   selectedElement.style.top =
     `${centerY}px`;
@@ -819,21 +698,36 @@ function renderList() {
     "translateY(-50%)";
 
   /*
-   * Medimos de nuevo por seguridad.
+   * Medimos la altura FINAL del cuadro gris.
    */
-  const selectedRect =
-    selectedElement.getBoundingClientRect();
+  const selectedHeight =
+    selectedElement.getBoundingClientRect().height;
+
+  const selectedHalf =
+    selectedHeight / 2;
 
   /*
-   * Altura real de cada lado del
-   * cuadro seleccionado.
+   * Margen pequeño pero real.
    */
-  const selectedHalfHeight =
-    selectedRect.height / 2;
+  const gap =
+    6;
 
   /*
-   * Recogemos los juegos visibles
-   * de cada lado.
+   * Posiciones de los 3 niveles.
+   *
+   * El primer título queda separado
+   * directamente del cuadro gris.
+   *
+   * Los siguientes se van comprimiendo.
+   */
+  const extra1 =
+    24;
+
+  const extra2 =
+    20;
+
+  /*
+   * Separamos por lados.
    */
   const above = [];
   const below = [];
@@ -880,10 +774,6 @@ function renderList() {
     }
   );
 
-  /*
-   * Los ordenamos desde el centro
-   * hacia fuera.
-   */
   above.sort(
     (a, b) =>
       a.distance -
@@ -897,17 +787,14 @@ function renderList() {
   );
 
   /*
-   * Colocamos los títulos superiores.
-   *
-   * Cada uno se calcula a partir
-   * del anterior, así nunca invade
-   * el cuadro gris ni otro título.
+   * -------------------------
+   * TÍTULOS SUPERIORES
+   * -------------------------
    */
-  let previousCenter =
-    centerY;
 
-  let previousHalfHeight =
-    selectedHalfHeight;
+  let previousEdge =
+    centerY -
+    selectedHalf;
 
   above.forEach(
     (entry) => {
@@ -924,15 +811,22 @@ function renderList() {
       const halfHeight =
         height / 2;
 
-      const gap =
-        gapForDistance(
-          distance
-        );
+      let spacing;
+
+      if (distance === 1) {
+        spacing =
+          gap;
+      } else if (distance === 2) {
+        spacing =
+          extra1;
+      } else {
+        spacing =
+          extra2;
+      }
 
       const center =
-        previousCenter -
-        previousHalfHeight -
-        gap -
+        previousEdge -
+        spacing -
         halfHeight;
 
       item.style.top =
@@ -941,25 +835,21 @@ function renderList() {
       item.style.transform =
         "translateY(-50%)";
 
-      previousCenter =
-        center;
-
-      previousHalfHeight =
+      previousEdge =
+        center -
         halfHeight;
     }
   );
 
   /*
-   * Colocamos los títulos inferiores.
-   *
-   * Exactamente el mismo sistema,
-   * pero hacia abajo.
+   * -------------------------
+   * TÍTULOS INFERIORES
+   * -------------------------
    */
-  previousCenter =
-    centerY;
 
-  previousHalfHeight =
-    selectedHalfHeight;
+  previousEdge =
+    centerY +
+    selectedHalf;
 
   below.forEach(
     (entry) => {
@@ -976,15 +866,22 @@ function renderList() {
       const halfHeight =
         height / 2;
 
-      const gap =
-        gapForDistance(
-          distance
-        );
+      let spacing;
+
+      if (distance === 1) {
+        spacing =
+          gap;
+      } else if (distance === 2) {
+        spacing =
+          extra1;
+      } else {
+        spacing =
+          extra2;
+      }
 
       const center =
-        previousCenter +
-        previousHalfHeight +
-        gap +
+        previousEdge +
+        spacing +
         halfHeight;
 
       item.style.top =
@@ -993,10 +890,8 @@ function renderList() {
       item.style.transform =
         "translateY(-50%)";
 
-      previousCenter =
-        center;
-
-      previousHalfHeight =
+      previousEdge =
+        center +
         halfHeight;
     }
   );
