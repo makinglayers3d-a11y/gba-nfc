@@ -723,14 +723,23 @@ async function startApplication() {
     params.get("menu") === "1";
 
   /*
-   * Cuando una tarjeta NFC abre ?menu=1,
-   * no enseñamos el logo ni el aviso de actualización.
+   * ?menu=1:
+   * ocultamos completamente el logo y el aviso
+   * antes de cargar el selector.
    */
-  if (!menuOnly && window.gbaBootIntro) {
+  if (menuOnly) {
+    const bootScreen =
+      document.getElementById("boot-screen");
+
+    if (bootScreen) {
+      bootScreen.classList.add("boot-finished");
+    }
+  } else if (window.gbaBootIntro) {
     await window.gbaBootIntro.start();
   }
 
   await loadGame();
+}
 }
 
 startApplication();
