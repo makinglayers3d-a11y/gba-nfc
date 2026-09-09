@@ -714,7 +714,19 @@ if (buttonColors) {
 }
 
 async function startApplication() {
-  if (window.gbaBootIntro) {
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const menuOnly =
+    params.get("menu") === "1";
+
+  /*
+   * Cuando una tarjeta NFC abre ?menu=1,
+   * no enseñamos el logo ni el aviso de actualización.
+   */
+  if (!menuOnly && window.gbaBootIntro) {
     await window.gbaBootIntro.start();
   }
 
@@ -722,5 +734,4 @@ async function startApplication() {
 }
 
 startApplication();
-
 })();
