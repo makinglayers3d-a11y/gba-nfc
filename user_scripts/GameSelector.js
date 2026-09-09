@@ -340,7 +340,7 @@
       {
         position: "absolute",
         inset: "0",
-        zIndex: "30",
+        zIndex: "60",
         display: "flex",
         flexDirection: "column",
         background: "#05080c",
