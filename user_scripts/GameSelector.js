@@ -29,9 +29,7 @@
   const params =
     new URLSearchParams(window.location.search);
 
-  const openFromUrl =
-    params.get("menu") === "1";
-
+ 
   if (openFromUrl) {
   const bootScreen =
     document.getElementById("boot-screen");
@@ -917,12 +915,6 @@
    * NO esperamos a que el emulador termine:
    * el selector vive directamente sobre .screen-frame.
    */
-  if (openFromUrl) {
-    window.setTimeout(
-      () => {
-        openScreenSelector();
-      },
-      0
-    );
-  }
+ window.gbaOpenGameSelector =
+  openScreenSelector; 
 })();
