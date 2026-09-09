@@ -409,7 +409,7 @@ Object.assign(
           "clamp(11px, 3vw, 18px)",
         fontWeight: "900",
         letterSpacing: "0.08em",
-        marginBottom: "2%"
+        marginBottom: "2%",
         zIndex: "2"
       }
     );
@@ -426,7 +426,7 @@ Object.assign(
         maskImage:
           "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)",
         webkitMaskImage:
-          "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)"
+          "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)",
         zIndex: "2"
       }
     );
@@ -459,7 +459,7 @@ Object.assign(
         fontWeight: "800",
         letterSpacing: "0.02em",
         opacity: "0.52",
-        marginTop: "2%"
+        marginTop: "2%",
         zIndex: "2"
       }
     );
