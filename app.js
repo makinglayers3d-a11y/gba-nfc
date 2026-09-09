@@ -39,10 +39,7 @@ const buttonColors = document.getElementById("button-colors");
     rom: "games/The Legend of Zelda - The Minish Cap.gba"
   },
 
-  tetrisworlds: {
-    name: "Tetris Worlds",
-    rom: "games/Tetris Worlds.gba"
-  }
+  
 };
 
 const selected =
