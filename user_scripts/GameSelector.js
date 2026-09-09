@@ -607,6 +607,64 @@ function renderList() {
   const count =
     games.length;
 
+  /*
+   * Cuadro gris independiente.
+   * Se crea una sola vez y permanece fijo
+   * en el centro del selector.
+   */
+  let selectionBox =
+    listViewport.querySelector(
+      ".gba-selection-box"
+    );
+
+  if (!selectionBox) {
+    selectionBox =
+      document.createElement("div");
+
+    selectionBox.className =
+      "gba-selection-box";
+
+    Object.assign(
+      selectionBox.style,
+      {
+        position: "absolute",
+        left: "0",
+        top: "50%",
+        width: "84%",
+        height: "56px",
+        transform:
+          "translateY(-50%)",
+
+        boxSizing: "border-box",
+
+        borderRadius:
+          "14px",
+
+        background:
+          "rgba(105,105,105,0.50)",
+
+        border:
+          "1px solid rgba(255,255,255,0.16)",
+
+        boxShadow:
+          "0 7px 18px rgba(0,0,0,0.32)",
+
+        zIndex: "1",
+
+        pointerEvents:
+          "none"
+      }
+    );
+
+    listViewport.insertBefore(
+      selectionBox,
+      listTrack
+    );
+  }
+
+  /*
+   * La lista es circular.
+   */
   function getRelative(index) {
     let relative =
       index - selectedIndex;
@@ -623,24 +681,30 @@ function renderList() {
   }
 
   /*
-   * Creamos o reutilizamos cada título.
+   * Creamos o reutilizamos los títulos.
    */
   games.forEach(
     (game, index) => {
 
       let item =
-        itemMap.get(game.filename);
+        itemMap.get(
+          game.filename
+        );
 
       if (!item) {
         item =
-          document.createElement("div");
+          document.createElement(
+            "div"
+          );
 
         itemMap.set(
           game.filename,
           item
         );
 
-        listTrack.appendChild(item);
+        listTrack.appendChild(
+          item
+        );
       }
 
       const relative =
@@ -667,7 +731,7 @@ function renderList() {
       if (distance === 0) {
 
         fontSize =
-          "clamp(17px, 4.9vw, 28px)";
+          "clamp(17px, 4.6vw, 26px)";
 
         opacity =
           "1";
@@ -678,7 +742,7 @@ function renderList() {
       } else if (distance === 1) {
 
         fontSize =
-          "clamp(13px, 3.4vw, 19px)";
+          "clamp(13px, 3.3vw, 19px)";
 
         opacity =
           "0.78";
@@ -689,7 +753,7 @@ function renderList() {
       } else if (distance === 2) {
 
         fontSize =
-          "clamp(10px, 2.6vw, 15px)";
+          "clamp(10px, 2.5vw, 14px)";
 
         opacity =
           "0.48";
@@ -700,7 +764,7 @@ function renderList() {
       } else {
 
         fontSize =
-          "clamp(8px, 2.0vw, 12px)";
+          "clamp(8px, 1.9vw, 11px)";
 
         opacity =
           "0.30";
@@ -734,28 +798,21 @@ function renderList() {
 
           padding:
             selected
-              ? "9px 14px"
+              ? "7px 14px"
               : "2px 8px",
 
-          borderRadius:
-            selected
-              ? "14px"
-              : "8px",
-
+          /*
+           * El título seleccionado ya NO
+           * crea el fondo gris.
+           */
           background:
-            selected
-              ? "rgba(105,105,105,0.50)"
-              : "transparent",
+            "transparent",
 
           border:
-            selected
-              ? "1px solid rgba(255,255,255,0.16)"
-              : "1px solid transparent",
+            "none",
 
           boxShadow:
-            selected
-              ? "0 7px 18px rgba(0,0,0,0.32)"
-              : "none",
+            "none",
 
           color:
             "#ffffff",
@@ -783,17 +840,18 @@ function renderList() {
               ? opacity
               : "0",
 
+          zIndex:
+            "2",
+
           /*
-           * Movimiento fluido.
+           * Movimiento suave tipo rueda.
            */
           transition:
             [
-              "top 420ms cubic-bezier(0.22,0.61,0.36,1)",
-              "font-size 360ms cubic-bezier(0.22,0.61,0.36,1)",
+              "top 430ms cubic-bezier(0.22,0.61,0.36,1)",
+              "font-size 380ms cubic-bezier(0.22,0.61,0.36,1)",
               "opacity 320ms ease",
-              "padding 360ms ease",
-              "background 360ms ease",
-              "box-shadow 360ms ease"
+              "padding 380ms ease"
             ].join(", ")
         }
       );
@@ -801,90 +859,49 @@ function renderList() {
   );
 
   /*
-   * Eliminamos elementos que ya no existen.
+   * Eliminamos títulos que ya no existen.
    */
   itemMap.forEach(
     (item, filename) => {
 
-      const index =
-        games.findIndex(
+      const exists =
+        games.some(
           (game) =>
             game.filename === filename
         );
 
-      if (index < 0) {
+      if (!exists) {
         item.remove();
-        itemMap.delete(filename);
+        itemMap.delete(
+          filename
+        );
       }
     }
   );
 
-  const selectedGame =
-    games[selectedIndex];
-
-  if (!selectedGame) {
-    return;
-  }
-
-  const selectedElement =
-    itemMap.get(
-      selectedGame.filename
-    );
-
-  if (!selectedElement) {
-    return;
-  }
+  /*
+   * Tamaño fijo del cuadro gris.
+   */
+  const selectionHeight =
+    56;
 
   /*
-   * El cuadro gris siempre está
-   * exactamente en el centro.
+   * Centro real del viewport.
    */
-  selectedElement.style.display =
-    "flex";
-
   const viewportHeight =
     listViewport.clientHeight;
 
   const centerY =
     viewportHeight / 2;
 
-  selectedElement.style.top =
+  selectionBox.style.top =
     `${centerY}px`;
 
-  selectedElement.style.transform =
-    "translateY(-50%)";
+  selectionBox.style.height =
+    `${selectionHeight}px`;
 
   /*
-   * Medimos la altura FINAL del cuadro gris.
-   */
-  const selectedHeight =
-    selectedElement.getBoundingClientRect().height;
-
-  const selectedHalf =
-    selectedHeight / 2;
-
-  /*
-   * Margen pequeño pero real.
-   */
-  const gap =
-    6;
-
-  /*
-   * Posiciones de los 3 niveles.
-   *
-   * El primer título queda separado
-   * directamente del cuadro gris.
-   *
-   * Los siguientes se van comprimiendo.
-   */
-  const extra1 =
-    24;
-
-  const extra2 =
-    20;
-
-  /*
-   * Separamos por lados.
+   * Recogemos los títulos.
    */
   const above = [];
   const below = [];
@@ -944,14 +961,32 @@ function renderList() {
   );
 
   /*
+   * Margen entre el cuadro gris
+   * y el primer título.
+   */
+  const firstGap =
+    4;
+
+  /*
+   * Separación decreciente.
+   *
+   * Cuanto más lejos del centro,
+   * menos espacio entre títulos.
+   */
+  const secondGap =
+    22;
+
+  const thirdGap =
+    12;
+
+  /*
    * -------------------------
-   * TÍTULOS SUPERIORES
+   * ARRIBA
    * -------------------------
    */
-
-  let previousEdge =
+  let previousBottom =
     centerY -
-    selectedHalf;
+    selectionHeight / 2;
 
   above.forEach(
     (entry) => {
@@ -968,22 +1003,22 @@ function renderList() {
       const halfHeight =
         height / 2;
 
-      let spacing;
+      let gap;
 
       if (distance === 1) {
-        spacing =
-          gap;
+        gap =
+          firstGap;
       } else if (distance === 2) {
-        spacing =
-          extra1;
+        gap =
+          secondGap;
       } else {
-        spacing =
-          extra2;
+        gap =
+          thirdGap;
       }
 
       const center =
-        previousEdge -
-        spacing -
+        previousBottom -
+        gap -
         halfHeight;
 
       item.style.top =
@@ -992,7 +1027,7 @@ function renderList() {
       item.style.transform =
         "translateY(-50%)";
 
-      previousEdge =
+      previousBottom =
         center -
         halfHeight;
     }
@@ -1000,13 +1035,12 @@ function renderList() {
 
   /*
    * -------------------------
-   * TÍTULOS INFERIORES
+   * ABAJO
    * -------------------------
    */
-
-  previousEdge =
+  let previousTop =
     centerY +
-    selectedHalf;
+    selectionHeight / 2;
 
   below.forEach(
     (entry) => {
@@ -1023,22 +1057,22 @@ function renderList() {
       const halfHeight =
         height / 2;
 
-      let spacing;
+      let gap;
 
       if (distance === 1) {
-        spacing =
-          gap;
+        gap =
+          firstGap;
       } else if (distance === 2) {
-        spacing =
-          extra1;
+        gap =
+          secondGap;
       } else {
-        spacing =
-          extra2;
+        gap =
+          thirdGap;
       }
 
       const center =
-        previousEdge +
-        spacing +
+        previousTop +
+        gap +
         halfHeight;
 
       item.style.top =
@@ -1047,11 +1081,15 @@ function renderList() {
       item.style.transform =
         "translateY(-50%)";
 
-      previousEdge =
+      previousTop =
         center +
         halfHeight;
     }
   );
+
+  /*
+   * Actualizamos la carátula.
+   */
   updateCoverBackground();
 }
   
