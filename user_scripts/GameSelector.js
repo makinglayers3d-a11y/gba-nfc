@@ -607,63 +607,11 @@ function renderList() {
   const count =
     games.length;
 
-  /*
-   * Cuadro gris independiente.
-   * Se crea una sola vez y permanece fijo
-   * en el centro del selector.
-   */
-  let selectionBox =
-    listViewport.querySelector(
-      ".gba-selection-box"
-    );
-
-  if (!selectionBox) {
-    selectionBox =
-      document.createElement("div");
-
-    selectionBox.className =
-      "gba-selection-box";
-
-    Object.assign(
-      selectionBox.style,
-      {
-        position: "absolute",
-        left: "0",
-        top: "50%",
-        width: "84%",
-        height: "56px",
-        transform:
-          "translateY(-50%)",
-
-        boxSizing: "border-box",
-
-        borderRadius:
-          "14px",
-
-        background:
-          "rgba(105,105,105,0.50)",
-
-        border:
-          "1px solid rgba(255,255,255,0.16)",
-
-        boxShadow:
-          "0 7px 18px rgba(0,0,0,0.32)",
-
-        zIndex: "1",
-
-        pointerEvents:
-          "none"
-      }
-    );
-
-    listViewport.insertBefore(
-      selectionBox,
-      listTrack
-    );
-  }
+  const VISIBLE_SIDE =
+    3;
 
   /*
-   * La lista es circular.
+   * Posición circular respecto al seleccionado.
    */
   function getRelative(index) {
     let relative =
@@ -681,7 +629,7 @@ function renderList() {
   }
 
   /*
-   * Creamos o reutilizamos los títulos.
+   * Crear/reutilizar títulos.
    */
   games.forEach(
     (game, index) => {
@@ -693,9 +641,7 @@ function renderList() {
 
       if (!item) {
         item =
-          document.createElement(
-            "div"
-          );
+          document.createElement("div");
 
         itemMap.set(
           game.filename,
@@ -717,16 +663,20 @@ function renderList() {
         relative === 0;
 
       const visible =
-        distance <= 3;
+        distance <= VISIBLE_SIDE;
 
       item.textContent =
         friendlyName(
           game.filename
         );
 
+      /*
+       * Tamaños según distancia.
+       */
       let fontSize;
       let opacity;
       let fontWeight;
+      let padding;
 
       if (distance === 0) {
 
@@ -739,6 +689,9 @@ function renderList() {
         fontWeight =
           "900";
 
+        padding =
+          "8px 14px";
+
       } else if (distance === 1) {
 
         fontSize =
@@ -749,6 +702,9 @@ function renderList() {
 
         fontWeight =
           "800";
+
+        padding =
+          "2px 8px";
 
       } else if (distance === 2) {
 
@@ -761,6 +717,9 @@ function renderList() {
         fontWeight =
           "700";
 
+        padding =
+          "1px 8px";
+
       } else {
 
         fontSize =
@@ -771,6 +730,9 @@ function renderList() {
 
         fontWeight =
           "700";
+
+        padding =
+          "1px 8px";
       }
 
       Object.assign(
@@ -797,22 +759,31 @@ function renderList() {
             "center",
 
           padding:
-            selected
-              ? "7px 14px"
-              : "2px 8px",
+            padding,
 
           /*
-           * El título seleccionado ya NO
-           * crea el fondo gris.
+           * El cuadro gris pertenece
+           * al título seleccionado.
            */
           background:
-            "transparent",
+            selected
+              ? "rgba(105,105,105,0.50)"
+              : "transparent",
 
           border:
-            "none",
+            selected
+              ? "1px solid rgba(255,255,255,0.16)"
+              : "1px solid transparent",
+
+          borderRadius:
+            selected
+              ? "14px"
+              : "8px",
 
           boxShadow:
-            "none",
+            selected
+              ? "0 7px 18px rgba(0,0,0,0.32)"
+              : "none",
 
           color:
             "#ffffff",
@@ -835,23 +806,43 @@ function renderList() {
           wordBreak:
             "break-word",
 
+          /*
+           * Alturas controladas para que los
+           * cálculos no dependan de que un
+           * título concreto tenga más o menos
+           * líneas.
+           */
+          height:
+            selected
+              ? "56px"
+              : distance === 1
+                ? "30px"
+                : distance === 2
+                  ? "22px"
+                  : "18px",
+
+          overflow:
+            "hidden",
+
           opacity:
             visible
               ? opacity
               : "0",
 
           zIndex:
-            "2",
+            selected
+              ? "3"
+              : "2",
 
-          /*
-           * Movimiento suave tipo rueda.
-           */
           transition:
             [
               "top 430ms cubic-bezier(0.22,0.61,0.36,1)",
               "font-size 380ms cubic-bezier(0.22,0.61,0.36,1)",
               "opacity 320ms ease",
-              "padding 380ms ease"
+              "height 380ms cubic-bezier(0.22,0.61,0.36,1)",
+              "padding 380ms ease",
+              "background 300ms ease",
+              "box-shadow 300ms ease"
             ].join(", ")
         }
       );
@@ -859,7 +850,8 @@ function renderList() {
   );
 
   /*
-   * Eliminamos títulos que ya no existen.
+   * Eliminamos juegos que ya no estén
+   * en la lista.
    */
   itemMap.forEach(
     (item, filename) => {
@@ -872,6 +864,7 @@ function renderList() {
 
       if (!exists) {
         item.remove();
+
         itemMap.delete(
           filename
         );
@@ -880,13 +873,7 @@ function renderList() {
   );
 
   /*
-   * Tamaño fijo del cuadro gris.
-   */
-  const selectionHeight =
-    56;
-
-  /*
-   * Centro real del viewport.
+   * Datos del área visible.
    */
   const viewportHeight =
     listViewport.clientHeight;
@@ -894,14 +881,34 @@ function renderList() {
   const centerY =
     viewportHeight / 2;
 
-  selectionBox.style.top =
-    `${centerY}px`;
+  /*
+   * Altura FIJA del cuadro gris.
+   */
+  const selectedHeight =
+    56;
 
-  selectionBox.style.height =
-    `${selectionHeight}px`;
+  const selectedHalf =
+    selectedHeight / 2;
 
   /*
-   * Recogemos los títulos.
+   * Margen mínimo entre el borde
+   * del cuadro y el juego vecino.
+   */
+  const gap1 =
+    4;
+
+  /*
+   * Los siguientes juegos se van
+   * comprimiendo.
+   */
+  const gap2 =
+    18;
+
+  const gap3 =
+    10;
+
+  /*
+   * Separamos arriba y abajo.
    */
   const above = [];
   const below = [];
@@ -917,7 +924,7 @@ function renderList() {
 
       if (
         distance === 0 ||
-        distance > 3
+        distance > VISIBLE_SIDE
       ) {
         return;
       }
@@ -961,23 +968,34 @@ function renderList() {
   );
 
   /*
-   * Margen entre el cuadro gris
-   * y el primer título.
+   * -------------------------
+   * SELECCIONADO
+   * -------------------------
    */
-  const firstGap =
-    4;
+  const selectedGame =
+    games[selectedIndex];
 
-  /*
-   * Separación decreciente.
-   *
-   * Cuanto más lejos del centro,
-   * menos espacio entre títulos.
-   */
-  const secondGap =
-    22;
+  if (!selectedGame) {
+    return;
+  }
 
-  const thirdGap =
-    12;
+  const selectedElement =
+    itemMap.get(
+      selectedGame.filename
+    );
+
+  if (!selectedElement) {
+    return;
+  }
+
+  selectedElement.style.display =
+    "flex";
+
+  selectedElement.style.top =
+    `${centerY}px`;
+
+  selectedElement.style.transform =
+    "translateY(-50%)";
 
   /*
    * -------------------------
@@ -986,7 +1004,7 @@ function renderList() {
    */
   let previousBottom =
     centerY -
-    selectionHeight / 2;
+    selectedHalf;
 
   above.forEach(
     (entry) => {
@@ -998,7 +1016,11 @@ function renderList() {
         entry.distance;
 
       const height =
-        item.getBoundingClientRect().height;
+        distance === 1
+          ? 30
+          : distance === 2
+            ? 22
+            : 18;
 
       const halfHeight =
         height / 2;
@@ -1007,13 +1029,13 @@ function renderList() {
 
       if (distance === 1) {
         gap =
-          firstGap;
+          gap1;
       } else if (distance === 2) {
         gap =
-          secondGap;
+          gap2;
       } else {
         gap =
-          thirdGap;
+          gap3;
       }
 
       const center =
@@ -1040,7 +1062,7 @@ function renderList() {
    */
   let previousTop =
     centerY +
-    selectionHeight / 2;
+    selectedHalf;
 
   below.forEach(
     (entry) => {
@@ -1052,7 +1074,11 @@ function renderList() {
         entry.distance;
 
       const height =
-        item.getBoundingClientRect().height;
+        distance === 1
+          ? 30
+          : distance === 2
+            ? 22
+            : 18;
 
       const halfHeight =
         height / 2;
@@ -1061,13 +1087,13 @@ function renderList() {
 
       if (distance === 1) {
         gap =
-          firstGap;
+          gap1;
       } else if (distance === 2) {
         gap =
-          secondGap;
+          gap2;
       } else {
         gap =
-          thirdGap;
+          gap3;
       }
 
       const center =
@@ -1087,9 +1113,6 @@ function renderList() {
     }
   );
 
-  /*
-   * Actualizamos la carátula.
-   */
   updateCoverBackground();
 }
   
