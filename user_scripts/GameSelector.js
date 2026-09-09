@@ -333,16 +333,7 @@
       "Seleccionar juego"
     );
 
-  Object.assign(
-  listTrack.style,
-  {
-    position: "absolute",
-    inset: "0",
-    width: "100%",
-    height: "100%",
-    transform: "none"
-  }
-);
+
 
     const title =
       document.createElement("div");
@@ -380,22 +371,16 @@
     listTrack =
       document.createElement("div");
 
-    Object.assign(
-      listTrack.style,
-      {
-        position: "absolute",
-        left: "0",
-        right: "0",
-        top: "0",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: "10px",
-        transform: "translateY(0)",
-        transition:
-          "transform 110ms steps(2, end)"
-      }
-    );
+   Object.assign(
+  listTrack.style,
+  {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    transform: "none"
+  }
+);
 
     const footer =
       document.createElement("div");
