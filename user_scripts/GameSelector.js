@@ -445,8 +445,59 @@ Object.assign(
   const count =
     games.length;
 
+  /*
+   * Posiciones verticales fijas.
+   *
+   * El seleccionado siempre queda en el centro.
+   * Los demás juegos se colocan arriba y abajo.
+   *
+   * No desplazamos horizontalmente los títulos.
+   */
+  const slots = [
+    18,
+    34,
+    50,
+    66,
+    82
+  ];
+
   games.forEach(
     (game, index) => {
+
+      let relative =
+        index - selectedIndex;
+
+      /*
+       * Hacemos que la lista sea circular.
+       */
+      if (relative > count / 2) {
+        relative -= count;
+      }
+
+      if (relative < -count / 2) {
+        relative += count;
+      }
+
+      /*
+       * Limitamos la posición al rango visible.
+       */
+      const slotIndex =
+        Math.max(
+          -2,
+          Math.min(
+            2,
+            relative
+          )
+        );
+
+      const slot =
+        slots[slotIndex + 2];
+
+      const distance =
+        Math.abs(relative);
+
+      const selected =
+        relative === 0;
 
       const item =
         document.createElement("div");
@@ -454,59 +505,70 @@ Object.assign(
       item.textContent =
         friendlyName(game.filename);
 
-      const t =
-        count === 1
-          ? 0.5
-          : index / (count - 1);
-
       /*
-       * Curva de media luna.
-       *
-       * Arriba y abajo:
-       *     cerca del borde izquierdo
-       *
-       * Centro:
-       *     se desplaza hacia la derecha
+       * El tamaño crea la sensación de
+       * profundidad / media luna.
        */
-      const top =
-        4 + (t * 88);
+      let fontSize;
+      let opacity;
+      let fontWeight;
 
-      const curve =
-        Math.sin(t * Math.PI);
+      if (distance === 0) {
+        fontSize =
+          "clamp(17px, 4.9vw, 28px)";
 
-      const left =
-        2 + (curve * 24);
+        opacity =
+          "1";
 
-      const selected =
-        index === selectedIndex;
+        fontWeight =
+          "900";
+      } else if (distance === 1) {
+        fontSize =
+          "clamp(12px, 3.2vw, 19px)";
+
+        opacity =
+          "0.65";
+
+        fontWeight =
+          "800";
+      } else {
+        fontSize =
+          "clamp(8px, 2.2vw, 13px)";
+
+        opacity =
+          "0.32";
+
+        fontWeight =
+          "700";
+      }
 
       Object.assign(
         item.style,
         {
-          position: "absolute",
+          position:
+            "absolute",
+
+          /*
+           * TODOS permanecen pegados a la izquierda.
+           */
+          left:
+            "2%",
 
           top:
-            `${top}%`,
-
-          left:
-            `${left}%`,
+            `${slot}%`,
 
           transform:
-            selected
-              ? "translateY(-50%) scale(1)"
-              : "translateY(-50%) scale(0.88)",
+            "translateY(-50%)",
 
           transformOrigin:
             "left center",
 
           width:
-            selected
-              ? "68%"
-              : "52%",
+            "84%",
 
           minHeight:
             selected
-              ? "44px"
+              ? "48px"
               : "30px",
 
           boxSizing:
@@ -520,17 +582,21 @@ Object.assign(
 
           padding:
             selected
-              ? "10px 15px"
-              : "6px 10px",
+              ? "9px 14px"
+              : "5px 8px",
 
           borderRadius:
             selected
               ? "14px"
-              : "10px",
+              : "8px",
 
+          /*
+           * El cuadro gris solamente existe
+           * para el juego seleccionado.
+           */
           background:
             selected
-              ? "rgba(105, 105, 105, 0.48)"
+              ? "rgba(105, 105, 105, 0.50)"
               : "transparent",
 
           border:
@@ -546,15 +612,11 @@ Object.assign(
           color:
             "#ffffff",
 
-          fontWeight:
-            selected
-              ? "900"
-              : "700",
-
           fontSize:
-            selected
-              ? "clamp(17px, 4.9vw, 28px)"
-              : "clamp(10px, 2.8vw, 16px)",
+            fontSize,
+
+          fontWeight:
+            fontWeight,
 
           lineHeight:
             "1.08",
@@ -569,16 +631,16 @@ Object.assign(
             "break-word",
 
           opacity:
-            selected
-              ? "1"
-              : "0.40",
+            opacity,
 
           transition:
-            "all 110ms steps(2, end)"
+            "all 120ms steps(2, end)"
         }
       );
 
-      listTrack.appendChild(item);
+      listTrack.appendChild(
+        item
+      );
     }
   );
 }
