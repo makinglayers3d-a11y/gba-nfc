@@ -1232,16 +1232,17 @@ dialog::backdrop {
 }
 
 .update-message {
-  max-width: 92%;
+  width: 94%;
+  max-width: 700px;
 
   color: #fff;
 
-  font-size: clamp(12px, 3.2vw, 22px);
-  line-height: 1.45;
+  font-size: clamp(18px, 4.8vw, 30px);
+  line-height: 1.4;
 
   font-weight: 900;
 
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
 
   text-align: center;
 
