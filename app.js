@@ -724,12 +724,8 @@ async function startApplication() {
     params.get("skipintro") === "1";
 
   /*
-   * Solo saltamos el intro en:
-   * - ?menu=1
-   * - ?skipintro=1 (juego elegido desde el selector)
-   *
-   * Los enlaces directos ?game=pokemon
-   * siguen mostrando el logo y la advertencia.
+   * Selector NFC:
+   * no mostramos el logo ni el aviso.
    */
   if (menuOnly || skipIntro) {
     const bootScreen =
@@ -742,7 +738,17 @@ async function startApplication() {
       bootScreen.style.opacity = "0";
       bootScreen.style.pointerEvents = "none";
     }
-  } else if (window.gbaBootIntro) {
+
+    await loadGame();
+    return;
+  }
+
+  /*
+   * Acceso directo a un juego:
+   * primero mostramos COMPLETAMENTE el intro.
+   * Después arrancamos el emulador.
+   */
+  if (window.gbaBootIntro) {
     await window.gbaBootIntro.start();
   }
 
