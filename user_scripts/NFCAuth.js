@@ -169,55 +169,84 @@
     overlay = null;
   }
 
-  function decodeRecord(record) {
-    try {
-      if (!record || !record.data) {
-        return "";
-      }
-
-      if (
-        typeof record.data ===
-        "string"
-      ) {
-        return record.data.trim();
-      }
-
-      return new TextDecoder()
-        .decode(record.data)
-        .trim();
-    } catch (error) {
+ function decodeRecord(record) {
+  try {
+    if (!record || !record.data) {
       return "";
+    }
+
+    if (
+      typeof record.data === "string"
+    ) {
+      return record.data.trim();
+    }
+
+    const encoding =
+      record.encoding || "utf-8";
+
+    return new TextDecoder(
+      encoding
+    )
+      .decode(record.data)
+      .trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function hasValidKey(message) {
+  const records =
+    message &&
+    Array.isArray(message.records)
+      ? message.records
+      : [];
+
+  for (const record of records) {
+    if (
+      record.recordType !==
+      "text"
+    ) {
+      continue;
+    }
+
+    const text =
+      decodeRecord(record);
+
+    /*
+     * Aceptamos ambas formas:
+     *
+     * GBA-NFC-KEY:Ml3D-f22
+     *
+     * o simplemente:
+     *
+     * Ml3D-f22
+     */
+    const normalized =
+      text
+        .replace(
+          /^GBA-NFC-KEY:/i,
+          ""
+        )
+        .trim();
+
+    console.log(
+      "NFC registro de texto detectado:",
+      {
+        length: normalized.length,
+        valid:
+          normalized === SHARED_KEY
+      }
+    );
+
+    if (
+      normalized === SHARED_KEY
+    ) {
+      return true;
     }
   }
 
-  function hasValidKey(message) {
-    const records =
-      message &&
-      Array.isArray(message.records)
-        ? message.records
-        : [];
-
-    return records.some(
-      (record) => {
-        if (
-          record.recordType !==
-          "text"
-        ) {
-          return false;
-        }
-
-        const text =
-          decodeRecord(record);
-
-        return (
-          text ===
-          NFC_KEY_PREFIX +
-            SHARED_KEY
-        );
-      }
-    );
-  }
-
+  return false;
+} 
   function authenticate() {
     authenticated = true;
 
@@ -257,17 +286,37 @@
         new NDEFReader();
 
       reader.addEventListener(
-        "reading",
-        (event) => {
-          if (hasValidKey(event.message)) {
-            authenticate();
-          } else {
-            setMessage(
-              "Etiqueta detectada, pero la clave no es válida."
-            );
-          }
-        }
+  "reading",
+  (event) => {
+    console.log(
+      "NFC detectada:",
+      event.message.records
+    );
+
+    if (
+      hasValidKey(
+        event.message
+      )
+    ) {
+      setMessage(
+        "NFC verificada. Iniciando juego…"
       );
+
+      window.setTimeout(
+        () => {
+          authenticate();
+        },
+        120
+      );
+
+      return;
+    }
+
+    setMessage(
+      "Etiqueta detectada, pero la clave no es válida."
+    );
+  }
+);
 
       reader.addEventListener(
         "readingerror",
