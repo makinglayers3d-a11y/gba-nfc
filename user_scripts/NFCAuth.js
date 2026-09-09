@@ -13,17 +13,28 @@
    * TODAS las etiquetas NFC deben usar esta misma clave.
    * Cambia solamente este texto por tu clave real.
    */
-  const SHARED_KEY =
-    "Ml3D-f22";
+ const SHARED_KEY =
+  "Ml3D-f22";
 
- const NFC_SESSION_KEY =
+/*
+ * Token usado por las URLs NFC en iPhone/iPad.
+ * NO es la clave NDEF de la etiqueta.
+ */
+const IOS_NFC_TOKEN =
+  "ML3D-IOS-NFC-7f42c91a";
+
+const NFC_SESSION_KEY =
   "gba-nfc-authenticated";
+  
+const IOS_NFC_TOKEN_FROM_URL =
+  params.get("nfc");
 
 let authenticated =
   DEV_MODE ||
   sessionStorage.getItem(
     NFC_SESSION_KEY
-  ) === "1";
+  ) === "1" ||
+  IOS_NFC_TOKEN_FROM_URL === IOS_NFC_TOKEN;
 
 let scanStarted = false;
 
