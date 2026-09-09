@@ -399,9 +399,18 @@ dialog::backdrop {
   height: 38px;
 
   border-radius: 10px;
-  background: #ffffff0a;
+
+  background: var(--button);
+
+  box-shadow: 0 5px 12px #0005;
 
   font-size: 1.4rem;
+  font-weight: 900;
+}
+
+#close-menu:active {
+  background: var(--button-active);
+  transform: scale(0.96);
 }
 
 /* Móviles pequeños */
