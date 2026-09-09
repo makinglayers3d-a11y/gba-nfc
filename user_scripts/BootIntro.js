@@ -9,6 +9,30 @@
     started: false,
 
     start() {
+      
+            const params =
+        new URLSearchParams(window.location.search);
+
+      const skipIntro =
+        params.get("skipintro") === "1" ||
+        params.get("menu") === "1";
+
+      const bootScreen =
+        document.getElementById("boot-screen");
+
+      if (skipIntro) {
+        this.started = true;
+
+        if (bootScreen) {
+          bootScreen.classList.add("boot-finished");
+          bootScreen.style.display = "none";
+          bootScreen.style.visibility = "hidden";
+          bootScreen.style.opacity = "0";
+          bootScreen.style.pointerEvents = "none";
+        }
+
+        return Promise.resolve();
+      }
       if (this.started) {
         return Promise.resolve();
       }
