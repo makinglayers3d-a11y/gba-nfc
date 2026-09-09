@@ -9,6 +9,15 @@
   const DEV_MODE =
     params.get("dev") === "1";
 
+  const IS_IOS =
+  /iPad|iPhone|iPod/.test(
+    navigator.userAgent
+  ) ||
+  (
+    navigator.platform === "MacIntel" &&
+    navigator.maxTouchPoints > 1
+  );
+  
   /*
    * TODAS las etiquetas NFC deben usar esta misma clave.
    * Cambia solamente este texto por tu clave real.
