@@ -509,38 +509,50 @@ Object.assign(
        * El tamaño crea la sensación de
        * profundidad / media luna.
        */
-      let fontSize;
-      let opacity;
-      let fontWeight;
+     let fontSize;
+let opacity;
+let fontWeight;
+let letterSpacing;
 
-      if (distance === 0) {
-        fontSize =
-          "clamp(17px, 4.9vw, 28px)";
+if (distance === 0) {
+  fontSize =
+    "clamp(17px, 4.9vw, 28px)";
 
-        opacity =
-          "1";
+  opacity =
+    "1";
 
-        fontWeight =
-          "900";
-      } else if (distance === 1) {
-        fontSize =
-          "clamp(12px, 3.2vw, 19px)";
+  fontWeight =
+    "900";
 
-        opacity =
-          "0.65";
+  letterSpacing =
+    "0.06em";
 
-        fontWeight =
-          "800";
-      } else {
-        fontSize =
-          "clamp(8px, 2.2vw, 13px)";
+} else if (distance === 1) {
+  fontSize =
+    "clamp(12px, 3.2vw, 19px)";
 
-        opacity =
-          "0.32";
+  opacity =
+    "0.65";
 
-        fontWeight =
-          "700";
-      }
+  fontWeight =
+    "800";
+
+  letterSpacing =
+    "0.01em";
+
+} else {
+  fontSize =
+    "clamp(8px, 2.2vw, 13px)";
+
+  opacity =
+    "0.32";
+
+  fontWeight =
+    "700";
+
+  letterSpacing =
+    "-0.035em";
+}
 
       Object.assign(
         item.style,
@@ -613,13 +625,16 @@ Object.assign(
             "#ffffff",
 
           fontSize:
-            fontSize,
+  fontSize,
 
-          fontWeight:
-            fontWeight,
+fontWeight:
+  fontWeight,
 
-          lineHeight:
-            "1.08",
+letterSpacing:
+  letterSpacing,
+
+lineHeight:
+  "1.08",
 
           textAlign:
             "left",
