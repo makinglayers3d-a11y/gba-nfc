@@ -333,7 +333,50 @@
       "Seleccionar juego"
     );
 
+const coverImage =
+  document.createElement("img");
 
+coverImage.alt = "";
+
+Object.assign(
+  coverImage.style,
+  {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center",
+    opacity: "0",
+    transition:
+      "opacity 350ms ease",
+    pointerEvents: "none",
+    zIndex: "0"
+  }
+);
+
+const coverShade =
+  document.createElement("div");
+
+Object.assign(
+  coverShade.style,
+  {
+    position: "absolute",
+    inset: "0",
+    background:
+      "rgba(0,0,0,0.58)",
+    pointerEvents: "none",
+    zIndex: "1"
+  }
+);
+
+overlay.appendChild(
+  coverImage
+);
+
+overlay.appendChild(
+  coverShade
+);
 
     const title =
       document.createElement("div");
@@ -367,6 +410,7 @@ Object.assign(
         fontWeight: "900",
         letterSpacing: "0.08em",
         marginBottom: "2%"
+        zIndex: "2"
       }
     );
 
@@ -383,6 +427,7 @@ Object.assign(
           "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)",
         webkitMaskImage:
           "linear-gradient(to bottom, transparent 0%, #000 13%, #000 87%, transparent 100%)"
+        zIndex: "2"
       }
     );
 
@@ -415,6 +460,7 @@ Object.assign(
         letterSpacing: "0.02em",
         opacity: "0.52",
         marginTop: "2%"
+        zIndex: "2"
       }
     );
 
@@ -430,7 +476,118 @@ Object.assign(
       overlay
     );
   }
+function updateCoverBackground() {
+  if (!overlay || !games.length) {
+    return;
+  }
 
+  const selectedGame =
+    games[selectedIndex];
+
+  if (!selectedGame) {
+    return;
+  }
+
+  const filename =
+    selectedGame.filename;
+
+  const baseName =
+    filename.replace(
+      /\.gba$/i,
+      ""
+    );
+
+  const jpgPath =
+    "covers/" +
+    encodeURIComponent(
+      baseName + ".jpg"
+    );
+
+  const pngPath =
+    "covers/" +
+    encodeURIComponent(
+      baseName + ".png"
+    );
+
+  const fallbackPath =
+    "covers/coverml3d.png";
+
+  const oldImage =
+    overlay.querySelector(
+      ".gba-cover-background"
+    );
+
+  if (oldImage) {
+    oldImage.remove();
+  }
+
+  const image =
+    document.createElement("img");
+
+  image.className =
+    "gba-cover-background";
+
+  image.alt = "";
+
+  Object.assign(
+    image.style,
+    {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+      objectPosition: "center",
+      opacity: "0",
+      transition:
+        "opacity 350ms ease",
+      pointerEvents: "none",
+      zIndex: "0"
+    }
+  );
+
+  overlay.insertBefore(
+    image,
+    overlay.firstChild
+  );
+
+  /*
+   * Probamos JPG primero.
+   */
+  image.src =
+    jpgPath;
+
+  image.onerror = () => {
+
+    /*
+     * Probamos PNG.
+     */
+    image.onerror = () => {
+
+      /*
+       * Finalmente usamos la
+       * carátula ML3D.
+       */
+      image.onerror = null;
+
+      image.src =
+        fallbackPath;
+    };
+
+    image.src =
+      pngPath;
+  };
+
+  image.onload = () => {
+
+    requestAnimationFrame(
+      () => {
+        image.style.opacity =
+          "1";
+      }
+    );
+  };
+}
 function renderList() {
   if (
     !listTrack ||
@@ -895,6 +1052,7 @@ function renderList() {
         halfHeight;
     }
   );
+  updateCoverBackground();
 }
   
   function moveSelection(delta) {
