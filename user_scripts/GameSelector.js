@@ -655,7 +655,7 @@ Object.assign(
    * Separación mínima respecto al cuadro gris.
    */
   const gap =
-    10;
+    3;
 
   /*
    * Distancia vertical que debe existir
