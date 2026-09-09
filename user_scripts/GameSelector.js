@@ -612,7 +612,12 @@
     url.searchParams.delete(
       "menu"
     );
-
+    
+   url.searchParams.set(
+    "skipintro",
+     "1"
+   );
+    
     if (
       knownSlugs[
         selectedGame.filename
