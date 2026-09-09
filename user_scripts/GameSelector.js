@@ -445,6 +445,13 @@ Object.assign(
   const count =
     games.length;
 
+  const items = [];
+
+  /*
+   * Primero creamos todos los elementos.
+   * Necesitamos conocer después la altura
+   * real del seleccionado.
+   */
   games.forEach(
     (game, index) => {
 
@@ -452,7 +459,7 @@ Object.assign(
         index - selectedIndex;
 
       /*
-       * La lista es circular.
+       * Lista circular.
        */
       if (relative > count / 2) {
         relative -= count;
@@ -468,44 +475,12 @@ Object.assign(
       const selected =
         relative === 0;
 
-      /*
-       * El seleccionado siempre queda
-       * exactamente en el centro.
-       *
-       * Cuanto más lejos está un juego:
-       * - más pequeño es
-       * - más transparente es
-       * - más cerca se encuentra de los extremos
-       *
-       * Esto crea el efecto de media luna
-       * sin mover horizontalmente los títulos.
-       */
-      let top;
-
-      if (distance === 0) {
-        top = 50;
-      } else if (distance === 1) {
-        top =
-          relative < 0
-            ? 31
-            : 69;
-      } else if (distance === 2) {
-        top =
-          relative < 0
-            ? 17
-            : 83;
-      } else {
-        top =
-          relative < 0
-            ? 7
-            : 93;
-      }
-
       let fontSize;
       let opacity;
       let fontWeight;
 
       if (distance === 0) {
+
         fontSize =
           "clamp(17px, 4.9vw, 28px)";
 
@@ -516,6 +491,7 @@ Object.assign(
           "900";
 
       } else if (distance === 1) {
+
         fontSize =
           "clamp(12px, 3.2vw, 19px)";
 
@@ -526,6 +502,7 @@ Object.assign(
           "800";
 
       } else if (distance === 2) {
+
         fontSize =
           "clamp(9px, 2.4vw, 14px)";
 
@@ -536,6 +513,7 @@ Object.assign(
           "700";
 
       } else {
+
         fontSize =
           "clamp(7px, 1.9vw, 11px)";
 
@@ -558,35 +536,11 @@ Object.assign(
           position:
             "absolute",
 
-          /*
-           * Todos los títulos parten
-           * exactamente del mismo lado.
-           */
           left:
             "0",
 
-          top:
-            `${top}%`,
-
-          transform:
-            "translateY(-50%)",
-
-          transformOrigin:
-            "left center",
-
-          /*
-           * El seleccionado tiene una tarjeta
-           * más ancha.
-           */
           width:
-            selected
-              ? "84%"
-              : "84%",
-
-          minHeight:
-            selected
-              ? "48px"
-              : "28px",
+            "84%",
 
           boxSizing:
             "border-box",
@@ -607,10 +561,6 @@ Object.assign(
               ? "14px"
               : "8px",
 
-          /*
-           * Solo el seleccionado tiene
-           * fondo gris semitransparente.
-           */
           background:
             selected
               ? "rgba(105, 105, 105, 0.50)"
@@ -650,18 +600,135 @@ Object.assign(
           opacity:
             opacity,
 
-          /*
-           * El cambio de tamaño, posición y
-           * opacidad será suave al navegar.
-           */
           transition:
-            "top 120ms ease, font-size 120ms steps(3, end), opacity 120ms ease, background 120ms ease, box-shadow 120ms ease"
+            "top 140ms ease, font-size 120ms steps(3, end), opacity 120ms ease, background 120ms ease, box-shadow 120ms ease"
         }
       );
 
-      listTrack.appendChild(
-        item
-      );
+      listTrack.appendChild(item);
+
+      items.push({
+        element: item,
+        relative: relative,
+        distance: distance,
+        selected: selected
+      });
+    }
+  );
+
+  /*
+   * Buscamos el elemento seleccionado para
+   * medir su altura real.
+   */
+  const selectedData =
+    items.find(
+      (item) => item.selected
+    );
+
+  if (!selectedData) {
+    return;
+  }
+
+  const selectedElement =
+    selectedData.element;
+
+  /*
+   * Forzamos al navegador a calcular
+   * las dimensiones reales.
+   */
+  const selectedHeight =
+    selectedElement.getBoundingClientRect().height;
+
+  /*
+   * Altura del área visible.
+   */
+  const viewportHeight =
+    listViewport.clientHeight;
+
+  /*
+   * Centro exacto del viewport.
+   */
+  const centerY =
+    viewportHeight / 2;
+
+  /*
+   * Separación mínima respecto al cuadro gris.
+   */
+  const gap =
+    10;
+
+  /*
+   * Distancia vertical que debe existir
+   * entre el centro del seleccionado y
+   * el centro del anterior/siguiente.
+   */
+  const neighbourDistance =
+    (selectedHeight / 2) +
+    gap +
+    18;
+
+  items.forEach(
+    (item) => {
+
+      const relative =
+        item.relative;
+
+      const distance =
+        Math.abs(relative);
+
+      let offset;
+
+      if (distance === 0) {
+
+        offset = 0;
+
+      } else if (distance === 1) {
+
+        /*
+         * El anterior y siguiente se calculan
+         * respecto al tamaño del cuadro gris.
+         */
+        offset =
+          neighbourDistance;
+
+      } else if (distance === 2) {
+
+        /*
+         * Los siguientes se van juntando.
+         */
+        offset =
+          neighbourDistance +
+          26;
+
+      } else {
+
+        offset =
+          neighbourDistance +
+          26 +
+          (
+            (distance - 2) * 20
+          );
+      }
+
+      /*
+       * Arriba = negativo.
+       * Abajo = positivo.
+       */
+      const y =
+        centerY +
+        (
+          relative < 0
+            ? -offset
+            : relative > 0
+              ? offset
+              : 0
+        );
+
+      item.element.style.top =
+        `${y}px`;
+
+      item.element.style.transform =
+        "translateY(-50%)";
     }
   );
 }
