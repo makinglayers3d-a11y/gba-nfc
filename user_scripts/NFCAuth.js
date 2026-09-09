@@ -466,13 +466,13 @@ function authenticate() {
    * abrir la página. Algunos navegadores
    * exigirán interacción del usuario.
    */
-  if (!authenticated) {
-    window.setTimeout(
-      () => {
-        createOverlay();
-        startNfcScan(false);
-      },
-      100
-    );
-  }
+ if (!authenticated && !IS_IOS) {
+  window.setTimeout(
+    () => {
+      createOverlay();
+      startNfcScan(false);
+    },
+    100
+  );
+}
 })();
