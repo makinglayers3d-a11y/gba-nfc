@@ -718,29 +718,29 @@ async function startApplication() {
     new URLSearchParams(
       window.location.search
     );
+const menuOnly =
+  params.get("menu") === "1";
 
-  const menuOnly =
-    params.get("menu") === "1";
+const skipIntro =
+  params.get("skipintro") === "1";
 
-  /*
-   * ?menu=1:
-   * ocultamos completamente el logo y el aviso
-   * antes de cargar el selector.
-   */
-  if (menuOnly) {
-    const bootScreen =
-      document.getElementById("boot-screen");
+if (menuOnly || skipIntro) {
+  const bootScreen =
+    document.getElementById("boot-screen");
 
-    if (bootScreen) {
-      bootScreen.classList.add("boot-finished");
-    }
-  } else if (window.gbaBootIntro) {
-    await window.gbaBootIntro.start();
+  if (bootScreen) {
+    bootScreen.classList.add("boot-finished");
+
+    bootScreen.style.display = "none";
+    bootScreen.style.visibility = "hidden";
+    bootScreen.style.opacity = "0";
+    bootScreen.style.pointerEvents = "none";
   }
+} else if (window.gbaBootIntro) {
+  await window.gbaBootIntro.start();
+}
+ 
 
-  await loadGame();
-}
-}
 
 startApplication();
 })();
