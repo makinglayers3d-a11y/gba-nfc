@@ -29,7 +29,9 @@
   const params =
     new URLSearchParams(window.location.search);
 
- 
+ const openFromUrl =
+  params.get("menu") === "1";
+  
   if (openFromUrl) {
   const bootScreen =
     document.getElementById("boot-screen");
