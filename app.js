@@ -717,28 +717,26 @@ async function startApplication() {
   const params =
     new URLSearchParams(window.location.search);
 
-  const isMenu =
+  const menuOnly =
     params.get("menu") === "1";
 
-  const hasGame =
-    params.has("game") || params.has("rom");
+  const skipIntro =
+    params.get("skipintro") === "1";
 
   /*
-   * Solo mostramos el logo en la página inicial.
+   * Solo saltamos el intro en:
+   * - ?menu=1
+   * - ?skipintro=1 (juego elegido desde el selector)
    *
-   * Si hay ?game=... o ?rom=...,
-   * arrancamos directamente el juego.
-   *
-   * Si hay ?menu=1,
-   * arrancamos directamente el selector.
+   * Los enlaces directos ?game=pokemon
+   * siguen mostrando el logo y la advertencia.
    */
-  if (isMenu || hasGame) {
+  if (menuOnly || skipIntro) {
     const bootScreen =
       document.getElementById("boot-screen");
 
     if (bootScreen) {
       bootScreen.classList.add("boot-finished");
-
       bootScreen.style.display = "none";
       bootScreen.style.visibility = "hidden";
       bootScreen.style.opacity = "0";
@@ -752,4 +750,3 @@ async function startApplication() {
 }
 
 startApplication();
-})();
