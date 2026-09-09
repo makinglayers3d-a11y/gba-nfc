@@ -29,22 +29,7 @@
   const params =
     new URLSearchParams(window.location.search);
 
- const openFromUrl =
-  params.get("menu") === "1";
-  
-  if (openFromUrl) {
-  const bootScreen =
-    document.getElementById("boot-screen");
 
-  if (bootScreen) {
-    bootScreen.classList.add("boot-finished");
-
-    bootScreen.style.display = "none";
-    bootScreen.style.visibility = "hidden";
-    bootScreen.style.opacity = "0";
-    bootScreen.style.pointerEvents = "none";
-  }
-}
   const knownNames = {
     "PokemonRF.gba": "Pokémon FireRed",
     "Super Mario Bros. 3.gba": "Super Mario Bros. 3",
