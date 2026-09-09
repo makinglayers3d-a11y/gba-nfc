@@ -723,14 +723,14 @@ async function startApplication() {
   const skipIntro =
     params.get("skipintro") === "1";
 
+  const bootScreen =
+    document.getElementById("boot-screen");
+
   /*
-   * Selector NFC:
-   * no mostramos el logo ni el aviso.
+   * El selector NFC y los juegos elegidos
+   * desde el selector no muestran el intro.
    */
   if (menuOnly || skipIntro) {
-    const bootScreen =
-      document.getElementById("boot-screen");
-
     if (bootScreen) {
       bootScreen.classList.add("boot-finished");
       bootScreen.style.display = "none";
@@ -744,9 +744,8 @@ async function startApplication() {
   }
 
   /*
-   * Acceso directo a un juego:
-   * primero mostramos COMPLETAMENTE el intro.
-   * Después arrancamos el emulador.
+   * Un acceso directo a un juego sí muestra:
+   * logo → aviso → juego.
    */
   if (window.gbaBootIntro) {
     await window.gbaBootIntro.start();
