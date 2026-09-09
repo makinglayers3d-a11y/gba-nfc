@@ -16,8 +16,16 @@
   const SHARED_KEY =
     "Ml3D-f22";
 
-  let authenticated = DEV_MODE;
-  let scanStarted = false;
+ const NFC_SESSION_KEY =
+  "gba-nfc-authenticated";
+
+let authenticated =
+  DEV_MODE ||
+  sessionStorage.getItem(
+    NFC_SESSION_KEY
+  ) === "1";
+
+let scanStarted = false;
 
   let overlay = null;
 
@@ -247,10 +255,15 @@ function hasValidKey(message) {
 
   return false;
 } 
-  function authenticate() {
-    authenticated = true;
+function authenticate() {
+  authenticated = true;
 
-    closeOverlay();
+  sessionStorage.setItem(
+    NFC_SESSION_KEY,
+    "1"
+  );
+
+  closeOverlay();  
 
     if (authPromiseResolve) {
       authPromiseResolve(true);
