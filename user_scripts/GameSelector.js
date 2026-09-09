@@ -55,10 +55,10 @@
   let listViewport = null;
   let listTrack = null;
 
-  let audioContext = null;
-
   let menuOpen = false;
   let opening = false;
+
+  let menuAudioContext = null;
 
   function friendlyName(filename) {
     return (
@@ -89,13 +89,10 @@
       (params.get("game") || "pokemon").toLowerCase();
 
     const index = games.findIndex((game) => {
-      const slug =
-        slugFromFilename(game.filename);
-
       return (
         (currentRom &&
           game.filename === currentRom) ||
-        slug === currentGame
+        slugFromFilename(game.filename) === currentGame
       );
     });
 
@@ -103,12 +100,20 @@
       index >= 0 ? index : 0;
   }
 
-  function getAudioContext() {
+  /*
+   * Audio del selector.
+   *
+   * Creamos un contexto SOLO cuando el usuario mueve
+   * el selector. De esta forma el navegador recibe la
+   * creación del sonido como consecuencia directa del
+   * gesto del usuario.
+   */
+  function getMenuAudioContext() {
     if (
-      audioContext &&
-      audioContext.state !== "closed"
+      menuAudioContext &&
+      menuAudioContext.state !== "closed"
     ) {
-      return audioContext;
+      return menuAudioContext;
     }
 
     const AudioContextClass =
@@ -120,13 +125,13 @@
     }
 
     try {
-      audioContext =
+      menuAudioContext =
         new AudioContextClass();
 
-      return audioContext;
+      return menuAudioContext;
     } catch (error) {
       console.warn(
-        "No se pudo crear el audio del menú:",
+        "No se pudo crear el audio del selector:",
         error
       );
 
@@ -134,79 +139,92 @@
     }
   }
 
-  function resumeAudioContext(context) {
-    if (!context) return;
-
-    if (
-      context.state === "suspended" ||
-      context.state === "interrupted"
-    ) {
-      const promise =
-        context.resume();
-
-      if (
-        promise &&
-        typeof promise.catch === "function"
-      ) {
-        promise.catch(() => {});
-      }
-    }
-  }
-
   function playMenuMoveSound() {
     const context =
-      getAudioContext();
+      getMenuAudioContext();
 
-    if (!context) return;
+    if (!context) {
+      return;
+    }
 
     try {
-      resumeAudioContext(context);
+      const startSound = () => {
+        const now =
+          context.currentTime;
 
-      const now =
-        context.currentTime;
+        const oscillator =
+          context.createOscillator();
 
-      const oscillator =
-        context.createOscillator();
+        const gain =
+          context.createGain();
 
-      const gain =
-        context.createGain();
+        oscillator.type =
+          "square";
 
-      oscillator.type =
-        "square";
+        /*
+         * Pitido corto de estilo Game Boy.
+         */
+        oscillator.frequency.setValueAtTime(
+          740,
+          now
+        );
 
-      oscillator.frequency.setValueAtTime(
-        880,
-        now
-      );
+        oscillator.frequency.setValueAtTime(
+          620,
+          now + 0.035
+        );
 
-      oscillator.frequency.exponentialRampToValueAtTime(
-        620,
-        now + 0.055
-      );
+        gain.gain.setValueAtTime(
+          0.0001,
+          now
+        );
 
-      gain.gain.setValueAtTime(
-        0.0001,
-        now
-      );
+        gain.gain.exponentialRampToValueAtTime(
+          0.055,
+          now + 0.003
+        );
 
-      gain.gain.exponentialRampToValueAtTime(
-        0.045,
-        now + 0.004
-      );
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + 0.055
+        );
 
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        now + 0.06
-      );
+        oscillator.connect(gain);
+        gain.connect(context.destination);
 
-      oscillator.connect(gain);
-      gain.connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + 0.06);
+      };
 
-      oscillator.start(now);
-      oscillator.stop(now + 0.065);
+      /*
+       * En iPhone/iPad el contexto puede arrancar suspendido.
+       * Esperamos a resume() antes de programar el sonido.
+       */
+      if (
+        context.state === "suspended" ||
+        context.state === "interrupted"
+      ) {
+        const result =
+          context.resume();
+
+        if (
+          result &&
+          typeof result.then === "function"
+        ) {
+          result
+            .then(() => {
+              startSound();
+            })
+            .catch(() => {});
+        } else {
+          startSound();
+        }
+      } else {
+        startSound();
+      }
     } catch (error) {
       console.warn(
-        "No se pudo reproducir el sonido del menú:",
+        "No se pudo reproducir el sonido del selector:",
         error
       );
     }
@@ -214,55 +232,80 @@
 
   function playMenuSelectSound() {
     const context =
-      getAudioContext();
+      getMenuAudioContext();
 
-    if (!context) return;
+    if (!context) {
+      return;
+    }
 
     try {
-      resumeAudioContext(context);
+      const startSound = () => {
+        const now =
+          context.currentTime;
 
-      const now =
-        context.currentTime;
+        const oscillator =
+          context.createOscillator();
 
-      const oscillator =
-        context.createOscillator();
+        const gain =
+          context.createGain();
 
-      const gain =
-        context.createGain();
+        oscillator.type =
+          "square";
 
-      oscillator.type =
-        "square";
+        oscillator.frequency.setValueAtTime(
+          1046,
+          now
+        );
 
-      oscillator.frequency.setValueAtTime(
-        1046.5,
-        now
-      );
+        oscillator.frequency.setValueAtTime(
+          1568,
+          now + 0.055
+        );
 
-      oscillator.frequency.exponentialRampToValueAtTime(
-        1568,
-        now + 0.09
-      );
+        gain.gain.setValueAtTime(
+          0.0001,
+          now
+        );
 
-      gain.gain.setValueAtTime(
-        0.0001,
-        now
-      );
+        gain.gain.exponentialRampToValueAtTime(
+          0.06,
+          now + 0.003
+        );
 
-      gain.gain.exponentialRampToValueAtTime(
-        0.06,
-        now + 0.004
-      );
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + 0.09
+        );
 
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        now + 0.1
-      );
+        oscillator.connect(gain);
+        gain.connect(context.destination);
 
-      oscillator.connect(gain);
-      gain.connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + 0.095);
+      };
 
-      oscillator.start(now);
-      oscillator.stop(now + 0.11);
+      if (
+        context.state === "suspended" ||
+        context.state === "interrupted"
+      ) {
+        const result =
+          context.resume();
+
+        if (
+          result &&
+          typeof result.then === "function"
+        ) {
+          result
+            .then(() => {
+              startSound();
+            })
+            .catch(() => {});
+        } else {
+          startSound();
+        }
+      } else {
+        startSound();
+      }
     } catch (error) {
       console.warn(
         "No se pudo reproducir el sonido de selección:",
@@ -272,7 +315,9 @@
   }
 
   function buildOverlay() {
-    if (overlay) return;
+    if (overlay) {
+      return;
+    }
 
     overlay =
       document.createElement("div");
@@ -298,7 +343,7 @@
         zIndex: "30",
         display: "flex",
         flexDirection: "column",
-        background: "rgba(4, 8, 12, 0.97)",
+        background: "#05080c",
         color: "#ffffff",
         fontFamily:
           "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -319,7 +364,8 @@
     Object.assign(
       title.style,
       {
-        fontSize: "clamp(11px, 3vw, 18px)",
+        fontSize:
+          "clamp(11px, 3vw, 18px)",
         fontWeight: "900",
         letterSpacing: "0.08em",
         marginBottom: "2%"
@@ -371,9 +417,10 @@
     Object.assign(
       footer.style,
       {
-        fontSize: "clamp(6px, 1.7vw, 10px)",
+        fontSize:
+          "clamp(6px, 1.7vw, 10px)",
         fontWeight: "800",
-        letterSpacing: "0.025em",
+        letterSpacing: "0.02em",
         opacity: "0.52",
         marginTop: "2%"
       }
@@ -411,9 +458,6 @@
         item.textContent =
           friendlyName(game.filename);
 
-        item.dataset.index =
-          String(index);
-
         Object.assign(
           item.style,
           {
@@ -422,38 +466,40 @@
             textAlign: "left",
             whiteSpace: "normal",
             wordBreak: "break-word",
+
             fontWeight:
               index === selectedIndex
                 ? "900"
                 : "700",
+
             fontSize:
               index === selectedIndex
                 ? "clamp(18px, 5.5vw, 30px)"
                 : "clamp(9px, 2.4vw, 14px)",
+
             opacity:
               index === selectedIndex
                 ? "1"
                 : "0.42",
+
             transform:
               index === selectedIndex
                 ? "translateX(3px)"
                 : "none",
+
             transition:
               "font-size 90ms steps(2, end), opacity 90ms linear, transform 90ms steps(2, end)"
           }
         );
 
-        listTrack.appendChild(item);
+        listTrack.appendChild(
+          item
+        );
       }
     );
 
-    const items =
-      Array.from(
-        listTrack.children
-      );
-
     const selectedItem =
-      items[selectedIndex];
+      listTrack.children[selectedIndex];
 
     if (!selectedItem) {
       return;
@@ -496,9 +542,15 @@
       return;
     }
 
-    selectedIndex = next;
+    selectedIndex =
+      next;
 
     renderList();
+
+    /*
+     * El sonido se produce como parte del
+     * mismo gesto que ha provocado el movimiento.
+     */
     playMenuMoveSound();
   }
 
@@ -512,17 +564,12 @@
       listTrack = null;
     }
 
-    if (audioContext) {
-      try {
-        if (
-          audioContext.state !== "closed"
-        ) {
-          audioContext
-            .suspend()
-            .catch(() => {});
-        }
-      } catch (error) {}
-    }
+    /*
+     * No cerramos ni desconectamos nodos de audio.
+     * En WebKit hay problemas conocidos cuando se
+     * desconecta un ScriptProcessorNode y se vuelve
+     * a conectar después.
+     */
   }
 
   function selectCurrentGame() {
@@ -540,7 +587,9 @@
     playMenuSelectSound();
 
     const url =
-      new URL(window.location.href);
+      new URL(
+        window.location.href
+      );
 
     const slug =
       slugFromFilename(
@@ -609,36 +658,37 @@
       const files =
         await response.json();
 
-      games = files
-        .filter(
-          (file) => {
-            return (
-              file.type === "file" &&
-              file.name
-                .toLowerCase()
-                .endsWith(".gba")
-            );
-          }
-        )
-        .map(
-          (file) => ({
-            filename: file.name
-          })
-        )
-        .sort(
-          (a, b) =>
-            friendlyName(
-              a.filename
-            ).localeCompare(
+      games =
+        files
+          .filter(
+            (file) => {
+              return (
+                file.type === "file" &&
+                file.name
+                  .toLowerCase()
+                  .endsWith(".gba")
+              );
+            }
+          )
+          .map(
+            (file) => ({
+              filename: file.name
+            })
+          )
+          .sort(
+            (a, b) =>
               friendlyName(
-                b.filename
-              ),
-              undefined,
-              {
-                sensitivity: "base"
-              }
-            )
-        );
+                a.filename
+              ).localeCompare(
+                friendlyName(
+                  b.filename
+                ),
+                undefined,
+                {
+                  sensitivity: "base"
+                }
+              )
+          );
 
       findCurrentGame();
 
@@ -671,6 +721,9 @@
 
     opening = true;
 
+    /*
+     * Cerrar el menú HTML normal.
+     */
     if (menu) {
       try {
         menu.close();
@@ -727,9 +780,6 @@
         event.stopImmediatePropagation();
         closeScreenSelector();
         break;
-
-      default:
-        break;
     }
   }
 
@@ -760,7 +810,9 @@
     const key =
       keyButton.dataset.key;
 
-    if (key === "UP") {
+    if (
+      key === "UP"
+    ) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -768,7 +820,9 @@
       return;
     }
 
-    if (key === "DOWN") {
+    if (
+      key === "DOWN"
+    ) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -787,7 +841,9 @@
       return;
     }
 
-    if (key === "B") {
+    if (
+      key === "B"
+    ) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -814,11 +870,6 @@
     );
   }
 
-  /*
-   * GameSelector.js se carga antes de app.js,
-   * por lo que este listener recibe primero
-   * las teclas cuando el selector está abierto.
-   */
   window.addEventListener(
     "keydown",
     handleKeyboard,
@@ -826,8 +877,8 @@
   );
 
   /*
-   * Interceptamos los botones físicos de
-   * pantalla mientras el selector está abierto.
+   * Los controles físicos siguen funcionando
+   * cuando el selector está abierto.
    */
   document.addEventListener(
     "touchstart",
@@ -842,26 +893,18 @@
   );
 
   /*
-   * ?menu=1
+   * Si la tarjeta NFC abre ?menu=1,
+   * mostramos el selector directamente.
    *
-   * Permite que una tarjeta NFC abra
-   * directamente el selector de juegos.
+   * NO esperamos a que el emulador termine:
+   * el selector vive directamente sobre .screen-frame.
    */
-  function waitForEmulatorAndOpen() {
-    if (!openFromUrl) {
-      return;
-    }
-
-    if (window.__gba) {
-      openScreenSelector();
-      return;
-    }
-
+  if (openFromUrl) {
     window.setTimeout(
-      waitForEmulatorAndOpen,
-      100
+      () => {
+        openScreenSelector();
+      },
+      0
     );
   }
-
-  waitForEmulatorAndOpen();
 })();
