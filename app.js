@@ -755,3 +755,4 @@ async function startApplication() {
 }
 
 startApplication();
+})();
