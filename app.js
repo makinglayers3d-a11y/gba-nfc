@@ -715,32 +715,41 @@ if (buttonColors) {
 
 async function startApplication() {
   const params =
-    new URLSearchParams(
-      window.location.search
-    );
-const menuOnly =
-  params.get("menu") === "1";
+    new URLSearchParams(window.location.search);
 
-const skipIntro =
-  params.get("skipintro") === "1";
+  const isMenu =
+    params.get("menu") === "1";
 
-if (menuOnly || skipIntro) {
-  const bootScreen =
-    document.getElementById("boot-screen");
+  const hasGame =
+    params.has("game") || params.has("rom");
 
-  if (bootScreen) {
-    bootScreen.classList.add("boot-finished");
+  /*
+   * Solo mostramos el logo en la página inicial.
+   *
+   * Si hay ?game=... o ?rom=...,
+   * arrancamos directamente el juego.
+   *
+   * Si hay ?menu=1,
+   * arrancamos directamente el selector.
+   */
+  if (isMenu || hasGame) {
+    const bootScreen =
+      document.getElementById("boot-screen");
 
-    bootScreen.style.display = "none";
-    bootScreen.style.visibility = "hidden";
-    bootScreen.style.opacity = "0";
-    bootScreen.style.pointerEvents = "none";
+    if (bootScreen) {
+      bootScreen.classList.add("boot-finished");
+
+      bootScreen.style.display = "none";
+      bootScreen.style.visibility = "hidden";
+      bootScreen.style.opacity = "0";
+      bootScreen.style.pointerEvents = "none";
+    }
+  } else if (window.gbaBootIntro) {
+    await window.gbaBootIntro.start();
   }
-} else if (window.gbaBootIntro) {
-  await window.gbaBootIntro.start();
-}
- 
 
+  await loadGame();
+}
 
 startApplication();
 })();
