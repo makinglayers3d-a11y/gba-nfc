@@ -2,7 +2,7 @@
 
 (function () {
   const REPO_API =
-    "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc/contents/games";
+    "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc-gb/contents/games";
 
   const selectGameButton =
     document.getElementById("select-game-button");
@@ -46,24 +46,49 @@
     
   };
 
-  let games = [];
-  let selectedIndex = 0;
+ let games = [];
+let allGames = [];
+let selectedIndex = 0;
 
-  let overlay = null;
-  let listViewport = null;
-  let listTrack = null;
+let currentFilter = "all";
+let filterOpen = false;
+let filterIndex = 0;
+let filterTransitioning = false;
 
-  let menuOpen = false;
-  let opening = false;
-
-  let menuAudioContext = null;
-
-  function friendlyName(filename) {
-    return (
-      knownNames[filename] ||
-      filename.replace(/\.gba$/i, "")
-    );
+const FILTERS = [
+  {
+    id: "all",
+    name: "TODOS"
+  },
+  {
+    id: "gb",
+    name: "GAME BOY"
+  },
+  {
+    id: "gbc",
+    name: "GAME BOY COLOR"
+  },
+  {
+    id: "gba",
+    name: "GAME BOY ADVANCE"
   }
+];
+
+let overlay = null;
+let listViewport = null;
+let listTrack = null;
+
+let menuOpen = false;
+let opening = false;
+
+let menuAudioContext = null;
+
+ function friendlyName(filename) {
+  return (
+    knownNames[filename] ||
+    filename.replace(/\.(gba|gbc|gb)$/i, "")
+  );
+}
 
   function slugFromFilename(filename) {
     if (knownSlugs[filename]) {
@@ -71,14 +96,465 @@
     }
 
     return filename
-      .replace(/\.gba$/i, "")
+      .replace(/\.(gba|gbc|gb)$/i, "")
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "game";
   }
+function applyGameFilter() {
+  switch (currentFilter) {
+    case "gb":
+      games = allGames.filter((game) =>
+        game.filename.toLowerCase().endsWith(".gb")
+      );
+      break;
 
+    case "gbc":
+      games = allGames.filter((game) =>
+        game.filename.toLowerCase().endsWith(".gbc")
+      );
+      break;
+
+    case "gba":
+      games = allGames.filter((game) =>
+        game.filename.toLowerCase().endsWith(".gba")
+      );
+      break;
+
+    default:
+      games = allGames;
+      break;
+  }
+
+  selectedIndex = 0;
+}
+ async function openFilterSelector() {
+  if (!menuOpen || filterOpen || filterTransitioning) {
+    return;
+  }
+
+  filterTransitioning = true;
+
+  await collapseGamesIntoSelected();
+
+  filterOpen = true;
+
+  const currentIndex =
+    FILTERS.findIndex(
+      (filter) =>
+        filter.id === currentFilter
+    );
+
+  filterIndex =
+    currentIndex >= 0
+      ? currentIndex
+      : 0;
+
+  const panel = renderFilterSelector();
+
+  if (panel) {
+    await playFilterExpansion(panel);
+  }
+
+  filterTransitioning = false;
+}
+
+function renderFilterSelector() {
+  if (!listTrack) {
+    return null;
+  }
+
+  let panel = listTrack.querySelector(".gba-filter-panel");
+
+  if (!panel) {
+    listTrack.innerHTML = "";
+    listTrack._gameItems = new Map();
+    listTrack._filterItems = new Map();
+
+    panel = document.createElement("div");
+    panel.className = "gba-filter-panel";
+
+    Object.assign(panel.style, {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      background: "transparent",
+      border: "0",
+      boxSizing: "border-box",
+      zIndex: "10"
+    });
+
+    listTrack.appendChild(panel);
+  }
+
+  if (!listTrack._filterItems) {
+    listTrack._filterItems = new Map();
+  }
+
+  const itemMap = listTrack._filterItems;
+  const count = FILTERS.length;
+
+  function getRelative(index) {
+    let relative = index - filterIndex;
+
+    if (relative > count / 2) {
+      relative -= count;
+    }
+
+    if (relative < -count / 2) {
+      relative += count;
+    }
+
+    return relative;
+  }
+
+  FILTERS.forEach((filter, index) => {
+    let item = itemMap.get(filter.id);
+
+    if (!item) {
+      item = document.createElement("div");
+      itemMap.set(filter.id, item);
+      panel.appendChild(item);
+    }
+
+    const relative = getRelative(index);
+    const distance = Math.abs(relative);
+    const selected = relative === 0;
+
+    item.textContent = filter.name;
+
+    Object.assign(item.style, {
+      position: "absolute",
+      left: "0",
+      width: "84%",
+      height: selected
+        ? "56px"
+        : distance === 1
+          ? "30px"
+          : distance === 2
+            ? "22px"
+            : "18px",
+      display: "flex",
+      alignItems: "center",
+      boxSizing: "border-box",
+      padding: selected
+        ? "8px 14px"
+        : distance === 1
+          ? "2px 8px"
+          : "1px 8px",
+      background: selected
+        ? "rgba(105,105,105,0.50)"
+        : "transparent",
+      border: selected
+        ? "1px solid rgba(255,255,255,0.16)"
+        : "1px solid transparent",
+      borderRadius: selected ? "14px" : "8px",
+      boxShadow: selected
+        ? "0 7px 18px rgba(0,0,0,0.32)"
+        : "none",
+      color: "#ffffff",
+      fontSize: selected
+        ? "clamp(17px, 4.6vw, 26px)"
+        : distance === 1
+          ? "clamp(13px, 3.3vw, 19px)"
+          : distance === 2
+            ? "clamp(10px, 2.5vw, 14px)"
+            : "clamp(8px, 1.9vw, 11px)",
+      fontWeight: selected ? "900" : distance === 1 ? "800" : "700",
+      lineHeight: "1.08",
+      textAlign: "left",
+      opacity: selected ? "1" : distance === 1 ? ".78" : distance === 2 ? ".48" : ".30",
+      zIndex: selected ? "3" : "2",
+      overflow: "hidden",
+      transition: [
+        "top 430ms cubic-bezier(0.22,0.61,0.36,1)",
+        "font-size 380ms cubic-bezier(0.22,0.61,0.36,1)",
+        "opacity 320ms ease",
+        "height 380ms cubic-bezier(0.22,0.61,0.36,1)",
+        "padding 380ms ease",
+        "background 300ms ease",
+        "box-shadow 300ms ease"
+      ].join(", ")
+    });
+
+    item.dataset.relative = String(relative);
+    item.dataset.distance = String(distance);
+  });
+
+  const centerY = panel.clientHeight / 2;
+  const selectedHalf = 28;
+  const above = [];
+  const below = [];
+
+  itemMap.forEach((item) => {
+    const relative = Number(item.dataset.relative);
+    const distance = Number(item.dataset.distance);
+
+    if (relative === 0) {
+      item.style.top = `${centerY}px`;
+      item.style.transform = "translateY(-50%)";
+    } else if (relative < 0) {
+      above.push({ item, distance });
+    } else {
+      below.push({ item, distance });
+    }
+  });
+
+  above.sort((a, b) => a.distance - b.distance);
+  below.sort((a, b) => a.distance - b.distance);
+
+  let previousTop = centerY - selectedHalf;
+  above.forEach(({ item, distance }) => {
+    const height = distance === 1 ? 30 : distance === 2 ? 22 : 18;
+    const gap = distance === 1 ? 4 : distance === 2 ? 12 : 3;
+    item.style.top = `${previousTop - gap - height}px`;
+    item.style.transform = "none";
+    previousTop -= gap + height;
+  });
+
+  let previousBottom = centerY + selectedHalf;
+  below.forEach(({ item, distance }) => {
+    const height = distance === 1 ? 30 : distance === 2 ? 22 : 18;
+    const gap = distance === 1 ? 4 : distance === 2 ? 12 : 3;
+    item.style.top = `${previousBottom + gap}px`;
+    item.style.transform = "none";
+    previousBottom += gap + height;
+  });
+
+  return panel;
+}
+
+function waitForAnimation(animation) {
+  return animation.finished.catch(() => undefined);
+}
+
+async function collapseGamesIntoSelected() {
+  if (!listTrack || !listTrack._gameItems || !games.length) {
+    return;
+  }
+
+  const selectedGame = games[selectedIndex];
+  const selectedItem = selectedGame
+    ? listTrack._gameItems.get(selectedGame.filename)
+    : null;
+
+  if (!selectedItem) {
+    return;
+  }
+
+  const selectedRect = selectedItem.getBoundingClientRect();
+  const centerY = selectedRect.top + selectedRect.height / 2;
+  const animations = [];
+
+  listTrack._gameItems.forEach((item) => {
+    if (item.style.display === "none") {
+      return;
+    }
+
+    const rect = item.getBoundingClientRect();
+    const offsetY = centerY - (rect.top + rect.height / 2);
+    const isSelected = item === selectedItem;
+
+    const animation = item.animate(
+      isSelected
+        ? [
+            { transform: "translateY(-50%) scale(1)", filter: "brightness(1)" },
+            { transform: "translateY(-50%) scale(1.045)", filter: "brightness(1.16)" }
+          ]
+        : [
+            { translate: "0 0", opacity: getComputedStyle(item).opacity },
+            { translate: `0 ${offsetY}px`, opacity: 0 }
+          ],
+      {
+        duration: 420,
+        easing: "cubic-bezier(.45, 0, .2, 1)",
+        fill: "forwards"
+      }
+    );
+
+    animations.push(waitForAnimation(animation));
+  });
+
+  await Promise.all(animations);
+}
+
+function playFilterExpansion(panel) {
+  return waitForAnimation(
+    panel.animate(
+      [
+        {
+          opacity: 0,
+          clipPath: "inset(50% 4% 50% 4% round 14px)",
+          transform: "scaleX(.82)"
+        },
+        {
+          opacity: 1,
+          clipPath: "inset(0 0 0 0 round 16px)",
+          transform: "scaleX(1)"
+        }
+      ],
+      {
+        duration: 440,
+        easing: "cubic-bezier(.2, .8, .2, 1)",
+        fill: "both"
+      }
+    )
+  );
+}
+
+function playFilterCollapse(panel) {
+  return waitForAnimation(
+    panel.animate(
+      [
+        {
+          opacity: 1,
+          clipPath: "inset(0 0 0 0 round 16px)",
+          transform: "scaleX(1)"
+        },
+        {
+          opacity: 0,
+          clipPath: "inset(50% 4% 50% 4% round 14px)",
+          transform: "scaleX(.82)"
+        }
+      ],
+      {
+        duration: 380,
+        easing: "cubic-bezier(.45, 0, .8, .2)",
+        fill: "forwards"
+      }
+    )
+  );
+}
+
+async function expandGamesFromSelected() {
+  if (!listTrack || !listTrack._gameItems || !games.length) {
+    return;
+  }
+
+  const selectedGame = games[selectedIndex];
+  const selectedItem = selectedGame
+    ? listTrack._gameItems.get(selectedGame.filename)
+    : null;
+
+  if (!selectedItem) {
+    return;
+  }
+
+  const selectedRect = selectedItem.getBoundingClientRect();
+  const centerY = selectedRect.top + selectedRect.height / 2;
+  const animations = [];
+
+  listTrack._gameItems.forEach((item) => {
+    if (item.style.display === "none") {
+      return;
+    }
+
+    const rect = item.getBoundingClientRect();
+    const offsetY = centerY - (rect.top + rect.height / 2);
+    const distance = Math.abs(offsetY);
+    const finalOpacity = getComputedStyle(item).opacity;
+
+    const animation = item.animate(
+      [
+        {
+          translate: `0 ${offsetY}px`,
+          opacity: 0,
+          scale: ".72"
+        },
+        {
+          translate: "0 0",
+          opacity: finalOpacity,
+          scale: "1"
+        }
+      ],
+      {
+        duration: 480,
+        delay: Math.min(120, distance * .45),
+        easing: "cubic-bezier(.2, .8, .2, 1)",
+        fill: "both"
+      }
+    );
+
+    animations.push(waitForAnimation(animation));
+  });
+
+  await Promise.all(animations);
+}
+
+function moveFilterSelection(delta) {
+  if (!filterOpen || filterTransitioning) {
+    return;
+  }
+
+  filterIndex += delta;
+
+  if (
+    filterIndex < 0
+  ) {
+    filterIndex =
+      FILTERS.length - 1;
+  }
+
+  if (
+    filterIndex >= FILTERS.length
+  ) {
+    filterIndex = 0;
+  }
+
+  playMenuMoveSound();
+  renderFilterSelector();
+}
+
+async function selectCurrentFilter() {
+  if (!filterOpen || filterTransitioning) {
+    return;
+  }
+
+  const filter =
+    FILTERS[filterIndex];
+
+  if (!filter) {
+    return;
+  }
+
+  filterTransitioning = true;
+
+  const panel = listTrack
+    ? listTrack.querySelector(".gba-filter-panel")
+    : null;
+
+  if (panel) {
+    await playFilterCollapse(panel);
+  }
+
+  currentFilter =
+    filter.id;
+
+  applyGameFilter();
+
+  filterOpen = false;
+
+  renderList();
+  updateCoverBackground();
+
+  await expandGamesFromSelected();
+
+  filterTransitioning = false;
+}
+
+function closeFilterSelector() {
+  if (!filterOpen) {
+    return;
+  }
+
+  filterOpen = false;
+
+  renderList();
+  updateCoverBackground();
+}
   function findCurrentGame() {
     const currentRom =
       params.get("rom");
@@ -464,8 +940,7 @@ Object.assign(
       document.createElement("div");
 
     footer.textContent =
-      "▲ ▼ MOVER   A / START ELEGIR   B VOLVER";
-
+      "▲ ▼ MOVER   A / START ELEGIR   SELECT FILTRO   B VOLVER";
    Object.assign(
   footer.style,
   {
@@ -521,7 +996,7 @@ function updateCoverBackground() {
 
   const baseName =
     filename.replace(
-      /\.gba$/i,
+       /\.(gba|gb|gbc)$/i,
       ""
     );
 
@@ -617,6 +1092,16 @@ function updateCoverBackground() {
   };
 }
 function renderList() {
+  if (listTrack) {
+    const filterPanel =
+      listTrack.querySelector(
+        ".gba-filter-panel"
+      );
+
+    if (filterPanel) {
+      filterPanel.remove();
+    }
+  }  
   if (
     !listTrack ||
     !listViewport ||
@@ -693,11 +1178,25 @@ function renderList() {
       const visible =
         distance <= VISIBLE_SIDE;
 
-      item.textContent =
-        friendlyName(
-          game.filename
-        );
+      const filename =
+  game.filename.toLowerCase();
 
+let system = "GBA";
+
+if (filename.endsWith(".gbc")) {
+  system = "GBC";
+} else if (filename.endsWith(".gb")) {
+  system = "GB";
+}
+
+const gameName =
+  friendlyName(
+    game.filename
+  );
+
+item.textContent =
+  gameName + " (" + system.toLowerCase() + ")";
+      
       /*
        * Tamaños según distancia.
        */
@@ -1288,15 +1787,20 @@ function renderList() {
       const files =
         await response.json();
 
-      games =
+          allGames =
         files
           .filter(
             (file) => {
+              const name =
+                file.name.toLowerCase();
+
               return (
                 file.type === "file" &&
-                file.name
-                  .toLowerCase()
-                  .endsWith(".gba")
+                (
+                  name.endsWith(".gba") ||
+                  name.endsWith(".gb") ||
+                  name.endsWith(".gbc")
+                )
               );
             }
           )
@@ -1320,6 +1824,8 @@ function renderList() {
               )
           );
 
+      games = allGames;
+
       findCurrentGame();
 
       if (!games.length) {
@@ -1335,10 +1841,69 @@ function renderList() {
       );
 
       gameList.innerHTML =
-        '<div class="game-list-status">No se pudo cargar la lista de juegos.</div>';
+        '<div class="game-list-status">No hay juegos compatibles.</div>';
 
       return;
     }
+  }
+
+  async function closeMenuIntoScreen() {
+    if (!menu || !menu.open) {
+      return;
+    }
+
+    const card = menu.querySelector(".menu-card");
+    const source = card.getBoundingClientRect();
+    const target = screenFrame.getBoundingClientRect();
+
+    const sourceCenterX = source.left + source.width / 2;
+    const sourceCenterY = source.top + source.height / 2;
+    const targetCenterX = target.left + target.width / 2;
+    const targetCenterY = target.top + target.height / 2;
+
+    menu.style.setProperty(
+      "--menu-screen-x",
+      `${targetCenterX - sourceCenterX}px`
+    );
+    menu.style.setProperty(
+      "--menu-screen-y",
+      `${targetCenterY - sourceCenterY}px`
+    );
+    menu.style.setProperty(
+      "--menu-screen-scale-x",
+      String(target.width / source.width)
+    );
+    menu.style.setProperty(
+      "--menu-screen-scale-y",
+      String(target.height / source.height)
+    );
+
+    menu.classList.add("menu-closing-to-screen");
+
+    await new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        card.removeEventListener("animationend", onAnimationEnd);
+        resolve();
+      };
+      const onAnimationEnd = (event) => {
+        if (event.target === card && event.animationName === "menuToScreen") {
+          finish();
+        }
+      };
+
+      card.addEventListener("animationend", onAnimationEnd);
+      window.setTimeout(finish, 980);
+    });
+
+    menu.close();
+    menu.classList.remove("menu-closing-to-screen");
+    menu.style.removeProperty("--menu-screen-x");
+    menu.style.removeProperty("--menu-screen-y");
+    menu.style.removeProperty("--menu-screen-scale-x");
+    menu.style.removeProperty("--menu-screen-scale-y");
   }
 
   async function openScreenSelector() {
@@ -1351,21 +1916,14 @@ function renderList() {
 
     opening = true;
 
-    /*
-     * Cerrar el menú HTML normal.
-     */
-    if (menu) {
-      try {
-        menu.close();
-      } catch (error) {}
-    }
-
     await loadGameList();
 
     if (!games.length) {
       opening = false;
       return;
     }
+
+    await closeMenuIntoScreen();
 
     buildOverlay();
 
@@ -1375,44 +1933,94 @@ function renderList() {
     renderList();
   }
 
-  function handleKeyboard(event) {
-    if (!menuOpen) {
-      return;
-    }
+ function handleKeyboard(event) {
+  if (!menuOpen) {
+    return;
+  }
 
+  if (filterOpen) {
     switch (event.code) {
       case "ArrowUp":
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        moveSelection(-1);
-        break;
+        moveFilterSelection(-1);
+        return;
 
       case "ArrowDown":
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        moveSelection(1);
-        break;
+        moveFilterSelection(1);
+        return;
 
       case "KeyX":
       case "Enter":
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        selectCurrentGame();
-        break;
+        selectCurrentFilter();
+        return;
 
       case "KeyZ":
       case "Escape":
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        closeScreenSelector();
-        break;
+        closeFilterSelector();
+        return;
+
+      case "ShiftLeft":
+      case "ShiftRight":
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
     }
+
+    return;
   }
 
+  switch (event.code) {
+    case "ArrowUp":
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      moveSelection(-1);
+      return;
+
+    case "ArrowDown":
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      moveSelection(1);
+      return;
+
+    case "ShiftLeft":
+    case "ShiftRight":
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      openFilterSelector();
+      return;
+
+    case "KeyX":
+    case "Enter":
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      selectCurrentGame();
+      return;
+
+    case "KeyZ":
+    case "Escape":
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeScreenSelector();
+      return;
+  }
+}
   function handlePointer(event) {
     if (!menuOpen) {
       return;
@@ -1440,6 +2048,60 @@ function renderList() {
     const key =
       keyButton.dataset.key;
 
+    if (filterOpen) {
+      if (
+        key === "UP"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        moveFilterSelection(-1);
+        return;
+      }
+
+      if (
+        key === "DOWN"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        moveFilterSelection(1);
+        return;
+      }
+
+      if (
+        key === "A" ||
+        key === "START"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        selectCurrentFilter();
+        return;
+      }
+
+      if (
+        key === "SELECT"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      if (
+        key === "B"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        closeFilterSelector();
+        return;
+      }
+
+      return;
+    }
+
     if (
       key === "UP"
     ) {
@@ -1461,6 +2123,16 @@ function renderList() {
     }
 
     if (
+      key === "SELECT"
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      openFilterSelector();
+      return;
+    }
+
+   if (
       key === "A" ||
       key === "START"
     ) {
@@ -1478,9 +2150,9 @@ function renderList() {
       event.stopPropagation();
       event.stopImmediatePropagation();
       closeScreenSelector();
+      return;
     }
   }
-
   if (selectGameButton) {
     selectGameButton.addEventListener(
       "click",
@@ -1506,6 +2178,31 @@ function renderList() {
     true
   );
 
+  window.addEventListener(
+  "keyup",
+  (event) => {
+    if (!menuOpen || !filterOpen) {
+      return;
+    }
+
+    if (
+      event.code === "KeyX" ||
+      event.code === "Enter" ||
+      event.code === "KeyZ" ||
+      event.code === "Escape" ||
+      event.code === "ShiftLeft" ||
+      event.code === "ShiftRight" ||
+      event.code === "ArrowUp" ||
+      event.code === "ArrowDown"
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    }
+  },
+  true
+);
+  
   /*
    * Los controles físicos siguen funcionando
    * cuando el selector está abierto.

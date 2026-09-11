@@ -382,12 +382,70 @@ dialog::backdrop {
   background: #ffffff0b;
   border: 1px solid #ffffff0a;
 
-  text-align: left;
   padding: 0 14px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  text-align: center;
+
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
 }
+
+.menu-card > button#save-game {
+  background: var(--button);
+  border: 1px solid #ffffff12;
+  color: var(--text);
+}
+
+.menu-card > button#save-game:active {
+  background: var(--button-active);
+}
+
+#close-menu {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+
+  width: 38px;
+  height: 38px;
+
+  border-radius: 10px;
+
+  background: var(--button);
+  color: var(--text);
+
+padding: 0;
+
+display: flex;
+justify-content: center;
+align-items: center;
+
+color: var(--text);
+
+box-shadow: 0 5px 12px #0005;
+
+font-size: 1.4rem;
+font-weight: 900;
+line-height: 1;  
+}
+
 
 .menu-card > button:not(#close-menu):active {
   background: #ffffff18;
+}
+
+.menu-card > button#save-game {
+  background: var(--button);
+  border: 1px solid #ffffff12;
+  color: var(--text);
+}
+
+.menu-card > button#save-game:active {
+  background: var(--button-active);
 }
 
 #close-menu {
@@ -1039,7 +1097,13 @@ dialog::backdrop {
   gap: 8px;
 }
 
-.volume-row > label {
+.volume-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.volume-label-row > label {
   font-size: .78rem;
   font-weight: 700;
   color: var(--muted);
@@ -1501,4 +1565,220 @@ dialog::backdrop {
 .audio-control label,
 .appearance-control span {
   color: #fff !important;
+}
+
+/* Menú compacto (reversible como un único bloque) */
+#menu {
+  position: fixed;
+  inset: 0;
+  width: min(94vw, 420px);
+  max-width: calc(100vw - 20px);
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  border-radius: 22px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+#menu .menu-card {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  padding:
+    max(28px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  border-radius: 22px;
+  overflow-x: clip;
+  overflow-y: hidden;
+}
+
+#menu .menu-card h2 {
+  margin-bottom: 28px;
+}
+
+#menu .menu-card h2 img {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+#menu #select-game-button,
+#menu #save-game,
+#menu #reload-game {
+  height: 46px !important;
+  margin-top: 8px !important;
+}
+
+#menu #save-game {
+  margin-top: 18px !important;
+}
+
+#menu #select-game-button {
+  margin-bottom: 14px !important;
+}
+
+#menu .speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+
+#menu #speed-select {
+  min-width: 0;
+  height: 32px;
+}
+
+#menu .audio-control,
+#menu .appearance-control {
+  margin-top: 12px;
+  padding-top: 11px;
+}
+
+#menu .audio-control h3,
+#menu .appearance-control h3 {
+  margin-bottom: 8px;
+}
+
+#menu .volume-row {
+  gap: 6px;
+}
+
+#menu #mute-button {
+  padding: 8px 11px;
+}
+
+#menu .color-group {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#menu .color-group > span {
+  margin-bottom: 0;
+}
+
+#menu .color-options {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+#menu .color-swatch {
+  width: clamp(26px, 7.5vw, 32px);
+  height: clamp(26px, 7.5vw, 32px);
+  flex: 0 1 clamp(26px, 7.5vw, 32px);
+}
+
+#menu .menu-card > button#social-link {
+  height: 112px !important;
+}
+
+#menu .social-label {
+  position: absolute;
+  inset: 0;
+}
+
+#menu[open] .menu-card {
+  transform-origin: calc(100% - 24px) 0;
+  animation: menuOpen 380ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+#menu[open]::backdrop {
+  animation: menuBackdropOpen 220ms ease-out both;
+}
+
+@keyframes menuOpen {
+  0% {
+    opacity: 0;
+    transform: scale(.06);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.025);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes menuBackdropOpen {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#menu.menu-closing-to-screen .menu-card {
+  transform-origin: center;
+  pointer-events: none;
+  animation: menuToScreen 900ms cubic-bezier(.45, 0, .2, 1) both !important;
+}
+
+#menu.menu-closing-to-screen::backdrop {
+  animation: menuBackdropClose 900ms ease-in both !important;
+}
+
+@keyframes menuToScreen {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1, 1);
+    border-radius: 22px;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(var(--menu-screen-x), var(--menu-screen-y))
+      scale(var(--menu-screen-scale-x), var(--menu-screen-scale-y));
+    border-radius: 16px;
+  }
+}
+
+#menu.menu-closing-comic .menu-card {
+  transform-origin: calc(100% - 24px) 0;
+  pointer-events: none;
+  animation: menuComicClose 380ms cubic-bezier(.8, .2, .8, 1) both !important;
+}
+
+#menu.menu-closing-comic::backdrop {
+  animation: menuBackdropClose 500ms ease-in both !important;
+}
+
+@keyframes menuComicClose {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.025);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(.06);
+  }
+}
+
+@keyframes menuBackdropClose {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #menu[open] .menu-card,
+  #menu[open]::backdrop,
+  #menu.menu-closing-to-screen .menu-card,
+  #menu.menu-closing-to-screen::backdrop,
+  #menu.menu-closing-comic .menu-card,
+  #menu.menu-closing-comic::backdrop {
+    animation: none;
+  }
 }

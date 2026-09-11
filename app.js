@@ -14,6 +14,7 @@ const game = (params.get("game") || "pokemon").toLowerCase();
   const closeMenu = document.getElementById("close-menu");
   
   const reloadButton = document.getElementById("reload-game");
+  const saveGameButton = document.getElementById("save-game");
   const speedSelect = document.getElementById("speed-select");
   const canvas = document.getElementById("screen");
 
@@ -71,6 +72,9 @@ if (savedButtonColor) {
 let timer = null;
 let saveTimer = null;
 let startTime = 0;
+let backgroundSuspended = false;
+let resumeGbaAfterBackground = false;
+let resumeGbAfterBackground = false;
 
 let audioInput = null;
 let audioVolume = 1;
@@ -207,25 +211,53 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
-    if (!emulator) return;
+  const isGBFamily =
+    /\.(gb|gbc)$/i.test(selected.rom);
 
-    const value = keyMap[keyName];
+  if (isGBFamily) {
+    if (
+      window.gbaGB &&
+      typeof window.gbaGB.keyDown === "function"
+    ) {
+      window.gbaGB.keyDown(keyName);
+    }
 
-    if (value === undefined) return;
-
-    emulator.keyDown(value);
+    return;
   }
 
-  function releaseKey(keyName) {
-    if (!emulator) return;
+  if (!emulator) return;
 
-    const value = keyMap[keyName];
+  const value = keyMap[keyName];
 
-    if (value === undefined) return;
+  if (value === undefined) return;
 
-    emulator.keyUp(value);
+  emulator.keyDown(value);
+}
+
+ function releaseKey(keyName) {
+  const isGBFamily =
+    /\.(gb|gbc)$/i.test(selected.rom);
+
+  if (isGBFamily) {
+    if (
+      window.gbaGB &&
+      typeof window.gbaGB.keyUp === "function"
+    ) {
+      window.gbaGB.keyUp(keyName);
+    }
+
+    return;
   }
 
+  if (!emulator) return;
+
+  const value = keyMap[keyName];
+
+  if (value === undefined) return;
+
+  emulator.keyUp(value);
+} 
+  
   function updateVolumeUI() {
   const percentage = Math.round(audioVolume * 100);
 
@@ -243,15 +275,29 @@ function loadGameType(name, callback) {
 }
 
 function applyVolume(volume) {
-  volume = Math.min(Math.max(Number(volume), 0), 1);
+  volume = Math.min(
+    Math.max(Number(volume), 0),
+    1
+  );
 
   audioVolume = volume;
 
   if (audioInput) {
-    audioInput.setVolume(audioMuted ? 0 : audioVolume);
+    audioInput.setVolume(
+      audioMuted ? 0 : audioVolume
+    );
   }
 
-  localStorage.setItem("gba-volume", String(audioVolume));
+  if (window.gbaGB) {
+    window.gbaGB.setVolume(
+      audioMuted ? 0 : audioVolume
+    );
+  }
+
+  localStorage.setItem(
+    "gba-volume",
+    String(audioVolume)
+  );
 
   updateVolumeUI();
 }
@@ -279,7 +325,7 @@ function initializeAudio(audioUnlockElement = null) {
   }
 }
   
-  function unlockAudio() {
+function unlockAudio() {
   try {
     const context = XAudioJSWebAudioContextHandle;
 
@@ -289,6 +335,42 @@ function initializeAudio(audioUnlockElement = null) {
   } catch (error) {
     console.log("No se pudo desbloquear el audio:", error);
   }
+}
+
+function stopGbaTimers() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  if (saveTimer) {
+    clearInterval(saveTimer);
+    saveTimer = null;
+  }
+}
+
+function startGbaTimers() {
+  if (!emulator) return;
+
+  stopGbaTimers();
+  startTime = Date.now();
+
+  timer = window.setInterval(() => {
+    if (!emulator) return;
+
+    const elapsed = (Date.now() - startTime) >>> 0;
+    emulator.timerCallback(elapsed);
+  }, 8);
+
+  saveTimer = window.setInterval(() => {
+    if (!emulator) return;
+
+    try {
+      emulator.exportSave();
+    } catch (error) {
+      console.error("Guardado automático:", error);
+    }
+  }, 10000);
 }
   
 document.querySelectorAll("[data-key]").forEach((button) => {
@@ -453,7 +535,31 @@ window.addEventListener(
       if (rom.length < 1024) {
         throw new Error("ROM inválida");
       }
+const lowerRomPath = selected.rom.toLowerCase();
+const isGBFamily =
+  lowerRomPath.endsWith(".gb") ||
+  lowerRomPath.endsWith(".gbc");
 
+if (isGBFamily) {
+  canvas.width = 160;
+  canvas.height = 144;
+
+  if (!window.gbaGB) {
+    throw new Error("Falta el núcleo GB/GBC.");
+  }
+
+ await window.gbaGB.start(selected.rom);
+
+status.hidden = true;
+status.style.display = "none";
+
+window.__gba = null;
+
+return;
+}
+
+canvas.width = 240;
+canvas.height = 160;
       if (typeof GameBoyAdvanceEmulator !== "function") {
         throw new Error("Falta GameBoyAdvanceEmulator");
       }
@@ -550,25 +656,7 @@ window.__gba = emulator;
        * IodineGBA espera el tiempo transcurrido,
        * no performance.now() absoluto.
        */
-      startTime = Date.now();
-
-      timer = window.setInterval(() => {
-        if (!emulator) return;
-
-        const elapsed = (Date.now() - startTime) >>> 0;
-
-        emulator.timerCallback(elapsed);
-      }, 8);
-
-      saveTimer = window.setInterval(() => {
-  if (!emulator) return;
-
-  try {
-    emulator.exportSave();
-  } catch (error) {
-    console.error("Guardado automático:", error);
-  }
-}, 10000);
+      startGbaTimers();
       
       status.hidden = true;
       status.style.display = "none";
@@ -623,9 +711,13 @@ if (muteButton) {
       previousVolume = audioVolume;
       audioMuted = true;
 
-      if (audioInput) {
-        audioInput.setVolume(0);
-      }
+     if (audioInput) {
+  audioInput.setVolume(0);
+}
+
+if (window.gbaGB) {
+  window.gbaGB.setVolume(0);
+} 
 
       updateVolumeUI();
     } else {
@@ -636,9 +728,63 @@ if (muteButton) {
 }
 
 updateVolumeUI();
-  closeMenu.addEventListener("click", () => {
+  closeMenu.addEventListener("click", async () => {
+    if (!menu.open || menu.classList.contains("menu-closing-comic")) {
+      return;
+    }
+
+    const card = menu.querySelector(".menu-card");
+    menu.classList.add("menu-closing-comic");
+
+    await new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        card.removeEventListener("animationend", onAnimationEnd);
+        resolve();
+      };
+      const onAnimationEnd = (event) => {
+        if (event.target === card && event.animationName === "menuComicClose") {
+          finish();
+        }
+      };
+
+      card.addEventListener("animationend", onAnimationEnd);
+      window.setTimeout(finish, 620);
+    });
+
     menu.close();
+    menu.classList.remove("menu-closing-comic");
   });
+
+  if (saveGameButton) {
+  saveGameButton.addEventListener("click", () => {
+    const isGBFamily =
+      /\.(gb|gbc)$/i.test(selected.rom);
+
+    try {
+      if (isGBFamily) {
+        if (
+          window.gbaGB &&
+          typeof window.gbaGB.save === "function"
+        ) {
+          window.gbaGB.save();
+          console.log("Partida GB/GBC guardada.");
+        }
+      } else if (emulator) {
+        emulator.exportSave();
+        console.log("Partida GBA guardada.");
+      }
+    } catch (error) {
+      console.error(
+        "Error guardando la partida:",
+        error
+      );
+    }
+  });
+}
+  
 if (reloadButton) {
   reloadButton.addEventListener("click", () => {
     try {
@@ -663,15 +809,99 @@ if (reloadButton) {
 }
  
 
-   function shutdownEmulator() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
+  function suspendEmulatorForBackground() {
+    if (backgroundSuspended) return;
+
+    backgroundSuspended = true;
+
+    if (emulator) {
+      resumeGbaAfterBackground = emulator.emulatorStatus < 0x10;
+
+      if (resumeGbaAfterBackground) {
+        try {
+          emulator.pause();
+        } catch (error) {
+          console.error("Pausa en segundo plano GBA:", error);
+        }
+      }
+
+      stopGbaTimers();
     }
-if (saveTimer) {
-  clearInterval(saveTimer);
-  saveTimer = null;
-}
+
+    if (
+      window.gbaGB &&
+      typeof window.gbaGB.isPaused === "function" &&
+      typeof window.gbaGB.pause === "function"
+    ) {
+      resumeGbAfterBackground = !window.gbaGB.isPaused();
+
+      if (resumeGbAfterBackground) {
+        window.gbaGB.pause();
+      }
+    }
+  }
+
+  function resumeEmulatorFromBackground(force = false) {
+    if (document.hidden) return;
+
+    if (!backgroundSuspended && !force) return;
+
+    backgroundSuspended = false;
+
+    const gbaNeedsRecovery =
+      emulator &&
+      (
+        resumeGbaAfterBackground ||
+        timer === null ||
+        emulator.emulatorStatus >= 0x10
+      );
+
+    if (gbaNeedsRecovery) {
+      try {
+        emulator.play();
+        startGbaTimers();
+        unlockAudio();
+      } catch (error) {
+        console.error("Reanudación GBA:", error);
+      }
+    }
+
+    const gbNeedsRecovery =
+      window.gbaGB &&
+      typeof window.gbaGB.resume === "function" &&
+      (
+        resumeGbAfterBackground ||
+        (
+          typeof window.gbaGB.isPaused === "function" &&
+          window.gbaGB.isPaused()
+        )
+      );
+
+    if (gbNeedsRecovery) {
+      try {
+        window.gbaGB.resume();
+      } catch (error) {
+        console.error("Reanudación GB/GBC:", error);
+      }
+    }
+
+    resumeGbaAfterBackground = false;
+    resumeGbAfterBackground = false;
+  }
+
+  function scheduleEmulatorRecovery() {
+    resumeEmulatorFromBackground(true);
+
+    [100, 400, 1000].forEach((delay) => {
+      window.setTimeout(() => {
+        resumeEmulatorFromBackground(true);
+      }, delay);
+    });
+  }
+
+  function shutdownEmulator() {
+    stopGbaTimers();
+
     if (emulator) {
       try {
         /*
@@ -684,7 +914,18 @@ if (saveTimer) {
     }
   }
 
-  window.addEventListener("pagehide", shutdownEmulator);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      suspendEmulatorForBackground();
+    } else {
+      scheduleEmulatorRecovery();
+    }
+  });
+
+  window.addEventListener("pagehide", suspendEmulatorForBackground);
+  window.addEventListener("pageshow", scheduleEmulatorRecovery);
+  window.addEventListener("focus", scheduleEmulatorRecovery);
+  window.addEventListener("resume", scheduleEmulatorRecovery);
   window.addEventListener("beforeunload", shutdownEmulator);
 
 

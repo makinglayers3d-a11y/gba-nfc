@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#10141b">
   <title>ML3Demuler</title>
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=f9f92052">
 </head>
 
 <body>
@@ -132,7 +132,10 @@
     <dialog id="menu">
       <div class="menu-card">
         <button id="close-menu" type="button">×</button>
-        <h2>GBA NFC</h2>
+        <h2 style="display:flex;align-items:center;gap:8px;color:#fff;font-weight:900;">
+          <img src="assets/ml3d-logo.png" alt="" style="width:28px;height:28px;object-fit:contain;">
+          <span>ML3D</span>
+        </h2>
         <button id="select-game-button" type="button">
   Seleccionar juego
 </button>
@@ -154,7 +157,10 @@
   <h3>Sonido</h3>
 
   <div class="volume-row">
-    <label for="volume-slider">Volumen</label>
+    <div class="volume-label-row">
+      <label for="volume-slider">Volumen</label>
+      <span id="volume-value">100%</span>
+    </div>
 
     <div class="volume-controls">
       <input
@@ -173,8 +179,6 @@
         Silenciar
       </button>
     </div>
-
-    <span id="volume-value">100%</span>
   </div>
 </section>
         
@@ -206,10 +210,175 @@
   </div>
 </section>
 
+<button id="save-game" type="button">
+  Guardar partida
+</button>
 
 <button id="reload-game" type="button">
   Reiniciar juego
 </button>
+
+<button
+  id="social-link"
+  class="social-link"
+  type="button"
+  aria-label="Abrir Instagram de Makinglayers3d"
+  onclick="window.open('https://www.instagram.com/makinglayers3d/', '_blank', 'noopener,noreferrer')"
+>
+  <span class="social-label">
+    <img
+      src="assets/makinglayers3d-label.png?v=1f853638"
+      alt="MAKINGLAYERS3D"
+      class="social-label-image"
+    >
+  </span>
+
+  <span
+    class="social-reflection"
+    aria-hidden="true"
+  ></span>
+</button>
+<style>
+  #reload-game {
+    position: relative;
+    z-index: 2;
+  }
+
+  .menu-card > button#social-link {
+    position: relative;
+    z-index: 1;
+
+    display: block;
+
+    width: 100%;
+    height: auto;
+    margin-top: -29.5px;
+    padding: 0;
+
+    overflow: visible;
+
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+
+    box-shadow: none;
+
+    cursor: pointer;
+    isolation: isolate;
+    transform-origin: center;
+
+    animation: socialDoubleClick 4s ease-in-out infinite;
+  }
+
+  .menu-card > button#social-link::before {
+    content: none;
+  }
+
+  .social-label {
+    position: relative;
+    z-index: 1;
+
+    display: block;
+    width: 100%;
+    line-height: 0;
+    overflow: visible;
+  }
+
+  .social-label-image {
+    display: block;
+
+    width: 115.65%;
+    max-width: none;
+    height: auto;
+    margin-left: -7.825%;
+
+    object-fit: contain;
+    transform: translateY(-12px);
+    transform-origin: center;
+
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+
+    filter: none;
+  }
+
+  .social-reflection {
+    position: absolute;
+    top: 0;
+    left: -7.825%;
+    width: 115.65%;
+    height: auto;
+    aspect-ratio: 1774 / 887;
+    z-index: 2;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        108deg,
+        transparent 0%,
+        transparent 39%,
+        #ffffff18 44%,
+        #ffffff75 50%,
+        #ffffff18 56%,
+        transparent 61%,
+        transparent 100%
+      );
+    background-size: 220% 100%;
+    background-position: 130% 0;
+    -webkit-mask-image: url("assets/makinglayers3d-label.png?v=1f853638");
+    mask-image: url("assets/makinglayers3d-label.png?v=1f853638");
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    transform: translateY(-12px);
+    transform-origin: center;
+    animation: socialReflection 2.8s linear infinite;
+  }
+
+  .menu-card > button#social-link:active {
+    background: transparent;
+    border: 0;
+  }
+
+  .menu-card > button#social-link:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 3px;
+  }
+
+  @keyframes socialReflection {
+    0% {
+      background-position: 130% 0;
+    }
+
+    100% {
+      background-position: -120% 0;
+    }
+  }
+
+  @keyframes socialDoubleClick {
+    0%, 70%, 76%, 82%, 88%, 100% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+    73%, 85% {
+      transform: scale(0.975);
+      filter: brightness(1.12);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu-card > button#social-link,
+    .social-reflection {
+      animation: none;
+    }
+    .social-reflection {
+      display: none;
+    }
+  }
+</style>
        
       </div>
     </dialog>
@@ -287,10 +456,23 @@
 <script src="user_scripts/AudioGlueCode.js"></script>
 
 <script src="user_scripts/GfxGlueCode.js"></script>
+
+<!--
+  Activamos binjgb en modo biblioteca.
+  En este modo no arranca ninguna ROM por sí solo
+  y tampoco crea sus propios controles.
+-->
+<script>
+  window.GBA_GB_LIBRARY_MODE = true;
+</script>
+
+<script src="GB/binjgb.js"></script>
+<script src="GB/simple.js?v=f9eb950a"></script>
+
 <script src="user_scripts/BootIntro.js"></script>
-<script src="user_scripts/GameSelector.js"></script>
-<script src="user_scripts/NFCAuth.js"></script>
-<script src="app.js"></script>
+<script src="user_scripts/GameSelector.js?v=e4a24d9e"></script>
+<script src="GB/GBSave.js"></script>
+<script src="app.js?v=9762218a"></script>
   
 </body>
 </html>
