@@ -2,7 +2,7 @@
 
 (function () {
   const REPO_API =
-    "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc-gb/contents/games";
+    "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc/contents/games";
 
   const selectGameButton =
     document.getElementById("select-game-button");
