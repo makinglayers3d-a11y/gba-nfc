@@ -4,7 +4,7 @@
 
 /* Temporary snapshots keep final layout and touch geometry completely untouched. */
 body.ml3d-console-transitioning{overflow:hidden!important;touch-action:none}
-body.ml3d-console-transitioning> .app{visibility:hidden!important;pointer-events:none!important}
+body.ml3d-console-transitioning> .app{opacity:0!important;pointer-events:none!important}
 body.ml3d-console-transitioning #menu-button,
 body.ml3d-console-transitioning #controls{pointer-events:none!important}
 .ml3d-console-transition-overlay{position:fixed;z-index:2147483000;overflow:hidden;pointer-events:none;transform-origin:50% 50%;transform-style:preserve-3d;perspective:1500px;contain:layout paint;will-change:transform,opacity}

@@ -189,6 +189,25 @@ body.ml3d-cartridge-handoff .ml3d-console-transition-overlay {
 .ml3d-cartridge-message { position:absolute; top:25%; color:#fff; opacity:0; transform:scale(.7); font:900 clamp(15px,4vw,24px)/1 system-ui; letter-spacing:.08em; text-shadow:0 0 15px #66a8ff; transition:opacity 160ms ease,transform 240ms cubic-bezier(.2,1.5,.3,1); }
 .ml3d-cartridge-scene.recognized .ml3d-cartridge-message { opacity:1; transform:scale(1); }
 .ml3d-cartridge-scene.leaving { opacity:0; }
+
+.ml3d-cartridge-scene.custom-handoff {
+  opacity: 1;
+  background: transparent;
+  transition: none;
+}
+
+.ml3d-cartridge-scene.custom-handoff .ml3d-cartridge-message {
+  opacity: 0;
+  transform: scale(.94);
+}
+
+.ml3d-cartridge-scene.custom-handoff .ml3d-cartridge {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml3d-cartridge-scene.custom-handoff { opacity: 0; }
+}
 @keyframes ml3dCartridgeInsert {
   0% { transform:translate(-50%,-185%) rotate(-7deg) scale(.72); }
   55% { transform:translate(-50%,-70%) rotate(2deg) scale(1.03); }

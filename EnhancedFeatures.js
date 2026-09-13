@@ -219,49 +219,98 @@
     } catch (_) {}
   }
 
-  window.ml3dPlayCartridgeInsert = function (game, onLeaving) {
-    return new Promise((resolve) => {
-      const scene = document.createElement("div");
-      scene.className = "ml3d-cartridge-scene";
-      scene.innerHTML = `
-        <div class="ml3d-cartridge">
-          <canvas class="ml3d-cartridge-render" aria-label="Cartucho Game Boy Advance"></canvas>
-        </div>
-        <div class="ml3d-cartridge-message">CARTUCHO RECONOCIDO</div>`;
-      document.body.appendChild(scene);
+  function wait(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
 
-      const cartridge = scene.querySelector(".ml3d-cartridge");
-      const canvas = scene.querySelector(".ml3d-cartridge-render");
+  function animationFinished(animation) {
+    return animation.finished.catch(() => {});
+  }
 
-      renderCartridge(canvas, cartridgeSelection())
-        .catch(async () => {
-          /* Un fallo de carga también termina siempre en el fallback seguro. */
-          await renderCartridge(canvas, { dynamic: false, type: "gba" });
-        })
-        .catch(() => {})
-        .finally(() => {
-          cartridge.classList.add("has-render");
-          playCartridgeSound(.7);
-          window.setTimeout(() => {
-            scene.classList.add("recognized");
-            vibrate([28, 34, 58]);
-          }, 1450);
-          window.setTimeout(() => {
-            if (typeof onLeaving === "function") {
-              document.body.classList.add("ml3d-cartridge-handoff");
-            }
-            scene.classList.add("leaving");
-            if (typeof onLeaving === "function") onLeaving();
-          }, 3000);
-          window.setTimeout(() => {
-            scene.remove();
-            if (typeof onLeaving === "function") {
-              document.body.classList.remove("ml3d-cartridge-handoff");
-            }
-            resolve();
-          }, 3350);
-        });
+  async function runCustomCartridgeHandoff(scene, cartridge) {
+    scene.classList.remove("leaving");
+    scene.classList.add("custom-handoff");
+
+    const cartridgeAnimation = cartridge.animate([
+      { transform: "translate(-50%,41%) rotate(0deg) scale(.9)", opacity: 1 },
+      { transform: "translate(-50%,72%) rotate(0deg) scale(.88)", opacity: 1, offset: .28 },
+      { transform: "translate(-50%,165%) rotate(2deg) scale(.82)", opacity: 0 }
+    ], {
+      duration: 950,
+      easing: "cubic-bezier(.55,.04,.82,.42)",
+      fill: "both"
     });
+
+    const backdropAnimation = scene.animate([
+      { backgroundColor: "#000", offset: 0 },
+      { backgroundColor: "#000", offset: .08 },
+      { backgroundColor: "rgba(0,0,0,0)", offset: .34 },
+      { backgroundColor: "rgba(0,0,0,0)", offset: 1 }
+    ], {
+      duration: 950,
+      easing: "linear",
+      fill: "both"
+    });
+
+    await Promise.all([
+      animationFinished(cartridgeAnimation),
+      animationFinished(backdropAnimation)
+    ]);
+  }
+
+  window.ml3dPlayCartridgeInsert = async function (game, onLeaving) {
+    const scene = document.createElement("div");
+    scene.className = "ml3d-cartridge-scene";
+    scene.innerHTML = `
+      <div class="ml3d-cartridge">
+        <canvas class="ml3d-cartridge-render" aria-label="Cartucho Game Boy Advance"></canvas>
+      </div>
+      <div class="ml3d-cartridge-message">CARTUCHO RECONOCIDO</div>`;
+    document.body.appendChild(scene);
+
+    const cartridge = scene.querySelector(".ml3d-cartridge");
+    const canvas = scene.querySelector(".ml3d-cartridge-render");
+    let handedOff = false;
+
+    try {
+      await renderCartridge(canvas, cartridgeSelection()).catch(async () => {
+        /* Un fallo de carga también termina siempre en el fallback seguro. */
+        await renderCartridge(canvas, { dynamic: false, type: "gba" });
+      }).catch(() => {});
+
+      cartridge.classList.add("has-render");
+      playCartridgeSound(.7);
+
+      await wait(1450);
+      scene.classList.add("recognized");
+      vibrate([28, 34, 58]);
+
+      await wait(1550);
+
+      const customHandoff =
+        document.body.dataset.appearanceFamily === "custom" &&
+        localStorage.getItem("ml3d-console-animations-enabled") !== "false" &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      if (typeof onLeaving === "function") {
+        document.body.classList.add("ml3d-cartridge-handoff");
+      }
+
+      handedOff = true;
+      if (typeof onLeaving === "function") onLeaving();
+
+      if (customHandoff) {
+        await runCustomCartridgeHandoff(scene, cartridge);
+      } else {
+        scene.classList.add("leaving");
+        await wait(350);
+      }
+    } finally {
+      scene.remove();
+      if (handedOff && typeof onLeaving === "function") {
+        document.body.classList.remove("ml3d-cartridge-handoff");
+      }
+    }
   };
 
   function saveCurrentGame() {

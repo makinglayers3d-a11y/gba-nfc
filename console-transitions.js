@@ -29,7 +29,7 @@
   const handoffStyle = document.createElement("style");
   handoffStyle.textContent = `
     body.ml3d-cartridge-handoff > .app {
-      visibility: hidden !important;
+      opacity: 0 !important;
       pointer-events: none !important;
     }
   `;
@@ -55,6 +55,58 @@
       canvas.height = original.height;
       try { canvas.getContext("2d").drawImage(original, 0, 0); } catch (_) {}
     });
+  }
+
+  const BOOT_DYNAMIC_PROPERTIES = Object.freeze([
+    "display",
+    "visibility",
+    "opacity",
+    "transform",
+    "filter",
+    "clip-path",
+    "background-color",
+    "color"
+  ]);
+
+  function copyComputedTree(sourceRoot, cloneRoot) {
+    const sourceNodes = [sourceRoot, ...sourceRoot.querySelectorAll("*")];
+    const cloneNodes = [cloneRoot, ...cloneRoot.querySelectorAll("*")];
+
+    sourceNodes.forEach((sourceNode, index) => {
+      const cloneNode = cloneNodes[index];
+      if (!cloneNode) return;
+      const computed = getComputedStyle(sourceNode);
+
+      for (let propertyIndex = 0; propertyIndex < computed.length; propertyIndex += 1) {
+        const property = computed[propertyIndex];
+        cloneNode.style.setProperty(property, computed.getPropertyValue(property));
+      }
+
+      cloneNode.style.setProperty("animation", "none", "important");
+      cloneNode.style.setProperty("transition", "none", "important");
+    });
+
+    return { sourceNodes, cloneNodes };
+  }
+
+  function createBootMirror(source, clone) {
+    const sourceBoot = source.querySelector("#boot-screen");
+    const cloneBoot = clone.querySelector("#boot-screen");
+    if (!sourceBoot || !cloneBoot) return null;
+
+    cloneBoot.classList.add("ml3d-transition-boot-snapshot");
+    const mirror = copyComputedTree(sourceBoot, cloneBoot);
+
+    return () => {
+      mirror.sourceNodes.forEach((sourceNode, index) => {
+        const cloneNode = mirror.cloneNodes[index];
+        if (!cloneNode) return;
+        const computed = getComputedStyle(sourceNode);
+        BOOT_DYNAMIC_PROPERTIES.forEach((property) => {
+          cloneNode.style.setProperty(property, computed.getPropertyValue(property), "important");
+        });
+      });
+    };
   }
 
   function loadImage(src) {
@@ -111,15 +163,22 @@
       left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`
     });
 
+    const bootMirrors = [];
+    const buildClone = () => {
+      const clone = source.cloneNode(true);
+      clone.querySelectorAll("dialog").forEach((node) => node.remove());
+      const bootMirror = createBootMirror(source, clone);
+      if (bootMirror) bootMirrors.push(bootMirror);
+      clone.removeAttribute("id");
+      clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+      copyCanvases(source, clone);
+      return clone;
+    };
+
     const shell = document.createElement("div");
     shell.className = "ml3d-console-transition-shell";
-    const clone = source.cloneNode(true);
-    clone.removeAttribute("id");
-    clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-    clone.querySelectorAll("dialog").forEach((node) => node.remove());
-    shell.appendChild(clone);
+    shell.appendChild(buildClone());
     overlay.appendChild(shell);
-    copyCanvases(source, clone);
 
     let topShell = null;
     let panel = null;
@@ -128,13 +187,8 @@
 
       topShell = document.createElement("div");
       topShell.className = "ml3d-console-transition-shell ml3d-console-transition-top";
-      const topClone = source.cloneNode(true);
-      topClone.removeAttribute("id");
-      topClone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-      topClone.querySelectorAll("dialog").forEach((node) => node.remove());
-      topShell.appendChild(topClone);
+      topShell.appendChild(buildClone());
       overlay.appendChild(topShell);
-      copyCanvases(source, topClone);
 
       panel = document.createElement("img");
       panel.className = "ml3d-console-transition-lid ml3d-console-transition-panel";
@@ -162,7 +216,25 @@
 
     document.body.appendChild(overlay);
 
-    return { overlay, shell, topShell, panel };
+    let mirrorFrame = 0;
+    let mirrorActive = bootMirrors.length > 0;
+    const syncBoot = () => {
+      if (!mirrorActive) return;
+      bootMirrors.forEach((mirror) => mirror());
+      mirrorFrame = requestAnimationFrame(syncBoot);
+    };
+    if (mirrorActive) syncBoot();
+
+    return {
+      overlay,
+      shell,
+      topShell,
+      panel,
+      stopBootSync() {
+        mirrorActive = false;
+        if (mirrorFrame) cancelAnimationFrame(mirrorFrame);
+      }
+    };
   }
 
   async function animateRepresentation(family, style, direction) {
@@ -208,6 +280,7 @@
 
       await Promise.all(animations.map((animation) => animation.finished.catch(() => {})));
     } finally {
+      view.stopBootSync();
       view.overlay.remove();
     }
   }
