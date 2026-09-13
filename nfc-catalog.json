@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "revision": "2026-09-13.1",
+  "cartridgeTypes": [{"id":"gba","name":"Game Boy Advance"}],
+  "colors": [
+    {"id":"black","name":"Negro","hex":"#202226","cartridgeTypes":["gba"]},
+    {"id":"gray","name":"Gris","hex":"#666a70","cartridgeTypes":["gba"]},
+    {"id":"blue","name":"Azul","hex":"#24569a","cartridgeTypes":["gba"]},
+    {"id":"red","name":"Rojo","hex":"#8e2732","cartridgeTypes":["gba"]},
+    {"id":"purple","name":"Morado","hex":"#603b86","cartridgeTypes":["gba"]},
+    {"id":"green","name":"Verde","hex":"#326448","cartridgeTypes":["gba"]},
+    {"id":"gold","name":"Dorado","hex":"#b58a2a","cartridgeTypes":["gba"]}
+  ],
+  "labels": [
+    {"id":"ml3d","name":"ML3D","cartridgeTypes":["gba"]},
+    {"id":"gold","name":"ML3D dorada","cartridgeTypes":["gba"]},
+    {"id":"blue","name":"ML3D azul","cartridgeTypes":["gba"]},
+    {"id":"ml3dholo","name":"ML3D holográfica","cartridgeTypes":["gba"]},
+    {"id":"zafiro","name":"Pokémon Zafiro","cartridgeTypes":["gba"]},
+    {"id":"rojo-fuego","name":"Pokémon Rojo Fuego","cartridgeTypes":["gba"]},
+    {"id":"esmeralda","name":"Pokémon Esmeralda","cartridgeTypes":["gba"]},
+    {"id":"rubi","name":"Pokémon Rubí","cartridgeTypes":["gba"]},
+    {"id":"verde-hoja","name":"Pokémon Verde Hoja","cartridgeTypes":["gba"]},
+    {"id":"minish-cap","name":"Zelda: The Minish Cap","cartridgeTypes":["gba"]}
+  ],
+  "destinations": [
+    {"id":"menu","name":"Menú de juegos"},
+    {"id":"game","name":"Juego determinado"}
+  ],
+  "games": [
+    {"id":"pokemon","name":"Pokémon FireRed","system":"gba"},
+    {"id":"mario3","name":"Super Mario Bros. 3","system":"gba"},
+    {"id":"minishcap","name":"The Legend of Zelda: The Minish Cap","system":"gba"}
+  ]
+}
