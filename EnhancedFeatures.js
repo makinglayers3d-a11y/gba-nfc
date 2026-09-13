@@ -56,7 +56,7 @@
       destination: Object.freeze([185, 235, 1168, 490])
     }),
     ml3dholo: Object.freeze({
-      src: "assets/cartridges/labels/ml3dholo.png",
+      src: "assets/cartridges/labels/ml3dholo.png?v=20260913-cache-3",
       crop: Object.freeze([0, 0, 1536, 631]),
       destination: Object.freeze([188, 238, 1162, 484])
     }),
