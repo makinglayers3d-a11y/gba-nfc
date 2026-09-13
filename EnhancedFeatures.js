@@ -56,9 +56,10 @@
       destination: Object.freeze([185, 235, 1168, 490])
     }),
     ml3dholo: Object.freeze({
-      src: "assets/cartridges/labels/ml3dholo.png?v=20260913-cache-3",
+      src: "assets/cartridges/labels/ml3dholo.png?v=20260913-cache-4",
       crop: Object.freeze([0, 0, 1536, 631]),
-      destination: Object.freeze([188, 238, 1162, 484])
+      destination: Object.freeze([188, 238, 1162, 484]),
+      preserveAspect: true
     }),
     zafiro: Object.freeze({
       src: "assets/cartridges/labels/pokemon-zafiro-es.png",
@@ -146,7 +147,39 @@
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.restore();
 
-    context.drawImage(labelImage, ...label.crop, ...label.destination);
+    if (label.preserveAspect) {
+      const [sourceX, sourceY, requestedWidth, requestedHeight] = label.crop;
+      const sourceWidth = Math.max(
+        1,
+        Math.min(requestedWidth, labelImage.naturalWidth - sourceX)
+      );
+      const sourceHeight = Math.max(
+        1,
+        Math.min(requestedHeight, labelImage.naturalHeight - sourceY)
+      );
+      const [destinationX, destinationY, destinationWidth, destinationHeight] =
+        label.destination;
+      const scale = Math.min(
+        destinationWidth / sourceWidth,
+        destinationHeight / sourceHeight
+      );
+      const renderedWidth = sourceWidth * scale;
+      const renderedHeight = sourceHeight * scale;
+
+      context.drawImage(
+        labelImage,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
+        destinationX + ((destinationWidth - renderedWidth) / 2),
+        destinationY + ((destinationHeight - renderedHeight) / 2),
+        renderedWidth,
+        renderedHeight
+      );
+    } else {
+      context.drawImage(labelImage, ...label.crop, ...label.destination);
+    }
   }
 
   function vibrate(pattern) {
