@@ -5,6 +5,7 @@
   const SP_STYLE_KEY = "ml3d-sp-style";
   const ANIMATIONS_KEY = "ml3d-console-animations-enabled";
   const SP_STYLES = [
+    "ml3d",
     "silver",
     "gray-red",
     "cream-burgundy",
@@ -411,6 +412,7 @@
         <div class="ml3d-family-panel" data-panel="sp">
           <span class="ml3d-style-label">Color de Game Boy Advance SP</span>
           <div class="ml3d-sp-swatches">
+            <button type="button" data-sp="ml3d" style="--swatch:linear-gradient(135deg,#009fe8 0 52%,#20262d 53%)" aria-label="SP personalizada ML3D" title="ML3D"></button>
             <button type="button" data-sp="silver" style="--swatch:#c8c9c9" aria-label="SP plateada" title="Plateada"></button>
             <button type="button" data-sp="gray-red" style="--swatch:linear-gradient(135deg,#c4c4c4 0 62%,#a31521 63%)" aria-label="SP gris con botones rojos" title="Gris y roja"></button>
             <button type="button" data-sp="cream-burgundy" style="--swatch:linear-gradient(135deg,#f3e4cd 0 62%,#741326 63%)" aria-label="SP crema con botones burdeos" title="Crema y burdeos"></button>

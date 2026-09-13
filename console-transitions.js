@@ -4,6 +4,7 @@
   const ANIMATIONS_KEY = "ml3d-console-animations-enabled";
 
   const SP_TRANSITION_ASSETS = Object.freeze({
+    ml3d: Object.freeze({ shell: "assets/gba-sp-ml3d.webp?v=1", lid: "assets/sp-lids/ml3d.webp?v=1" }),
     silver: Object.freeze({ shell: "assets/gba-sp-silver.jpg?v=4", lid: "assets/sp-lids/silver.webp?v=1" }),
     "gray-red": Object.freeze({ shell: "assets/gba-sp-gray-red.png?v=3", lid: "assets/sp-lids/gray-red.webp?v=1" }),
     "cream-burgundy": Object.freeze({ shell: "assets/gba-sp-cream-burgundy.png?v=full-1", lid: "assets/sp-lids/cream-burgundy.webp?v=1" }),
