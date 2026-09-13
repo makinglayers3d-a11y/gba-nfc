@@ -32,8 +32,8 @@ body.ml3d-custom-skin #menu-button{opacity:1;pointer-events:auto}
 /* Selectable SP shells. Every variant preserves the reference geometry. */
 body.sp-skin-test{--ml3d-sp-shell:url("assets/gba-sp-silver.jpg?v=4")}
 body.sp-skin-test[data-sp-style="gray-red"]{--ml3d-sp-shell:url("assets/gba-sp-gray-red.png?v=3")}
-body.sp-skin-test[data-sp-style="cream-burgundy"]{--ml3d-sp-shell:url("assets/gba-sp-cream-burgundy.png?v=2")}
-body.sp-skin-test[data-sp-style="gold-zelda"]{--ml3d-sp-shell:url("assets/gba-sp-gold-zelda.png?v=1")}
+body.sp-skin-test[data-sp-style="cream-burgundy"]{--ml3d-sp-shell:url("assets/gba-sp-cream-burgundy.png?v=full-1")}
+body.sp-skin-test[data-sp-style="gold-zelda"]{--ml3d-sp-shell:url("assets/gba-sp-gold-zelda.png?v=full-1")}
 body.sp-skin-test[data-sp-style="yellow-character"]{--ml3d-sp-shell:url("assets/gba-sp-yellow-character.jpg?v=1")}
 body.sp-skin-test[data-sp-style="groudon"]{--ml3d-sp-shell:url("assets/gba-sp-groudon.webp?v=2")}
 body.sp-skin-test[data-sp-style="kyogre"]{--ml3d-sp-shell:url("assets/gba-sp-kyogre.webp?v=2")}
