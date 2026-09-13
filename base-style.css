@@ -1,0 +1,2042 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0b0f15;
+  --panel: #151b24;
+  --panel-2: #202938;
+  --button: #273244;
+  --button-active: #354158;
+  --text: #ffffff;
+  --muted: #9da8b8;
+  --accent: #69a7ff;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100dvh;
+  touch-action: manipulation;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.app {
+  width: 100%;
+  min-height: 100dvh;
+  padding:
+    max(14px, env(safe-area-inset-top))
+    14px
+    max(18px, env(safe-area-inset-bottom));
+  background: var(--bg);
+    radial-gradient(
+      circle at 50% 20%,
+      #253143 0%,
+      #101721 38%,
+      #0b0f15 72%
+    );
+}
+
+.topbar {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 12px;
+  min-height: 52px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 2px 0 0;
+  font-size: 1.3rem;
+  line-height: 1.1;
+  font-weight: 850;
+}
+
+.icon-button {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+
+  border-radius: 14px;
+  background: #ffffff12;
+  border: 1px solid #ffffff1c;
+  font-size: 1.35rem;
+}
+
+.icon-button:active {
+  background: #ffffff20;
+  transform: scale(0.96);
+}
+
+.console {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.screen-frame {
+  position: relative;
+  width: 100%;
+
+  aspect-ratio: 3 / 2;
+
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+
+  box-shadow:
+    0 18px 50px #0009,
+    inset 0 0 0 1px #ffffff10;
+}
+
+#screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+
+  background: #000;
+}
+
+#status {
+  position: absolute;
+  inset: 0;
+
+  display: grid;
+  place-items: center;
+
+  padding: 20px;
+  text-align: center;
+
+  color: var(--muted);
+  background: #000;
+  font-size: 0.95rem;
+}
+
+.controls {
+  position: relative;
+  width: 100%;
+  min-height: 330px;
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 56px 190px 56px;
+  gap: 8px 12px;
+
+  padding: 2px 4px 0;
+}
+
+/* L / R */
+
+.shoulder {
+  align-self: center;
+
+  width: min(120px, 80%);
+  height: 42px;
+
+  border-radius: 22px;
+
+  background: var(--button);
+
+  box-shadow: 0 7px 14px #0007;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.shoulder:active {
+  transform: translateY(2px);
+  background: var(--button-active);
+}
+
+.shoulder.left {
+  justify-self: start;
+}
+
+.shoulder.right {
+  justify-self: end;
+}
+
+/* Cruceta */
+
+.dpad {
+  grid-column: 1;
+  grid-row: 2;
+
+  position: relative;
+
+  width: 170px;
+  height: 170px;
+
+  align-self: center;
+  justify-self: start;
+}
+
+.dpad button {
+  position: absolute;
+
+  width: 58px;
+  height: 58px;
+
+  background: var(--button);
+  border: 1px solid #ffffff08;
+
+  font-size: 1.4rem;
+  font-weight: 800;
+
+  box-shadow: 0 5px 12px #0005;
+}
+
+.dpad button:active {
+  background: var(--button-active);
+  transform: scale(0.95);
+}
+
+.dpad button[data-key="UP"] {
+  left: 56px;
+  top: 0;
+
+  border-radius: 14px 14px 8px 8px;
+}
+
+.dpad button[data-key="DOWN"] {
+  left: 56px;
+  bottom: 0;
+
+  border-radius: 8px 8px 14px 14px;
+}
+
+.dpad button[data-key="LEFT"] {
+  left: 0;
+  top: 56px;
+
+  border-radius: 14px 8px 8px 14px;
+}
+
+.dpad button[data-key="RIGHT"] {
+  right: 0;
+  top: 56px;
+
+  border-radius: 8px 14px 14px 8px;
+}
+
+/* A / B */
+
+.face-buttons {
+  grid-column: 2;
+  grid-row: 2;
+
+  position: relative;
+
+  width: 170px;
+  height: 170px;
+
+  align-self: center;
+  justify-self: end;
+}
+
+.face {
+  position: absolute;
+
+  width: 76px;
+  height: 76px;
+
+  border-radius: 50%;
+
+  background: var(--button);
+  box-shadow: 0 7px 16px #0008;
+
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.face:active {
+  transform: scale(0.94);
+  background: var(--button-active);
+}
+
+.face.b {
+  left: 0;
+  bottom: 0;
+}
+
+.face.a {
+  right: 0;
+  top: 0;
+}
+
+/* SELECT / START */
+
+.start-select {
+  grid-column: 1 / 3;
+  grid-row: 3;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+.start-select button {
+  min-width: 92px;
+  height: 38px;
+
+  padding: 0 16px;
+
+  border-radius: 20px;
+
+  background: #ffffff0d;
+  border: 1px solid #ffffff10;
+
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.start-select button:active {
+  background: #ffffff1b;
+  transform: scale(0.96);
+}
+
+/* Menú */
+
+dialog {
+  width: min(92vw, 420px);
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+
+  background: transparent;
+}
+
+dialog::backdrop {
+  background: #0009;
+  backdrop-filter: blur(8px);
+}
+
+.menu-card {
+  position: relative;
+
+  padding: 22px;
+
+  border-radius: 22px;
+
+  background: #151b24;
+  border: 1px solid #ffffff12;
+
+  box-shadow: 0 25px 80px #000b;
+}
+
+.menu-card h2 {
+  margin: 0 0 16px;
+  font-size: 1.15rem;
+}
+
+.menu-card > button:not(#close-menu) {
+  width: 100%;
+  height: 48px;
+
+  margin-top: 10px;
+
+  border-radius: 12px;
+
+  background: #ffffff0b;
+  border: 1px solid #ffffff0a;
+
+  padding: 0 14px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  text-align: center;
+
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.menu-card > button#save-game {
+  background: var(--button);
+  border: 1px solid #ffffff12;
+  color: var(--text);
+}
+
+.menu-card > button#save-game:active {
+  background: var(--button-active);
+}
+
+#close-menu {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+
+  width: 38px;
+  height: 38px;
+
+  border-radius: 10px;
+
+  background: var(--button);
+  color: var(--text);
+
+padding: 0;
+
+display: flex;
+justify-content: center;
+align-items: center;
+
+color: var(--text);
+
+box-shadow: 0 5px 12px #0005;
+
+font-size: 1.4rem;
+font-weight: 900;
+line-height: 1;  
+}
+
+
+.menu-card > button:not(#close-menu):active {
+  background: #ffffff18;
+}
+
+.menu-card > button#save-game {
+  background: var(--button);
+  border: 1px solid #ffffff12;
+  color: var(--text);
+}
+
+.menu-card > button#save-game:active {
+  background: var(--button-active);
+}
+
+#close-menu {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+
+  width: 38px;
+  height: 38px;
+
+  border-radius: 10px;
+
+  background: var(--button);
+
+  box-shadow: 0 5px 12px #0005;
+
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+#close-menu:active {
+  background: var(--button-active);
+  transform: scale(0.96);
+}
+
+/* Móviles pequeños */
+
+@media (max-width: 420px) {
+  .controls {
+    min-height: 300px;
+    grid-template-rows: 50px 175px 50px;
+  }
+
+  .dpad,
+  .face-buttons {
+    width: 150px;
+    height: 150px;
+  }
+
+  .dpad button {
+    width: 52px;
+    height: 52px;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 49px;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 49px;
+  }
+
+  .face {
+    width: 68px;
+    height: 68px;
+  }
+}
+
+/* Horizontal: aprovechamos el ancho disponible */
+
+@media (orientation: landscape) {
+
+  .app {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+
+  .topbar {
+    min-height: 42px;
+    margin-bottom: 8px;
+  }
+
+  .brand-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .brand-name {
+    font-size: 17px;
+  }
+
+  .icon-button {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  /*
+   * MODO GBA HORIZONTAL
+   *
+   * izquierda = controles
+   * centro    = pantalla
+   * derecha   = controles
+   */
+
+  .console {
+    position: relative;
+
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+
+    display: grid;
+
+    grid-template-columns:
+      minmax(105px, 150px)
+      minmax(280px, 1fr)
+      minmax(105px, 150px);
+
+    align-items: center;
+
+    column-gap: 12px;
+  }
+
+  /*
+   * La pantalla siempre queda en el centro.
+   */
+
+  .screen-frame {
+    grid-column: 2;
+    grid-row: 1;
+
+    width: 100%;
+    min-width: 0;
+
+    max-height: calc(100dvh - 80px);
+  }
+
+  /*
+   * Los controles ocupan toda la anchura,
+   * pero cada botón se coloca en su lateral.
+   */
+
+  .controls {
+    grid-column: 1 / 4;
+    grid-row: 1;
+
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+
+    display: grid;
+
+    grid-template-columns:
+      minmax(105px, 150px)
+      minmax(280px, 1fr)
+      minmax(105px, 150px);
+
+    grid-template-rows:
+      42px
+      1fr
+      42px;
+
+    column-gap: 12px;
+
+    padding: 0;
+
+    pointer-events: none;
+  }
+
+  /*
+   * Los botones sí reciben el toque.
+   */
+
+  .controls button {
+    pointer-events: auto;
+  }
+
+  /*
+   * L
+   */
+
+  .shoulder.left {
+    grid-column: 1;
+    grid-row: 1;
+
+    justify-self: start;
+    align-self: center;
+
+    width: 90px;
+    height: 34px;
+  }
+
+  /*
+   * R
+   */
+
+  .shoulder.right {
+    grid-column: 3;
+    grid-row: 1;
+
+    justify-self: end;
+    align-self: center;
+
+    width: 90px;
+    height: 34px;
+  }
+
+  /*
+   * CRUCETA — izquierda
+   */
+
+  .dpad {
+    grid-column: 1;
+    grid-row: 2;
+
+    width: 105px;
+    height: 105px;
+
+    justify-self: center;
+    align-self: center;
+  }
+
+  .dpad button {
+    width: 35px;
+    height: 35px;
+
+    font-size: 1rem;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 35px;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 35px;
+  }
+
+  /*
+   * A / B — derecha
+   */
+
+  .face-buttons {
+    grid-column: 3;
+    grid-row: 2;
+
+    width: 110px;
+    height: 110px;
+
+    justify-self: center;
+    align-self: center;
+  }
+
+  .face {
+    width: 52px;
+    height: 52px;
+
+    font-size: 1rem;
+  }
+
+  /*
+   * SELECT / START debajo de la pantalla.
+   */
+.start-select {
+  position: absolute;
+
+  right: 0;
+  top: 50%;
+
+  transform: translateY(62px);
+
+  display: flex;
+  flex-direction: row;
+
+  justify-content: center;
+  align-items: center;
+
+  gap: 6px;
+
+  width: 150px;
+
+  pointer-events: auto;
+}
+
+.start-select button {
+  min-width: 68px;
+  height: 30px;
+
+  padding: 0 8px;
+
+  border-radius: 16px;
+
+  font-size: 0.58rem;
+}
+  
+  /*
+   * MARCA INFERIOR
+   */
+
+  .bottom-brand {
+    grid-column: 1 / 4;
+    grid-row: 2;
+
+    align-self: end;
+
+    margin-bottom: 2px;
+
+    font-size: 11px;
+
+    pointer-events: none;
+  }
+
+  .bottom-logo {
+    width: 20px;
+    height: 20px;
+  }
+}
+/* =========================
+   Branding ML3Demuler
+   ========================= */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  display: block;
+  flex: 0 0 32px;
+}
+
+
+.brand-name {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.bottom-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 0;
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.bottom-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+  flex: 0 0 20px;
+}
+.game-title-hidden {
+  display: none !important;
+}
+/* ==========================================
+   MODO GBA HORIZONTAL - AJUSTE FINAL
+   ========================================== */
+
+@media (orientation: landscape) {
+
+  .console {
+    position: relative !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+  }
+
+  /*
+   * PANTALLA CENTRAL
+   */
+
+  .screen-frame {
+    position: relative !important;
+
+    width: min(62vw, 720px) !important;
+    aspect-ratio: 3 / 2 !important;
+
+    margin: 0 auto !important;
+
+    max-height: none !important;
+
+    z-index: 1;
+  }
+
+  /*
+   * CONTROLES COMO UNA GBA
+   */
+
+  .controls {
+    position: absolute !important;
+
+    inset: 0 !important;
+
+    width: 100% !important;
+    height: 100% !important;
+
+    display: block !important;
+
+    min-height: 0 !important;
+
+    padding: 0 !important;
+
+    pointer-events: none !important;
+
+    z-index: 5;
+  }
+
+  .controls button {
+    pointer-events: auto !important;
+  }
+
+  /*
+   * L - arriba izquierda
+   */
+
+  .shoulder.left {
+    position: absolute !important;
+
+    left: 2% !important;
+    top: 0 !important;
+
+    width: 100px !important;
+    height: 38px !important;
+
+    margin: 0 !important;
+  }
+
+  /*
+   * R - arriba derecha
+   */
+
+  .shoulder.right {
+    position: absolute !important;
+
+    right: 2% !important;
+    top: 0 !important;
+
+    width: 100px !important;
+    height: 38px !important;
+
+    margin: 0 !important;
+  }
+
+  /*
+   * CRUCETA - lateral izquierdo
+   */
+
+  .dpad {
+    position: absolute !important;
+
+    left: 1% !important;
+    top: 50% !important;
+
+    transform: translateY(-50%) !important;
+
+    width: 120px !important;
+    height: 120px !important;
+
+    margin: 0 !important;
+  }
+
+  .dpad button {
+    width: 40px !important;
+    height: 40px !important;
+
+    font-size: 1rem !important;
+  }
+
+  .dpad button[data-key="UP"],
+  .dpad button[data-key="DOWN"] {
+    left: 40px !important;
+  }
+
+  .dpad button[data-key="LEFT"],
+  .dpad button[data-key="RIGHT"] {
+    top: 40px !important;
+  }
+
+  /*
+   * A / B - lateral derecho
+   */
+
+  .face-buttons {
+    position: absolute !important;
+
+    right: 1% !important;
+    top: 50% !important;
+
+    transform: translateY(-50%) !important;
+
+    width: 120px !important;
+    height: 120px !important;
+
+    margin: 0 !important;
+  }
+
+  .face {
+    width: 58px !important;
+    height: 58px !important;
+
+    font-size: 1rem !important;
+  }
+
+  /*
+   * SELECT / START
+   * JUSTO DEBAJO DE A / B
+   */
+
+  .start-select {
+    position: absolute !important;
+
+    right: 1% !important;
+    top: calc(50% + 72px) !important;
+
+    width: 120px !important;
+
+    display: flex !important;
+
+    flex-direction: row !important;
+
+    justify-content: center !important;
+    align-items: center !important;
+
+    gap: 5px !important;
+
+    margin: 0 !important;
+
+    transform: none !important;
+  }
+
+  .start-select button {
+    min-width: 56px !important;
+    width: 56px !important;
+    height: 28px !important;
+
+    padding: 0 !important;
+
+    font-size: 0.54rem !important;
+
+    border-radius: 15px !important;
+  }
+
+  /*
+   * LOGO INFERIOR
+   */
+
+  .bottom-brand {
+    margin-top: 8px !important;
+
+    font-size: 11px !important;
+  }
+
+  .bottom-logo {
+    width: 20px !important;
+    height: 20px !important;
+  }
+}
+/* =========================
+   PERSONALIZACIÓN
+   ========================= */
+
+.appearance-control {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #ffffff12;
+}
+
+.appearance-control h3 {
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.color-group {
+  margin-top: 14px;
+}
+
+.color-group > span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.color-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+
+  border-radius: 50%;
+
+  border: 2px solid #ffffff18;
+
+  box-shadow:
+    0 4px 10px #0006,
+    inset 0 0 0 1px #0003;
+
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.color-swatch:active {
+  transform: scale(0.92);
+}
+
+.color-swatch.selected {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 2px #ffffff33,
+    0 4px 10px #0006;
+}
+
+.audio-control {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #ffffff12;
+}
+
+.audio-control h3 {
+  margin: 0 0 14px;
+  font-size: .95rem;
+  font-weight: 800;
+}
+
+.volume-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.volume-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.volume-label-row > label {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.volume-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#volume-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+#mute-button {
+  flex-shrink: 0;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--button);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+#volume-value {
+  font-size: .8rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+.controls,
+.controls button {
+  touch-action: none;
+}
+
+/* =========================
+   INTRO DE ARRANQUE
+   ========================= */
+
+#boot-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+
+  background: #000;
+
+  overflow: hidden;
+
+  opacity: 1;
+  visibility: visible;
+
+  pointer-events: auto;
+}
+
+#boot-logo-screen {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  padding: 10px;
+
+  background: #000;
+
+  opacity: 1;
+
+  transition:
+    opacity 0.65s ease,
+    transform 0.65s ease;
+}
+
+#boot-logo {
+  display: block;
+
+  width: min(52%, 190px);
+  max-width: 190px;
+  height: auto;
+
+  opacity: 0;
+
+  transform: scale(0.65);
+
+  animation:
+    bootLogoAppear 1.4s cubic-bezier(.16, 1, .3, 1)
+    0.15s forwards;
+}
+
+#boot-brand {
+  display: block;
+  margin-top: 10px;
+
+  color: #fff;
+
+  font-size: clamp(8px, 2.2vw, 15px);
+  line-height: 1.15;
+
+  font-weight: 700;
+  letter-spacing: 0.06em;
+
+  text-align: center;
+  white-space: nowrap;
+}
+
+.boot-letter {
+  display: inline-block;
+
+  opacity: 0;
+
+  transform: translateY(8px) scale(0.92);
+
+  animation:
+    bootLetterAppear
+    0.35s
+    ease
+    var(--letter-delay)
+    forwards;
+}
+
+@keyframes bootLetterAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.04);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+
+/*
+ * Cuando empieza la segunda pantalla,
+ * desaparece el logo.
+ */
+
+#boot-screen.update-active #boot-logo-screen {
+  opacity: 0;
+
+  transform: scale(1.03);
+}
+
+/* =========================
+   PANTALLA DE ACTUALIZACIÓN
+   ========================= */
+
+#update-screen {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+
+  align-items: center;
+  justify-content: center;
+
+  padding: 14px;
+
+  background: #000;
+
+  visibility: hidden;
+
+  opacity: 0;
+
+  transition:
+    opacity 0.65s ease,
+    visibility 0s linear 0.65s;
+}
+
+#boot-screen.update-active #update-screen {
+  visibility: visible;
+
+  opacity: 1;
+
+  transition:
+    opacity 0.65s ease,
+    visibility 0s linear 0s;
+}
+
+.update-message {
+  width: 94%;
+  max-width: 700px;
+
+  color: #fff;
+
+  font-size: clamp(18px, 4.8vw, 30px);
+  line-height: 1.4;
+
+  font-weight: 900;
+
+  letter-spacing: 0.02em;
+
+  text-align: center;
+
+  opacity: 0;
+
+  transform: translateY(8px);
+
+  transition:
+    opacity 0.6s ease 0.15s,
+    transform 0.6s ease 0.15s;
+}
+
+#boot-screen.update-active .update-message {
+  opacity: 1;
+
+  transform: translateY(0);
+}
+
+/* =========================
+   DESVANECIMIENTO FINAL
+   ========================= */
+
+#boot-screen.boot-finished {
+  pointer-events: none;
+
+  opacity: 0;
+
+  visibility: hidden;
+
+  transition:
+    opacity 2s ease,
+    visibility 0s linear 2s;
+}
+
+/* =========================
+   ANIMACIONES
+   ========================= */
+
+@keyframes bootLogoAppear {
+  0% {
+    opacity: 0;
+
+    transform:
+      scale(0.65)
+      translateY(8px);
+  }
+
+  55% {
+    opacity: 1;
+
+    transform:
+      scale(1.08)
+      translateY(0);
+  }
+
+  75% {
+    transform: scale(0.97);
+  }
+
+  100% {
+    opacity: 1;
+
+    transform: scale(1);
+  }
+}
+
+@keyframes bootBrandAppear {
+  0% {
+    opacity: 0;
+
+    transform:
+      translateY(10px)
+      scaleX(0.8);
+  }
+
+  100% {
+    opacity: 1;
+
+    transform:
+      translateY(0)
+      scaleX(1);
+  }
+}
+
+/* =========================
+   MÓVIL VERTICAL
+   ========================= */
+
+@media (orientation: portrait) and (max-width: 500px) {
+  #boot-logo {
+    width: min(42%, 145px);
+  }
+
+  #boot-brand {
+    margin-top: 8px;
+
+    font-size: 8px;
+
+    letter-spacing: 0.04em;
+  }
+
+  .update-message {
+    max-width: 84%;
+
+    font-size: 8px;
+
+    line-height: 1.5;
+  }
+}
+
+/* =========================
+   MÓVIL HORIZONTAL
+   ========================= */
+
+@media (orientation: landscape) and (max-width: 900px) {
+  #boot-logo {
+    width: min(38%, 175px);
+  }
+
+  #boot-brand {
+    margin-top: 8px;
+
+    font-size: 9px;
+  }
+
+  .update-message {
+    font-size: 9px;
+  }
+}
+@media (orientation: portrait) and (max-width: 500px) {
+  #boot-logo {
+    width: min(42%, 145px);
+  }
+
+  #boot-brand {
+    margin-top: 7px;
+
+    font-size: 7px;
+
+    letter-spacing: 0.035em;
+  }
+
+  .boot-letter {
+    transform:
+      translateY(5px)
+      scale(0.94);
+  }
+
+  .update-message {
+    max-width: 84%;
+
+    font-size: 8px;
+
+    line-height: 1.5;
+  }
+}
+#game-selector {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+#game-selector::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.game-selector-card {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.game-option {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--button);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-option:active {
+  transform: scale(0.98);
+}
+
+.game-list-status {
+  padding: 16px 4px;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.gba-local-rom-button {
+  position: absolute;
+  top: 3.5%;
+  right: 4%;
+  z-index: 4;
+  min-height: 30px;
+  max-width: 43%;
+  padding: 7px 11px;
+  border: 1px solid rgba(220, 225, 232, .42);
+  border-radius: 10px;
+  background: rgba(55, 59, 65, .88);
+  color: #fff;
+  font: 900 clamp(8px, 2.15vw, 12px)/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .035em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, .32);
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.gba-local-rom-button.is-selected,
+.gba-local-rom-button:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, .92);
+  background: rgba(112, 118, 127, .96);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .2), 0 0 14px rgba(220, 230, 242, .55);
+  transform: scale(1.035);
+}
+
+.gba-local-rom-button:disabled {
+  cursor: wait;
+  opacity: .72;
+}
+
+.gba-local-rom-message {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: 9%;
+  z-index: 5;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(18, 24, 31, .9);
+  color: #e8edf2;
+  font: 700 clamp(7px, 1.8vw, 10px)/1.25 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-align: center;
+  pointer-events: none;
+}
+
+.gba-local-rom-message.is-error {
+  border: 1px solid rgba(255, 151, 151, .65);
+  color: #ffd8d8;
+}
+
+@media (max-width: 420px) {
+  .gba-local-rom-button {
+    top: 3%;
+    right: 3%;
+    min-height: 27px;
+    padding: 6px 8px;
+  }
+}
+
+/* Escena animada del selector de filtros. */
+.gba-filter-logo-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gba-filter-logo-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(40%, 150px);
+  aspect-ratio: 1179 / 1334;
+  transform-origin: 50% 82%;
+  animation: filterLogoBrakeIn 1250ms cubic-bezier(.18, .76, .22, 1) both;
+}
+
+.gba-filter-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: .27;
+  filter: blur(3.5px) saturate(1.25) brightness(1.12);
+  animation: filterLogoIdle 4.2s 1250ms ease-in-out infinite;
+}
+
+.gba-filter-brake-smoke {
+  position: absolute;
+  left: 50%;
+  bottom: -4%;
+  width: 120%;
+  height: 30%;
+  transform: translateX(-50%);
+}
+
+.gba-filter-brake-smoke span {
+  --puff-index: 0;
+  position: absolute;
+  left: 8%;
+  bottom: 0;
+  width: 14px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(220, 226, 235, .48);
+  filter: blur(3px);
+  opacity: 0;
+  animation: filterBrakeSmoke 1250ms ease-out both;
+  animation-delay: calc(var(--puff-index) * 24ms);
+}
+
+@keyframes filterLogoBrakeIn {
+  0% {
+    opacity: 0;
+    transform: translate(-235%, -50%) rotate(-12deg) scale(.62);
+  }
+  34% {
+    opacity: 1;
+  }
+  56% {
+    transform: translate(-23%, -50%) rotate(6deg) scale(1.08, .94);
+  }
+  69% {
+    transform: translate(-62%, -50%) rotate(-3deg) scale(.97, 1.04);
+  }
+  82% {
+    transform: translate(-45%, -50%) rotate(1.5deg) scale(1.015, .99);
+  }
+  92% {
+    transform: translate(-52%, -50%) rotate(-.6deg) scale(.995, 1.005);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0) scale(1);
+  }
+}
+
+@keyframes filterBrakeSmoke {
+  0%, 43% {
+    opacity: 0;
+    transform: translate(0, 4px) scale(.3);
+  }
+  55% {
+    opacity: .62;
+  }
+  78% {
+    opacity: .20;
+    transform: translate(var(--puff-drift), -24px) scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--puff-drift), -38px) scale(1.8);
+  }
+}
+
+@keyframes filterLogoIdle {
+  0%, 100% {
+    transform: translateY(0) rotate(-1deg) scale(1);
+    opacity: .24;
+  }
+  50% {
+    transform: translateY(-4px) rotate(1deg) scale(1.035);
+    opacity: .32;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gba-filter-logo-wrap,
+  .gba-filter-logo,
+  .gba-filter-brake-smoke span {
+    animation: none;
+  }
+
+  .gba-filter-logo-wrap {
+    transform: translate(-50%, -50%);
+  }
+}
+/* Ajustes del menú */
+
+#select-game-button,
+#reload-game {
+  background: var(--button) !important;
+  border: 1px solid #ffffff08 !important;
+}
+
+#select-game-button:active,
+#reload-game:active {
+  background: var(--button-active) !important;
+  transform: scale(0.98);
+}
+
+#select-game-button {
+  margin-bottom: 18px !important;
+}
+
+.speed-control {
+  margin-top: 4px;
+}
+/* Botones principales del menú */
+#select-game-button,
+#reload-game {
+  width: 100% !important;
+  height: 48px !important;
+  margin-top: 10px !important;
+  padding: 0 14px !important;
+
+  border-radius: 12px !important;
+
+  background: var(--button) !important;
+  border: 1px solid #ffffff08 !important;
+
+  color: var(--text) !important;
+  text-align: left !important;
+  font: inherit !important;
+  font-weight: 700 !important;
+
+  cursor: pointer;
+}
+
+#select-game-button {
+  margin-bottom: 24px !important;
+}
+
+#select-game-button:active,
+#reload-game:active {
+  background: var(--button-active) !important;
+  transform: scale(0.98);
+}
+/* Títulos del menú en blanco */
+.menu-card h2,
+.menu-card h3,
+.speed-control label,
+.audio-control label,
+.appearance-control span {
+  color: #fff !important;
+}
+
+/* Menú compacto (reversible como un único bloque) */
+#menu {
+  position: fixed;
+  inset: 0;
+  width: min(94vw, 420px);
+  max-width: calc(100vw - 20px);
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  border-radius: 22px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+#menu .menu-card {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  padding:
+    max(28px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  border-radius: 22px;
+  overflow-x: clip;
+  overflow-y: hidden;
+}
+
+#menu .menu-card h2 {
+  margin-bottom: 28px;
+}
+
+#menu .menu-card h2 img {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+#menu #select-game-button,
+#menu #save-game,
+#menu #reload-game {
+  height: 46px !important;
+  margin-top: 8px !important;
+}
+
+#menu #save-game {
+  margin-top: 18px !important;
+}
+
+#menu #select-game-button {
+  margin-bottom: 14px !important;
+}
+
+#menu .speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+
+#menu #speed-select {
+  min-width: 0;
+  height: 32px;
+}
+
+#menu .audio-control,
+#menu .appearance-control {
+  margin-top: 12px;
+  padding-top: 11px;
+}
+
+#menu .audio-control h3,
+#menu .appearance-control h3 {
+  margin-bottom: 8px;
+}
+
+#menu .volume-row {
+  gap: 6px;
+}
+
+#menu #mute-button {
+  padding: 8px 11px;
+}
+
+#menu .color-group {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#menu .color-group > span {
+  margin-bottom: 0;
+}
+
+#menu .color-options {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+#menu .color-swatch {
+  width: clamp(26px, 7.5vw, 32px);
+  height: clamp(26px, 7.5vw, 32px);
+  flex: 0 1 clamp(26px, 7.5vw, 32px);
+}
+
+#menu .menu-card > button#social-link {
+  height: 112px !important;
+}
+
+#menu .social-label {
+  position: absolute;
+  inset: 0;
+}
+
+#menu[open] .menu-card {
+  transform-origin: calc(100% - 24px) 0;
+  animation: menuOpen 380ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+#menu[open]::backdrop {
+  animation: menuBackdropOpen 220ms ease-out both;
+}
+
+@keyframes menuOpen {
+  0% {
+    opacity: 0;
+    transform: scale(.06);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.025);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes menuBackdropOpen {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#menu.menu-closing-to-screen .menu-card {
+  transform-origin: center;
+  pointer-events: none;
+  animation: menuToScreen 900ms cubic-bezier(.45, 0, .2, 1) both !important;
+}
+
+#menu.menu-closing-to-screen::backdrop {
+  animation: menuBackdropClose 900ms ease-in both !important;
+}
+
+@keyframes menuToScreen {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1, 1);
+    border-radius: 22px;
+  }
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(var(--menu-screen-x), var(--menu-screen-y))
+      scale(var(--menu-screen-scale-x), var(--menu-screen-scale-y));
+    border-radius: 16px;
+  }
+}
+
+#menu.menu-closing-comic .menu-card {
+  transform-origin: calc(100% - 24px) 0;
+  pointer-events: none;
+  animation: menuComicClose 380ms cubic-bezier(.8, .2, .8, 1) both !important;
+}
+
+#menu.menu-closing-comic::backdrop {
+  animation: menuBackdropClose 500ms ease-in both !important;
+}
+
+@keyframes menuComicClose {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.025);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(.06);
+  }
+}
+
+@keyframes menuBackdropClose {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #menu[open] .menu-card,
+  #menu[open]::backdrop,
+  #menu.menu-closing-to-screen .menu-card,
+  #menu.menu-closing-to-screen::backdrop,
+  #menu.menu-closing-comic .menu-card,
+  #menu.menu-closing-comic::backdrop {
+    animation: none;
+  }
+}
+
+
+/* Vibración opcional de los controles (bloque reversible). */
+#menu #haptic-button {
+  min-width: 78px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px solid #ffffff18;
+  border-radius: 7px;
+  background: #27313f;
+  color: var(--muted);
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+#menu #haptic-button.enabled {
+  border-color: #66a8ff;
+  background: #24543a;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+
+#menu #haptic-button:active {
+  transform: scale(.96);
+}
+
+/* Prueba reversible: carcasa Game Boy Advance SP en vertical. */
+@media (orientation: portrait) {
+  body.sp-skin-test { min-height:100dvh; overflow:hidden; background:#080a0d; }
+  body.sp-skin-test .app { position:relative; width:100vw; height:100dvh; min-height:0; padding:0; overflow:hidden; background:#080a0d; }
+  body.sp-skin-test .app::before { content:""; position:absolute; inset:0; z-index:2; pointer-events:none; background:url("assets/gba-sp-silver.jpg?v=3") center/100% 100% no-repeat; }
+  body.sp-skin-test .sp-top-labels { position:absolute; left:11.5%; right:11.5%; top:4.55%; z-index:5; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; color:#f5f5f5; font-size:clamp(8px,2.35vw,15px); line-height:1; font-weight:700; pointer-events:none; text-shadow:0 1px 2px #000; }
+  body.sp-skin-test .sp-power-label { justify-self:start; }
+  body.sp-skin-test .sp-battery-label { justify-self:end; }
+  body.sp-skin-test .sp-code-brand { display:flex; align-items:center; justify-content:center; gap:1.7vw; font-size:clamp(11px,3.2vw,20px); font-weight:850; white-space:nowrap; }
+  body.sp-skin-test .sp-code-brand img { display:block; width:clamp(18px,5.2vw,32px); height:clamp(18px,5.2vw,32px); object-fit:contain; }
+  body.sp-skin-test .topbar,
+  body.sp-skin-test .console,
+  body.sp-skin-test .controls { position:absolute; inset:0; width:100%; height:100%; max-width:none; min-height:0; margin:0; padding:0; }
+  body.sp-skin-test .topbar { z-index:6; pointer-events:none; }
+  body.sp-skin-test .brand { display:none; }
+  body.sp-skin-test #menu-button { position:absolute; left:50%; top:60.75%; width:9.2vw; height:9.2vw; min-width:34px; min-height:34px; max-width:54px; max-height:54px; padding:0; transform:translate(-50%,-50%); opacity:.001; pointer-events:auto; }
+  body.sp-skin-test .console { z-index:3; display:block; pointer-events:none; }
+  body.sp-skin-test .screen-frame { position:absolute; left:50%; top:7.94%; z-index:3; width:77%; height:32.82%; aspect-ratio:auto; margin:0; border-radius:2.1vw; background:#000!important; box-shadow:none; overflow:hidden; pointer-events:auto; transform:translateX(-50%); }
+  body.sp-skin-test #screen { position:relative; z-index:1; width:100%; height:100%; object-fit:fill; background:#000!important; }
+  body.sp-skin-test .controls { z-index:7; display:block; pointer-events:none; }
+  body.sp-skin-test .controls button { position:absolute!important; margin:0!important; padding:0!important; border:0!important; background:transparent!important; box-shadow:none!important; color:transparent!important; opacity:.001; pointer-events:auto; }
+  body.sp-skin-test .shoulder { top:49.9%!important; width:17.5%!important; height:7.2%!important; border-radius:0!important; }
+  body.sp-skin-test .shoulder.left { left:0!important; }
+  body.sp-skin-test .shoulder.right { right:0!important; }
+  body.sp-skin-test .dpad { position:absolute; left:10.3%; top:64.3%; width:34%; height:22%; margin:0; pointer-events:none; }
+  body.sp-skin-test .dpad button { width:36%!important; height:36%!important; }
+  body.sp-skin-test .dpad button[data-key="UP"] { left:32%!important; top:0!important; }
+  body.sp-skin-test .dpad button[data-key="DOWN"] { left:32%!important; bottom:0!important; }
+  body.sp-skin-test .dpad button[data-key="LEFT"] { left:0!important; top:32%!important; }
+  body.sp-skin-test .dpad button[data-key="RIGHT"] { right:0!important; top:32%!important; }
+  body.sp-skin-test .face-buttons { position:absolute; inset:0; width:100%; height:100%; margin:0; pointer-events:none; }
+  body.sp-skin-test .face { width:14.5vw!important; height:14.5vw!important; max-width:76px; max-height:76px; border-radius:50%!important; }
+  body.sp-skin-test .face.a { right:10.4%!important; top:65.7%!important; }
+  body.sp-skin-test .face.b { left:56.1%!important; top:69.1%!important; }
+  body.sp-skin-test .start-select { position:absolute; inset:0; display:block; width:100%; height:100%; margin:0; transform:none; pointer-events:none; }
+  body.sp-skin-test .start-select button { top:89.4%!important; width:11vw!important; height:6vw!important; min-width:0!important; border-radius:50%!important; }
+  body.sp-skin-test .start-select button[data-key="SELECT"] { left:34.5%!important; }
+  body.sp-skin-test .start-select button[data-key="START"] { left:54.1%!important; }
+  body.sp-skin-test .bottom-brand { display:none; }
+}
+
+@media (orientation: landscape) {
+  .sp-top-labels { display:none; }
+}

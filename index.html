@@ -9,12 +9,30 @@
   <meta name="theme-color" content="#10141b">
   <title>ML3Demuler</title>
 
-  <link rel="stylesheet" href="style.css?v=f9f92052">
+  <link rel="stylesheet" href="style.css?v=final-port-1">
+  <link rel="stylesheet" href="EnhancedFeatures.css?v=final-port-1">
+  <link rel="stylesheet" href="save-capture-v2.css?v=final-port-1">
 </head>
 
 <body>
+  <script>
+    (() => {
+      const family = localStorage.getItem("ml3d-appearance-family") || "sp";
+      document.body.classList.add(family === "custom" ? "ml3d-custom-skin" : "sp-skin-test");
+      document.body.dataset.appearanceFamily = family === "custom" ? "custom" : "sp";
+    })();
+  </script>
 
   <main class="app">
+
+  <div class="sp-top-labels" aria-hidden="true">
+    <span class="sp-power-label">POWER ON</span>
+    <span class="sp-code-brand">
+      <img src="assets/ml3d-logo.png" alt="">
+      <span>ML3Demuler</span>
+    </span>
+    <span class="sp-battery-label">BATTERY FULL</span>
+  </div>
 
    <header class="topbar">
   <div class="brand">
@@ -152,6 +170,15 @@
     <option value="1.25">125%</option>
     <option value="1.5">150%</option>
   </select>
+
+  <button
+    id="haptic-button"
+    type="button"
+    aria-pressed="false"
+    aria-label="Activar vibración de los controles"
+  >
+    Vibración
+  </button>
 </div>
  <section class="audio-control">
   <h3>Sonido</h3>
@@ -467,12 +494,16 @@
 </script>
 
 <script src="GB/binjgb.js"></script>
-<script src="GB/simple.js?v=f9eb950a"></script>
+<script src="GB/simple.js?v=final-port-1"></script>
 
-<script src="user_scripts/BootIntro.js"></script>
-<script src="user_scripts/GameSelector.js?v=33f099f9"></script>
-<script src="GB/GBSave.js"></script>
-<script src="app.js?v=9762218a"></script>
+<script src="console-transitions.js?v=final-port-1"></script>
+<script src="appearance-selector.js?v=final-port-1"></script>
+<script src="EnhancedFeatures.js?v=final-port-1"></script>
+<script src="save-capture-v2.js?v=final-port-1"></script>
+<script src="user_scripts/BootIntro.js?v=final-port-1"></script>
+<script src="user_scripts/GameSelector.js?v=final-port-1"></script>
+<script src="GB/GBSave.js?v=final-port-1"></script>
+<script src="app.js?v=final-port-1"></script>
   
 </body>
 </html>

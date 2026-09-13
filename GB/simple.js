@@ -927,10 +927,17 @@ window.gbaGB = {
       );
     }
 
-    let extRam =
-      new Uint8Array();
+    return this.startBuffer(romBuffer, romPath, romPath, true);
+  },
 
-    const storedExtRam =
+  async startBuffer(romBuffer, filename, saveId, useLegacySave = false) {
+    if (!(romBuffer instanceof ArrayBuffer) || romBuffer.byteLength < 1024) {
+      throw new Error("ROM GB/GBC inválida.");
+    }
+
+    let extRam = new Uint8Array();
+
+    const storedExtRam = useLegacySave &&
       localStorage.getItem(
         "gb-ext-rams"
       );
