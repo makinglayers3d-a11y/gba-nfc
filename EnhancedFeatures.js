@@ -58,7 +58,7 @@
     ml3dholo: Object.freeze({
       src: "assets/cartridges/labels/ml3dholo.png",
       crop: Object.freeze([0, 0, 1536, 631]),
-      destination: Object.freeze([185, 235, 1168, 490])
+      destination: Object.freeze([188, 238, 1162, 484])
     }),
     zafiro: Object.freeze({
       src: "assets/cartridges/labels/pokemon-zafiro-es.png",
@@ -157,7 +157,6 @@
       navigator.vibrate(pattern);
     }
   }
-
   function playCartridgeSound(delay = 0) {
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
