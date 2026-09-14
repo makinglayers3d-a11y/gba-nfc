@@ -1,12 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 7,
-  "versionName": "0.6.1",
+  "versionCode": 10,
+  "versionName": "0.7.2",
   "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "c2c0928007642f64324cf0c3da286783454c25b5f525d77c05c52aaaaeff4745",
-  "sizeBytes": 6802836,
+  "sha256": "a533ff90771321c807e66281c553a2ba9d7f3e098b8a36ee9f42f16cb1a4420f",
+  "sizeBytes": 7200863,
   "changelog": [
-    "Al cambiar cualquier selector de Cartuchos NFC se desactiva la escritura continua y hay que pulsar de nuevo Preparar cartucho",
-    "La interfaz respeta las áreas seguras de Android para que los controles no queden debajo de la barra de navegación"
+    "Automate publishing signed NFC Writer updates"
   ]
 }
