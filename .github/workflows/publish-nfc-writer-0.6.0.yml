@@ -1,0 +1,64 @@
+name: Publish NFC Writer 0.6.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-nfc-writer-0.6.0.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download signed 0.6.0 artifact
+        env:
+          ARTIFACT_URL: "https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-8404-8210-9e30-2a9d88ba6df9/raw?se=2026-09-14T13%3A19%3A19Z&sp=r&sv=2026-02-06&sr=b&scid=f70ae18b-7516-568f-9de8-b5a8080fabfe&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-13T20%3A33%3A10Z&ske=2026-09-14T20%3A33%3A10Z&sks=b&skv=2026-02-06&sig=sWRWUO36VDYvGV6BNzVAyHyRY/Q6VZhOi4PDma1q6DU%3D"
+        run: |
+          set -euo pipefail
+          curl --fail --location "$ARTIFACT_URL" --output /tmp/ml3d-release.zip
+          rm -rf /tmp/ml3d-release
+          mkdir -p /tmp/ml3d-release
+          unzip -q /tmp/ml3d-release.zip -d /tmp/ml3d-release
+          test -f /tmp/ml3d-release/app-release.apk
+          cp /tmp/ml3d-release/app-release.apk ml3d-nfc-writer.apk
+          echo "cbda2bc04f3bba6dd683df9814c3101124aea7c411cdef919fe6fc201f2c03e7  ml3d-nfc-writer.apk" | sha256sum -c -
+          test "$(stat -c%s ml3d-nfc-writer.apk)" = "6802836"
+
+      - name: Activate 0.6.0 update
+        run: |
+          cat > writer-update.json <<'JSON'
+          {
+            "enabled": true,
+            "versionCode": 6,
+            "versionName": "0.6.0",
+            "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
+            "sha256": "cbda2bc04f3bba6dd683df9814c3101124aea7c411cdef919fe6fc201f2c03e7",
+            "sizeBytes": 6802836,
+            "changelog": [
+              "Corrige la verificación falsa al grabar cartuchos NFC",
+              "Permite grabar varias etiquetas seguidas sin volver a preparar el cartucho",
+              "Amplía la lectura técnica de etiquetas NFC y añade lectura visual de cartuchos ML3D",
+              "Añade borrado desde el lector de cartuchos y corrige Menú de juegos para usar menu=1"
+            ]
+          }
+          JSON
+
+      - name: Commit APK and update manifest
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ml3d-nfc-writer.apk writer-update.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish signed ML3D NFC Writer 0.6.0"
+          git pull --rebase origin main
+          git push origin HEAD:main
