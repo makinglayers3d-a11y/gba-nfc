@@ -126,7 +126,8 @@ async function requestAccess(env, request) {
   if (await deviceIdForJwk(publicKeyJwk) !== deviceId) return bad(env, request, "La identidad del dispositivo no coincide", 403);
 
   const existing = await env.DB.prepare("SELECT * FROM devices WHERE id = ?").bind(deviceId).first();
-  if (existing?.status === "approved") return response(env, request, { status: "approved" });
+  if (existing?.status === "approved" && Number(existing.paused || 0) === 0) return response(env, request, { status: "approved" });
+  if (existing?.status === "approved" && Number(existing.paused || 0) !== 0) return response(env, request, { status: "paused" });
 
   const now = nowIso();
   const keyJson = JSON.stringify({ kty: publicKeyJwk.kty, crv: publicKeyJwk.crv, x: publicKeyJwk.x, y: publicKeyJwk.y, ext: true });
@@ -158,8 +159,9 @@ async function challenge(env, request) {
   const body = await bodyJson(request);
   const deviceId = cleanText(body.deviceId, 160);
   if (!deviceId) return bad(env, request, "Falta deviceId");
-  const device = await env.DB.prepare("SELECT status FROM devices WHERE id = ?").bind(deviceId).first();
+  const device = await env.DB.prepare("SELECT status, paused FROM devices WHERE id = ?").bind(deviceId).first();
   if (!device) return response(env, request, { status: "unknown" });
+  if (device.status === "approved" && Number(device.paused || 0) !== 0) return response(env, request, { status: "paused" });
   if (device.status !== "approved") return response(env, request, { status: device.status });
 
   await env.DB.prepare("DELETE FROM challenges WHERE expires_at < ?").bind(Date.now()).run();
@@ -180,6 +182,7 @@ async function verifySignedChallenge(env, deviceId, challengeId, signature) {
   }
   const device = await env.DB.prepare("SELECT * FROM devices WHERE id = ?").bind(deviceId).first();
   if (!device || device.status !== "approved") return { ok: false, reason: "not_approved" };
+  if (Number(device.paused || 0) !== 0) return { ok: false, reason: "paused" };
   const publicKey = await crypto.subtle.importKey(
     "jwk", JSON.parse(device.public_key_jwk), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
   );
@@ -282,7 +285,7 @@ async function listUseRequests(env, request) {
 }
 
 async function listDevices(env, request) {
-  const result = await env.DB.prepare(`SELECT id, display_name AS displayName, status, user_agent AS userAgent,
+  const result = await env.DB.prepare(`SELECT id, display_name AS displayName, status, paused, user_agent AS userAgent,
       created_at AS createdAt, updated_at AS updatedAt, last_seen_at AS lastSeenAt,
       game_mode AS gameMode, allowed_games AS allowedGames, allow_local_roms AS allowLocalRoms,
       allow_sp_skins AS allowSpSkins, usage_limit AS usageLimit, usage_used AS usageUsed,
@@ -290,6 +293,7 @@ async function listDevices(env, request) {
       FROM devices ORDER BY updated_at DESC LIMIT 300`).all();
   const devices = (result.results || []).map((d) => ({
     ...d,
+    paused: Number(d.paused || 0) !== 0,
     allowedGames: parseGames(d.allowedGames),
     allowLocalRoms: Number(d.allowLocalRoms) !== 0,
     allowSpSkins: Number(d.allowSpSkins) !== 0,
@@ -310,7 +314,7 @@ async function decideRequest(env, request, requestId, decision) {
     const policy = normalizedPolicy(body, device);
     await env.DB.batch([
       env.DB.prepare("UPDATE access_requests SET status = 'approved', decided_at = ? WHERE id = ?").bind(now, requestId),
-      env.DB.prepare(`UPDATE devices SET status = 'approved', game_mode = ?, allowed_games = ?, allow_local_roms = ?,
+      env.DB.prepare(`UPDATE devices SET status = 'approved', paused = 0, game_mode = ?, allowed_games = ?, allow_local_roms = ?,
         allow_sp_skins = ?, usage_limit = ?, policy_updated_at = ?, updated_at = ? WHERE id = ?`)
         .bind(policy.gameMode, JSON.stringify(policy.allowedGames), policy.allowLocalRoms ? 1 : 0,
           policy.allowSpSkins ? 1 : 0, policy.usageLimit, now, now, row.device_id)
@@ -373,12 +377,25 @@ async function decideUseRequest(env, request, requestId, decision) {
   return response(env, request, { ok: true, status: "approved", usageLimit: newLimit });
 }
 
+async function setDevicePaused(env, request, deviceId, paused) {
+  const row = await env.DB.prepare("SELECT id, status FROM devices WHERE id = ?").bind(deviceId).first();
+  if (!row) return bad(env, request, "Dispositivo no encontrado", 404);
+  if (row.status !== "approved") return bad(env, request, "Solo se puede pausar un dispositivo aprobado", 409);
+  const now = nowIso();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE devices SET paused = ?, updated_at = ? WHERE id = ?").bind(paused ? 1 : 0, now, deviceId),
+    env.DB.prepare("DELETE FROM challenges WHERE device_id = ?").bind(deviceId),
+    env.DB.prepare("DELETE FROM usage_sessions WHERE device_id = ?").bind(deviceId)
+  ]);
+  return response(env, request, { ok: true, status: paused ? "paused" : "approved", paused: Boolean(paused) });
+}
+
 async function revokeDevice(env, request, deviceId) {
   const row = await env.DB.prepare("SELECT id FROM devices WHERE id = ?").bind(deviceId).first();
   if (!row) return bad(env, request, "Dispositivo no encontrado", 404);
   const now = nowIso();
   await env.DB.batch([
-    env.DB.prepare("UPDATE devices SET status = 'revoked', updated_at = ? WHERE id = ?").bind(now, deviceId),
+    env.DB.prepare("UPDATE devices SET status = 'revoked', paused = 0, updated_at = ? WHERE id = ?").bind(now, deviceId),
     env.DB.prepare("DELETE FROM challenges WHERE device_id = ?").bind(deviceId),
     env.DB.prepare("DELETE FROM usage_sessions WHERE device_id = ?").bind(deviceId)
   ]);
@@ -410,6 +427,8 @@ export default {
         if (request.method === "POST" && policyMatch) return updatePolicy(env, request, policyMatch[1]);
         const resetMatch = url.pathname.match(/^\/v1\/admin\/devices\/([^/]+)\/reset-uses$/);
         if (request.method === "POST" && resetMatch) return resetUses(env, request, resetMatch[1]);
+        const pauseMatch = url.pathname.match(/^\/v1\/admin\/devices\/([^/]+)\/(pause|resume)$/);
+        if (request.method === "POST" && pauseMatch) return setDevicePaused(env, request, pauseMatch[1], pauseMatch[2] === "pause");
         const revokeMatch = url.pathname.match(/^\/v1\/admin\/devices\/([^/]+)\/revoke$/);
         if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);
       }
