@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "versionCode": 2,
+  "versionName": "0.2.0",
+  "downloadUrl": "",
+  "sha256": "",
+  "sizeBytes": 0,
+  "changelog": [
+    "Actualizador integrado",
+    "Nuevo icono de cartucho NFC naranja"
+  ]
+}
