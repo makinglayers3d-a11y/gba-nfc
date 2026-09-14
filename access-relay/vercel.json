@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination": "/api/relay?path=v1/:path*"
+      "destination": "/api/relay?path=:path*"
     }
   ]
 }
