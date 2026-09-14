@@ -520,9 +520,18 @@ const keyboardMap = {
 
 const keyboardPressed = new Set();
 
+function isEditableKeyboardTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 window.addEventListener(
   "keydown",
   (event) => {
+    if (isEditableKeyboardTarget(event.target)) {
+      return;
+    }
+
     const keyName = keyboardMap[event.code];
 
     if (!keyName || keyboardPressed.has(event.code)) {
@@ -550,6 +559,10 @@ window.addEventListener(
 window.addEventListener(
   "keyup",
   (event) => {
+    if (isEditableKeyboardTarget(event.target)) {
+      return;
+    }
+
     const keyName = keyboardMap[event.code];
 
     if (!keyName) {
