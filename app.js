@@ -1063,6 +1063,17 @@ async function startApplication() {
   const params =
     new URLSearchParams(window.location.search);
 
+  if (params.get("dev") === "1") {
+    if (!window.ml3dDevAccess || typeof window.ml3dDevAccess.ensureAccess !== "function") {
+      status.hidden = false;
+      status.style.display = "";
+      status.textContent = "No se pudo iniciar el control de acceso de desarrollo.";
+      return;
+    }
+    const accessGranted = await window.ml3dDevAccess.ensureAccess(params);
+    if (!accessGranted) return;
+  }
+
   const menuOnly =
     params.get("menu") === "1";
 
