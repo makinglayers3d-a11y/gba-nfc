@@ -1,0 +1,27 @@
+name: Validate dev access
+on:
+  push:
+    paths:
+      - dev-access.js
+      - cloudflare-access-worker/**
+      - .github/workflows/validate-dev-access.yml
+  pull_request:
+    paths:
+      - dev-access.js
+      - cloudflare-access-worker/**
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript syntax
+        run: |
+          node --check dev-access.js
+          node --check cloudflare-access-worker/src/index.js
+      - name: Validate package metadata
+        run: node -e "JSON.parse(require('fs').readFileSync('cloudflare-access-worker/package.json','utf8'))"
