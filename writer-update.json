@@ -1,12 +1,13 @@
 {
-  "enabled": false,
-  "versionCode": 2,
-  "versionName": "0.2.0",
-  "downloadUrl": "",
-  "sha256": "",
-  "sizeBytes": 0,
+  "enabled": true,
+  "versionCode": 4,
+  "versionName": "0.4.0",
+  "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
+  "sha256": "20a87df20d59d7fc53892bddd51bedf39277d7454bf6c5a3b21525d8fd669e5e",
+  "sizeBytes": 6753688,
   "changelog": [
-    "Actualizador integrado",
-    "Nuevo icono de cartucho NFC naranja"
+    "Firma Android permanente",
+    "Actualizaciones verificadas desde la aplicación",
+    "Catálogo completo de juegos con búsqueda instantánea"
   ]
 }
