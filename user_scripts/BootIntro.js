@@ -6,6 +6,12 @@
   const GAME_LIST_FALLBACK = "games-catalog.json?v=20260914-1";
   const nativeFetch = window.fetch.bind(window);
 
+  if (new URLSearchParams(window.location.search).get("dev") === "1") {
+    const accessNamePromptScript = document.createElement("script");
+    accessNamePromptScript.src = "access-name-prompt.js?v=20260914-1";
+    document.head.appendChild(accessNamePromptScript);
+  }
+
   /*
    * El selector usa la API pública de GitHub como fuente principal. En redes
    * donde api.github.com no es accesible, utiliza un catálogo servido por el
