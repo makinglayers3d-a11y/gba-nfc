@@ -1,0 +1,59 @@
+name: Publish NFC Writer 0.6.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-nfc-writer-0.6.1.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download signed 0.6.1 artifact
+        env:
+          ARTIFACT_URL: "https://sdmntprcentralus.oaiusercontent.com/files/00000000-fe00-81f5-b80e-83be7b8c205d/raw?se=2026-09-14T13%3A46%3A21Z&sp=r&sv=2026-02-06&sr=b&scid=c442d768-3854-548f-bc1e-eaa605d59a7f&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-14T08%3A21%3A48Z&ske=2026-09-15T08%3A21%3A48Z&sks=b&skv=2026-02-06&sig=E0mYJA58qmKNS8goQ4el5QXzW9TPEDbrYTM1S%2BkXTc4%3D"
+        run: |
+          set -euo pipefail
+          curl --fail --location "$ARTIFACT_URL" --output /tmp/ml3d-release.zip
+          rm -rf /tmp/ml3d-release
+          mkdir -p /tmp/ml3d-release
+          unzip -q /tmp/ml3d-release.zip -d /tmp/ml3d-release
+          test -f /tmp/ml3d-release/app-release.apk
+          cp /tmp/ml3d-release/app-release.apk ml3d-nfc-writer.apk
+          echo "c2c0928007642f64324cf0c3da286783454c25b5f525d77c05c52aaaaeff4745  ml3d-nfc-writer.apk" | sha256sum -c -
+          test "$(stat -c%s ml3d-nfc-writer.apk)" = "6802836"
+
+      - name: Activate 0.6.1 update
+        run: |
+          cat > writer-update.json <<'JSON'
+          {
+            "enabled": true,
+            "versionCode": 7,
+            "versionName": "0.6.1",
+            "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
+            "sha256": "c2c0928007642f64324cf0c3da286783454c25b5f525d77c05c52aaaaeff4745",
+            "sizeBytes": 6802836,
+            "changelog": [
+              "Al cambiar cualquier selector de Cartuchos NFC se desactiva la escritura continua y hay que pulsar de nuevo Preparar cartucho",
+              "La interfaz respeta las áreas seguras de Android para que los controles no queden debajo de la barra de navegación"
+            ]
+          }
+          JSON
+
+      - name: Commit APK and update manifest
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ml3d-nfc-writer.apk writer-update.json
+          git diff --cached --check
+          git commit -m "Publish signed ML3D NFC Writer 0.6.1"
+          git push origin HEAD:main
