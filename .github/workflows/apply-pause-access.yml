@@ -1,0 +1,112 @@
+name: Apply pause access backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-pause-access.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch Worker and browser cache version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('cloudflare-access-worker/src/index.js')
+          s = p.read_text()
+
+          replacements = [
+              (
+                  "if (existing?.status === \"approved\") return response(env, request, { status: \"approved\" });",
+                  "if (existing?.status === \"approved\" && Number(existing.paused || 0) === 0) return response(env, request, { status: \"approved\" });\n  if (existing?.status === \"approved\" && Number(existing.paused || 0) !== 0) return response(env, request, { status: \"paused\" });"
+              ),
+              (
+                  'const device = await env.DB.prepare("SELECT status FROM devices WHERE id = ?").bind(deviceId).first();\n  if (!device) return response(env, request, { status: "unknown" });\n  if (device.status !== "approved") return response(env, request, { status: device.status });',
+                  'const device = await env.DB.prepare("SELECT status, paused FROM devices WHERE id = ?").bind(deviceId).first();\n  if (!device) return response(env, request, { status: "unknown" });\n  if (device.status === "approved" && Number(device.paused || 0) !== 0) return response(env, request, { status: "paused" });\n  if (device.status !== "approved") return response(env, request, { status: device.status });'
+              ),
+              (
+                  'if (!device || device.status !== "approved") return { ok: false, reason: "not_approved" };',
+                  'if (!device || device.status !== "approved") return { ok: false, reason: "not_approved" };\n  if (Number(device.paused || 0) !== 0) return { ok: false, reason: "paused" };'
+              ),
+              (
+                  'SELECT id, display_name AS displayName, status, user_agent AS userAgent,',
+                  'SELECT id, display_name AS displayName, status, paused, user_agent AS userAgent,'
+              ),
+              (
+                  '    ...d,\n    allowedGames: parseGames(d.allowedGames),',
+                  '    ...d,\n    paused: Number(d.paused || 0) !== 0,\n    allowedGames: parseGames(d.allowedGames),'
+              ),
+              (
+                  "UPDATE devices SET status = 'approved', game_mode = ?, allowed_games = ?, allow_local_roms = ?,",
+                  "UPDATE devices SET status = 'approved', paused = 0, game_mode = ?, allowed_games = ?, allow_local_roms = ?,"
+              ),
+              (
+                  'env.DB.prepare("UPDATE devices SET status = \'revoked\', updated_at = ? WHERE id = ?").bind(now, deviceId),',
+                  'env.DB.prepare("UPDATE devices SET status = \'revoked\', paused = 0, updated_at = ? WHERE id = ?").bind(now, deviceId),'
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f'Worker pattern not found:\n{old}')
+              s = s.replace(old, new, 1)
+
+          marker = '''async function revokeDevice(env, request, deviceId) {'''
+          if marker not in s:
+              raise SystemExit('revokeDevice marker not found')
+          pause_fn = '''async function setDevicePaused(env, request, deviceId, paused) {
+  const row = await env.DB.prepare("SELECT id, status FROM devices WHERE id = ?").bind(deviceId).first();
+  if (!row) return bad(env, request, "Dispositivo no encontrado", 404);
+  if (row.status !== "approved") return bad(env, request, "Solo se puede pausar un dispositivo aprobado", 409);
+  const now = nowIso();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE devices SET paused = ?, updated_at = ? WHERE id = ?").bind(paused ? 1 : 0, now, deviceId),
+    env.DB.prepare("DELETE FROM challenges WHERE device_id = ?").bind(deviceId),
+    env.DB.prepare("DELETE FROM usage_sessions WHERE device_id = ?").bind(deviceId)
+  ]);
+  return response(env, request, { ok: true, status: paused ? "paused" : "approved", paused: Boolean(paused) });
+}
+
+'''
+          s = s.replace(marker, pause_fn + marker, 1)
+
+          route_old = '''        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);
+        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'''
+          route_new = '''        const pauseMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/(pause|resume)$/);
+        if (request.method === "POST" && pauseMatch) return setDevicePaused(env, request, pauseMatch[1], pauseMatch[2] === "pause");
+        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);
+        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'''
+          if route_old not in s:
+              raise SystemExit('Worker route pattern not found')
+          s = s.replace(route_old, route_new, 1)
+          p.write_text(s)
+
+          idx = Path('index.html')
+          html = idx.read_text()
+          old = '<script src="dev-access.js?v=dev-access-1"></script>'
+          new = '<script src="dev-access.js?v=dev-access-2"></script>'
+          if old not in html:
+              raise SystemExit('index cache-bust pattern not found')
+          idx.write_text(html.replace(old, new, 1))
+          PY
+
+      - name: Commit backend changes
+        run: |
+          set -euo pipefail
+          git config user.name "makinglayers3d-a11y"
+          git config user.email "makinglayers3d@gmail.com"
+          git add cloudflare-access-worker/src/index.js index.html
+          git diff --cached --check
+          git commit -m "Add pause control and refresh dev access client"
+          git push origin HEAD:main
