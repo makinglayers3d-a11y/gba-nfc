@@ -21,8 +21,8 @@ function applyCors(req, res) {
 
 function safePath(value) {
   const path = String(value || "").replace(/^\/+/, "");
-  if (!/^v1(?:\/|$)/.test(path)) return null;
-  if (path.includes("..") || path.includes("\\")) return null;
+  if (!path || path.includes("..") || path.includes("\\")) return null;
+  if (!/^[A-Za-z0-9._~!$&'()*+,;=:@%\/-]+$/.test(path)) return null;
   return path;
 }
 
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const upstreamUrl = `${upstreamBase}/${path}${buildQuery(req)}`;
+  const upstreamUrl = `${upstreamBase}/v1/${path}${buildQuery(req)}`;
   const headers = {
     Accept: "application/json"
   };
