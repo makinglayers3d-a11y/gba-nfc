@@ -5,6 +5,7 @@
   const DB_NAME = "ml3d-dev-access";
   const STORE_NAME = "identity";
   const KEY_ID = "device-key";
+  const SESSION_KEY = "ml3d-dev-access-session";
   const encoder = new TextEncoder();
 
   function bytesToBase64Url(bytes) {
@@ -79,6 +80,20 @@
     return { privateKey, publicJwk: stored.publicJwk, deviceId };
   }
 
+  function getSessionId() {
+    let value = sessionStorage.getItem(SESSION_KEY);
+    if (!value) {
+      value = crypto.randomUUID();
+      sessionStorage.setItem(SESSION_KEY, value);
+    }
+    return value;
+  }
+
+  function publishPolicy(policy) {
+    window.ml3dAccessPolicy = policy || null;
+    window.dispatchEvent(new CustomEvent("ml3d-access-policy", { detail: window.ml3dAccessPolicy }));
+  }
+
   async function loadConfig() {
     const response = await fetch(`${CONFIG_URL}?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`No se pudo cargar la configuración de acceso (${response.status})`);
@@ -95,7 +110,12 @@
       cache: "no-store"
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Error del servidor (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(data.error || data.reason || `Error del servidor (${response.status})`);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
     return data;
   }
 
@@ -141,14 +161,17 @@
     overlay.innerHTML = `
       <div class="ml3d-access-card" role="dialog" aria-modal="true" aria-labelledby="ml3d-access-title">
         <h2 id="ml3d-access-title">Acceso de desarrollo</h2>
-        <p class="ml3d-access-message">Este cartucho requiere autorización para este dispositivo.</p>
+        <p class="ml3d-access-message">Esto es un cartucho promocional y requiere una autorización para su uso. Introduzca nombre para solicitar autorización de uso.</p>
         <div class="ml3d-access-form">
           <input class="ml3d-access-name" maxlength="80" autocomplete="name" placeholder="Tu nombre" aria-label="Nombre">
           <div class="ml3d-access-actions"><button class="ml3d-access-primary" type="button">Solicitar acceso</button></div>
         </div>
         <div class="ml3d-access-pending" hidden>
           <p>Solicitud enviada. Déjala abierta mientras se aprueba desde ML3D NFC Writer.</p>
-          <div class="ml3d-access-actions"><button class="ml3d-access-secondary" type="button">Comprobar ahora</button></div>
+          <div class="ml3d-access-actions"><button class="ml3d-access-secondary ml3d-access-check" type="button">Comprobar ahora</button></div>
+        </div>
+        <div class="ml3d-access-more-uses" hidden>
+          <div class="ml3d-access-actions"><button class="ml3d-access-primary ml3d-access-more" type="button">Solicitar más usos</button></div>
         </div>
         <p class="ml3d-access-device">Dispositivo: ${deviceId.slice(0, 18)}…</p>
       </div>`;
@@ -165,15 +188,49 @@
       return { approved: false, status: challenge.status || "unknown" };
     }
     const signature = await sign(identity.privateKey, challenge.nonce);
-    const result = await api(config, "/v1/access/verify", {
+    try {
+      const result = await api(config, "/v1/access/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          deviceId: identity.deviceId,
+          challengeId: challenge.challengeId,
+          signature,
+          sessionId: getSessionId()
+        })
+      });
+      if (result.approved === true) publishPolicy(result.policy || null);
+      return {
+        approved: result.approved === true,
+        status: result.approved ? "approved" : (result.reason || "denied"),
+        policy: result.policy || null
+      };
+    } catch (error) {
+      if (error.data?.reason === "uses_exhausted") {
+        publishPolicy(error.data.policy || null);
+        return { approved: false, status: "uses_exhausted", policy: error.data.policy || null };
+      }
+      throw error;
+    }
+  }
+
+  async function requestMoreUses(config, identity, params) {
+    const challenge = await api(config, "/v1/access/challenge", {
+      method: "POST",
+      body: JSON.stringify({ deviceId: identity.deviceId })
+    });
+    if (challenge.status !== "approved" || !challenge.challengeId || !challenge.nonce) {
+      throw new Error("No se pudo verificar el dispositivo para solicitar más usos.");
+    }
+    const signature = await sign(identity.privateKey, challenge.nonce);
+    return api(config, "/v1/access/request-more-uses", {
       method: "POST",
       body: JSON.stringify({
         deviceId: identity.deviceId,
         challengeId: challenge.challengeId,
-        signature
+        signature,
+        cart: cartContext(params)
       })
     });
-    return { approved: result.approved === true, status: result.approved ? "approved" : "denied" };
   }
 
   async function waitForApproval(config, identity, params) {
@@ -181,10 +238,20 @@
     const message = overlay.querySelector(".ml3d-access-message");
     const form = overlay.querySelector(".ml3d-access-form");
     const pending = overlay.querySelector(".ml3d-access-pending");
+    const moreUses = overlay.querySelector(".ml3d-access-more-uses");
     const nameInput = overlay.querySelector(".ml3d-access-name");
     const requestButton = overlay.querySelector(".ml3d-access-primary");
-    const checkButton = overlay.querySelector(".ml3d-access-secondary");
+    const checkButton = overlay.querySelector(".ml3d-access-check");
+    const moreButton = overlay.querySelector(".ml3d-access-more");
     let timer = null;
+
+    const showDefaultForm = () => {
+      form.hidden = false;
+      pending.hidden = true;
+      moreUses.hidden = true;
+      message.classList.remove("ml3d-access-error");
+      message.textContent = "Esto es un cartucho promocional y requiere una autorización para su uso. Introduzca nombre para solicitar autorización de uso.";
+    };
 
     const check = async () => {
       try {
@@ -194,11 +261,24 @@
           overlay.remove();
           return true;
         }
+        message.classList.remove("ml3d-access-error");
         if (result.status === "pending") {
           form.hidden = true;
           pending.hidden = false;
-          message.classList.remove("ml3d-access-error");
+          moreUses.hidden = true;
           message.textContent = "Solicitud pendiente de aprobación.";
+        } else if (result.status === "uses_exhausted") {
+          form.hidden = true;
+          pending.hidden = true;
+          moreUses.hidden = false;
+          message.textContent = "Usos permitidos agotados";
+        } else if (result.status === "paused") {
+          form.hidden = true;
+          pending.hidden = true;
+          moreUses.hidden = true;
+          message.textContent = "Acceso pausado por el administrador.";
+        } else if (["unknown", "rejected", "revoked"].includes(result.status)) {
+          showDefaultForm();
         }
       } catch (error) {
         message.textContent = error.message;
@@ -230,6 +310,7 @@
         message.textContent = "Solicitud pendiente de aprobación.";
         form.hidden = true;
         pending.hidden = false;
+        moreUses.hidden = true;
       } catch (error) {
         requestButton.disabled = false;
         message.textContent = error.message;
@@ -238,6 +319,20 @@
     });
 
     checkButton.addEventListener("click", check);
+    moreButton.addEventListener("click", async () => {
+      moreButton.disabled = true;
+      try {
+        await requestMoreUses(config, identity, params);
+        message.classList.remove("ml3d-access-error");
+        message.textContent = "Solicitud de más usos enviada.";
+        moreButton.textContent = "Solicitud enviada";
+      } catch (error) {
+        moreButton.disabled = false;
+        message.textContent = error.message;
+        message.classList.add("ml3d-access-error");
+      }
+    });
+
     const initialApproved = await check();
     if (initialApproved) return true;
     timer = setInterval(check, 5000);
