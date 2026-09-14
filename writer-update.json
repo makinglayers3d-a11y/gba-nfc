@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 10,
-  "versionName": "0.7.2",
+  "versionCode": 11,
+  "versionName": "0.7.3",
   "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "a533ff90771321c807e66281c553a2ba9d7f3e098b8a36ee9f42f16cb1a4420f",
-  "sizeBytes": 7200863,
+  "sha256": "bad53cbdebde34949510f80fbf7b0c4bd0f71279212dce38f50fd20e8678154d",
+  "sizeBytes": 7200867,
   "changelog": [
-    "Automate publishing signed NFC Writer updates"
+    "ML3D NFC Writer 0.7.3: pausar y reanudar acceso"
   ]
 }
