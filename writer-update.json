@@ -1,13 +1,13 @@
 {
   "enabled": true,
-  "versionCode": 4,
-  "versionName": "0.4.0",
+  "versionCode": 5,
+  "versionName": "0.5.0",
   "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "20a87df20d59d7fc53892bddd51bedf39277d7454bf6c5a3b21525d8fd669e5e",
-  "sizeBytes": 6753688,
+  "sha256": "3c168ba4832104916a6db98c406f744115c8e89bcf4438c8035969a3d110d712",
+  "sizeBytes": 6786456,
   "changelog": [
-    "Firma Android permanente",
-    "Actualizaciones verificadas desde la aplicación",
-    "Catálogo completo de juegos con búsqueda instantánea"
+    "Nuevo menú principal: Leer, Escribir, Cartuchos NFC, Borrar NFC y Contraseña",
+    "Nueve tipos de entradas NDEF con lectura detallada y borrado verificado",
+    "Seguridad reversible para NTAG213, NTAG215 y NTAG216 y bloqueo permanente con confirmación"
   ]
 }
