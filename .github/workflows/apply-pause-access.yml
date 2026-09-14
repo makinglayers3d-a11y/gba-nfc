@@ -59,34 +59,38 @@ jobs:
 
           for old, new in replacements:
               if old not in s:
-                  raise SystemExit(f'Worker pattern not found:\n{old}')
+                  raise SystemExit(f'Worker pattern not found: {old}')
               s = s.replace(old, new, 1)
 
-          marker = '''async function revokeDevice(env, request, deviceId) {'''
+          marker = 'async function revokeDevice(env, request, deviceId) {'
           if marker not in s:
               raise SystemExit('revokeDevice marker not found')
-          pause_fn = '''async function setDevicePaused(env, request, deviceId, paused) {
-  const row = await env.DB.prepare("SELECT id, status FROM devices WHERE id = ?").bind(deviceId).first();
-  if (!row) return bad(env, request, "Dispositivo no encontrado", 404);
-  if (row.status !== "approved") return bad(env, request, "Solo se puede pausar un dispositivo aprobado", 409);
-  const now = nowIso();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE devices SET paused = ?, updated_at = ? WHERE id = ?").bind(paused ? 1 : 0, now, deviceId),
-    env.DB.prepare("DELETE FROM challenges WHERE device_id = ?").bind(deviceId),
-    env.DB.prepare("DELETE FROM usage_sessions WHERE device_id = ?").bind(deviceId)
-  ]);
-  return response(env, request, { ok: true, status: paused ? "paused" : "approved", paused: Boolean(paused) });
-}
-
-'''
+          pause_fn = (
+              'async function setDevicePaused(env, request, deviceId, paused) {\n'
+              '  const row = await env.DB.prepare("SELECT id, status FROM devices WHERE id = ?").bind(deviceId).first();\n'
+              '  if (!row) return bad(env, request, "Dispositivo no encontrado", 404);\n'
+              '  if (row.status !== "approved") return bad(env, request, "Solo se puede pausar un dispositivo aprobado", 409);\n'
+              '  const now = nowIso();\n'
+              '  await env.DB.batch([\n'
+              '    env.DB.prepare("UPDATE devices SET paused = ?, updated_at = ? WHERE id = ?").bind(paused ? 1 : 0, now, deviceId),\n'
+              '    env.DB.prepare("DELETE FROM challenges WHERE device_id = ?").bind(deviceId),\n'
+              '    env.DB.prepare("DELETE FROM usage_sessions WHERE device_id = ?").bind(deviceId)\n'
+              '  ]);\n'
+              '  return response(env, request, { ok: true, status: paused ? "paused" : "approved", paused: Boolean(paused) });\n'
+              '}\n\n'
+          )
           s = s.replace(marker, pause_fn + marker, 1)
 
-          route_old = '''        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);
-        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'''
-          route_new = '''        const pauseMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/(pause|resume)$/);
-        if (request.method === "POST" && pauseMatch) return setDevicePaused(env, request, pauseMatch[1], pauseMatch[2] === "pause");
-        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);
-        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'''
+          route_old = (
+              '        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);\n'
+              '        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'
+          )
+          route_new = (
+              '        const pauseMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/(pause|resume)$/);\n'
+              '        if (request.method === "POST" && pauseMatch) return setDevicePaused(env, request, pauseMatch[1], pauseMatch[2] === "pause");\n'
+              '        const revokeMatch = url.pathname.match(/^\\/v1\\/admin\\/devices\\/([^/]+)\\/revoke$/);\n'
+              '        if (request.method === "POST" && revokeMatch) return revokeDevice(env, request, revokeMatch[1]);'
+          )
           if route_old not in s:
               raise SystemExit('Worker route pattern not found')
           s = s.replace(route_old, route_new, 1)
