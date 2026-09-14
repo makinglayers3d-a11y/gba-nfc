@@ -197,6 +197,7 @@
         if (result.status === "pending") {
           form.hidden = true;
           pending.hidden = false;
+          message.classList.remove("ml3d-access-error");
           message.textContent = "Solicitud pendiente de aprobación.";
         }
       } catch (error) {
@@ -237,7 +238,8 @@
     });
 
     checkButton.addEventListener("click", check);
-    await check();
+    const initialApproved = await check();
+    if (initialApproved) return true;
     timer = setInterval(check, 5000);
 
     return new Promise((resolve) => {
@@ -259,7 +261,15 @@
       config = await loadConfig();
     } catch (error) {
       console.error(error);
-      return true;
+      const identity = await getIdentity().catch(() => null);
+      if (identity) {
+        const overlay = createOverlay(identity.deviceId);
+        const message = overlay.querySelector(".ml3d-access-message");
+        message.textContent = "No se pudo comprobar la configuración de acceso. El emulador permanece bloqueado por seguridad.";
+        message.classList.add("ml3d-access-error");
+        overlay.querySelector(".ml3d-access-form").hidden = true;
+      }
+      return false;
     }
 
     if (!config.enabled) return true;
