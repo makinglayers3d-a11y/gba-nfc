@@ -1,0 +1,64 @@
+name: Apply dev access gate
+on:
+  push:
+    paths:
+      - .github/workflows/apply-dev-access-gate.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch emulator startup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          index = Path('index.html')
+          text = index.read_text()
+          old = '<script src="GB/GBSave.js?v=final-port-1"></script>\n<script src="app.js?v=final-port-1"></script>'
+          new = '<script src="GB/GBSave.js?v=final-port-1"></script>\n<script src="dev-access.js?v=dev-access-1"></script>\n<script src="app.js?v=dev-access-1"></script>'
+          if old not in text:
+              raise SystemExit('index.html target not found')
+          index.write_text(text.replace(old, new, 1))
+
+          app = Path('app.js')
+          text = app.read_text()
+          old = '''async function startApplication() {
+            const params =
+              new URLSearchParams(window.location.search);
+
+            const menuOnly ='''
+          new = '''async function startApplication() {
+            const params =
+              new URLSearchParams(window.location.search);
+
+            if (params.get("dev") === "1") {
+              if (!window.ml3dDevAccess || typeof window.ml3dDevAccess.ensureAccess !== "function") {
+                status.hidden = false;
+                status.style.display = "";
+                status.textContent = "No se pudo iniciar el control de acceso de desarrollo.";
+                return;
+              }
+              const accessGranted = await window.ml3dDevAccess.ensureAccess(params);
+              if (!accessGranted) return;
+            }
+
+            const menuOnly ='''
+          if old not in text:
+              raise SystemExit('app.js target not found')
+          app.write_text(text.replace(old, new, 1))
+          PY
+      - name: Validate JavaScript
+        run: |
+          node --check app.js
+          node --check dev-access.js
+          node --check cloudflare-access-worker/src/index.js
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html app.js
+          git commit -m "Gate dev NFC links behind device approval"
+          git push
