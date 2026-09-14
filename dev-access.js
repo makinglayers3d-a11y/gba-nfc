@@ -160,7 +160,7 @@
     overlay.className = "ml3d-access-overlay";
     overlay.innerHTML = `
       <div class="ml3d-access-card" role="dialog" aria-modal="true" aria-labelledby="ml3d-access-title">
-        <h2 id="ml3d-access-title">Acceso de desarrollo</h2>
+        <h2 id="ml3d-access-title">Acceso ML3Demuler</h2>
         <p class="ml3d-access-message">Esto es un cartucho promocional y requiere una autorización para su uso. Introduzca nombre para solicitar autorización de uso.</p>
         <div class="ml3d-access-form">
           <input class="ml3d-access-name" maxlength="80" autocomplete="name" placeholder="Tu nombre" aria-label="Nombre">
@@ -276,7 +276,7 @@
           form.hidden = true;
           pending.hidden = true;
           moreUses.hidden = true;
-          message.textContent = "Acceso pausado por el administrador.";
+          message.textContent = "Acceso promocional pausado.";
         } else if (["unknown", "rejected", "revoked"].includes(result.status)) {
           showDefaultForm();
         }
