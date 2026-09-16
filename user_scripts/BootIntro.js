@@ -3,8 +3,156 @@
 (function () {
   const GAME_LIST_API =
     "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc/contents/games";
-  const GAME_LIST_FALLBACK = "games-catalog.json?v=20260914-1";
+  const GAME_LIST_FALLBACK = "games-catalog.json?v=20260916-1";
   const nativeFetch = window.fetch.bind(window);
+
+  /*
+   * Compatibilidad de almacenamiento:
+   * algunos WebViews exponen localStorage pero lanzan SecurityError al usarlo.
+   * En ese caso usamos un almacenamiento temporal en memoria para que el
+   * emulador pueda arrancar, aunque ese dispositivo no pueda persistir ajustes.
+   */
+  (function installSafeStorageFallback() {
+    try {
+      const storage = window.localStorage;
+      const probeKey = "__ml3d_storage_probe__";
+      storage.setItem(probeKey, "1");
+      storage.removeItem(probeKey);
+    } catch (error) {
+      console.warn(
+        "ML3D: almacenamiento persistente no disponible; usando memoria temporal.",
+        error
+      );
+
+      const memoryStorage = new Map();
+      const fallbackStorage = {
+        get length() {
+          return memoryStorage.size;
+        },
+        clear() {
+          memoryStorage.clear();
+        },
+        getItem(key) {
+          key = String(key);
+          return memoryStorage.has(key) ? memoryStorage.get(key) : null;
+        },
+        key(index) {
+          const keys = Array.from(memoryStorage.keys());
+          return keys[index] ?? null;
+        },
+        removeItem(key) {
+          memoryStorage.delete(String(key));
+        },
+        setItem(key, value) {
+          memoryStorage.set(String(key), String(value));
+        }
+      };
+
+      try {
+        Object.defineProperty(window, "localStorage", {
+          configurable: true,
+          value: fallbackStorage
+        });
+      } catch (defineError) {
+        console.warn(
+          "ML3D: no se pudo instalar el fallback de almacenamiento.",
+          defineError
+        );
+      }
+    }
+  })();
+
+  /*
+   * Ajuste de temporización de IodineGBA.
+   *
+   * app.js llama a timerCallback cada 8 ms. IodineGBA viene configurado para
+   * calcular 16 ms de CPU por llamada. Alineamos el intervalo interno a 8 ms
+   * antes de play() para evitar que dispositivos lentos intenten emular el
+   * doble de trabajo del tiempo real.
+   */
+  (function patchGbaTiming() {
+    if (
+      typeof window.GameBoyAdvanceEmulator !== "function" ||
+      !window.GameBoyAdvanceEmulator.prototype
+    ) {
+      return;
+    }
+
+    const proto = window.GameBoyAdvanceEmulator.prototype;
+
+    if (proto.__ml3dTimingPatched) {
+      return;
+    }
+
+    const originalPlay = proto.play;
+
+    proto.play = function ml3dPlayWithAlignedTiming() {
+      try {
+        if (
+          typeof this.setIntervalRate === "function" &&
+          this.timerIntervalRate !== 8
+        ) {
+          this.setIntervalRate(8);
+        }
+      } catch (error) {
+        console.warn("ML3D: no se pudo ajustar el temporizador GBA.", error);
+      }
+
+      return originalPlay.apply(this, arguments);
+    };
+
+    proto.__ml3dTimingPatched = true;
+  })();
+
+  /*
+   * IodineGBA copiaba de nuevo la ROM completa durante la inicialización del
+   * cartucho. Para ROMs normales Uint8Array alineadas (hasta 32 MiB) podemos
+   * reutilizar el mismo buffer de solo lectura y ahorrar una copia completa.
+   */
+  (function patchGbaRomMemory() {
+    if (
+      typeof window.GameBoyAdvanceCartridge !== "function" ||
+      !window.GameBoyAdvanceCartridge.prototype
+    ) {
+      return;
+    }
+
+    const proto = window.GameBoyAdvanceCartridge.prototype;
+
+    if (proto.__ml3dRomMemoryPatched) {
+      return;
+    }
+
+    const originalGetROMArray = proto.getROMArray;
+
+    proto.getROMArray = function ml3dGetROMArray(oldArray) {
+      const sourceLength =
+        oldArray && typeof oldArray.length === "number"
+          ? oldArray.length
+          : 0;
+
+      const romLength =
+        Math.min((sourceLength >> 2) << 2, 0x2000000);
+
+      if (
+        oldArray instanceof Uint8Array &&
+        oldArray.byteOffset === 0 &&
+        oldArray.byteLength === romLength
+      ) {
+        this.ROMLength = romLength;
+        this.EEPROMStart =
+          romLength > 0x1000000
+            ? Math.max(romLength, 0x1FFFF00)
+            : 0x1000000;
+
+        return oldArray;
+      }
+
+      return originalGetROMArray.call(this, oldArray);
+    };
+
+    proto.__ml3dRomMemoryPatched = true;
+  })();
 
   if (new URLSearchParams(window.location.search).get("dev") === "1") {
     const accessNamePromptScript = document.createElement("script");
@@ -12,10 +160,83 @@
     document.head.appendChild(accessNamePromptScript);
   }
 
+  function isGameRomRequest(requestUrl) {
+    if (!requestUrl) {
+      return false;
+    }
+
+    if (/^games\/.+\.(gba|gbc|gb)(?:[?#].*)?$/i.test(requestUrl)) {
+      return true;
+    }
+
+    try {
+      const url = new URL(requestUrl, window.location.href);
+      return /\/games\/[^/]+\.(gba|gbc|gb)$/i.test(url.pathname);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  }
+
+  async function fetchRomWithRetry(input, init) {
+    const requestInit = {
+      ...(init || {})
+    };
+
+    /*
+     * "no-store" obliga a descargar otra vez ROMs de 8-32 MiB. "default"
+     * permite reutilizar la caché HTTP del navegador sin cambiar las URLs.
+     */
+    if (!requestInit.cache || requestInit.cache === "no-store") {
+      requestInit.cache = "default";
+    }
+
+    let lastResponse = null;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await nativeFetch(input, requestInit);
+
+        if (
+          response.ok ||
+          (
+            response.status !== 408 &&
+            response.status !== 429 &&
+            response.status < 500
+          )
+        ) {
+          return response;
+        }
+
+        lastResponse = response;
+      } catch (error) {
+        lastError = error;
+      }
+
+      if (attempt === 0) {
+        await delay(650);
+      }
+    }
+
+    if (lastResponse) {
+      return lastResponse;
+    }
+
+    throw lastError || new Error("No se pudo descargar la ROM.");
+  }
+
   /*
    * El selector usa la API pública de GitHub como fuente principal. En redes
    * donde api.github.com no es accesible, utiliza un catálogo servido por el
    * propio GitHub Pages para que el menú de juegos siga funcionando.
+   *
+   * Las ROMs reciben además un segundo intento y pueden reutilizar la caché.
    */
   window.fetch = async function ml3dFetch(input, init) {
     const requestUrl =
@@ -25,18 +246,37 @@
           ? input.url
           : "";
 
+    if (isGameRomRequest(requestUrl)) {
+      return fetchRomWithRetry(input, init);
+    }
+
     if (requestUrl !== GAME_LIST_API) {
       return nativeFetch(input, init);
     }
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 3000);
+    const hasAbortController =
+      typeof window.AbortController === "function";
+
+    const controller =
+      hasAbortController
+        ? new window.AbortController()
+        : null;
+
+    const timeout =
+      controller
+        ? window.setTimeout(() => controller.abort(), 3000)
+        : null;
 
     try {
-      const response = await nativeFetch(input, {
-        ...(init || {}),
-        signal: controller.signal
-      });
+      const apiInit = {
+        ...(init || {})
+      };
+
+      if (controller) {
+        apiInit.signal = controller.signal;
+      }
+
+      const response = await nativeFetch(input, apiInit);
 
       if (response.ok) {
         return response;
@@ -47,11 +287,13 @@
         error
       );
     } finally {
-      window.clearTimeout(timeout);
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
     }
 
     return nativeFetch(GAME_LIST_FALLBACK, {
-      cache: "no-store"
+      cache: "default"
     });
   };
 
