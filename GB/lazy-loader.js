@@ -2,6 +2,7 @@
 
 (function () {
   let corePromise = null;
+  let realCore = null;
   let pendingVolume = 1;
 
   function loadScript(src) {
@@ -48,6 +49,10 @@
   }
 
   async function ensureCore() {
+    if (realCore) {
+      return realCore;
+    }
+
     if (corePromise) {
       return corePromise;
     }
@@ -67,15 +72,23 @@
       await loadScript("GB/binjgb.js");
       await loadScript("GB/simple.js?v=playback-compat-1");
 
-      const realCore = window.gbaGB;
+      const loadedCore = window.gbaGB;
 
       if (
-        !realCore ||
-        realCore === facade ||
-        typeof realCore.startBuffer !== "function"
+        !loadedCore ||
+        loadedCore === facade ||
+        typeof loadedCore.startBuffer !== "function"
       ) {
         throw new Error("No se pudo inicializar el núcleo GB/GBC.");
       }
+
+      /*
+       * simple.js publica su propio window.gbaGB. Conservamos ese objeto como
+       * núcleo real, pero restauramos la fachada para no perder los wrappers
+       * de GBSave.js (save, stop y temporizador de guardado).
+       */
+      realCore = loadedCore;
+      window.gbaGB = facade;
 
       if (typeof realCore.setVolume === "function") {
         realCore.setVolume(pendingVolume);
@@ -84,6 +97,8 @@
       return realCore;
     })().catch((error) => {
       corePromise = null;
+      realCore = null;
+      window.gbaGB = facade;
       throw error;
     });
 
@@ -92,13 +107,13 @@
 
   const facade = {
     async start(romPath) {
-      const realCore = await ensureCore();
-      return realCore.start(romPath);
+      const core = await ensureCore();
+      return core.start(romPath);
     },
 
     async startBuffer(romBuffer, filename, saveId, useLegacySave) {
-      const realCore = await ensureCore();
-      return realCore.startBuffer(
+      const core = await ensureCore();
+      return core.startBuffer(
         romBuffer,
         filename,
         saveId,
@@ -112,85 +127,52 @@
         1
       );
 
-      if (
-        corePromise &&
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.setVolume === "function"
-      ) {
-        window.gbaGB.setVolume(pendingVolume);
+      if (realCore && typeof realCore.setVolume === "function") {
+        realCore.setVolume(pendingVolume);
       }
     },
 
     stop() {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.stop === "function"
-      ) {
-        window.gbaGB.stop();
+      if (realCore && typeof realCore.stop === "function") {
+        return realCore.stop();
       }
     },
 
     isPaused() {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.isPaused === "function"
-      ) {
-        return window.gbaGB.isPaused();
+      if (realCore && typeof realCore.isPaused === "function") {
+        return realCore.isPaused();
       }
 
       return true;
     },
 
     pause() {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.pause === "function"
-      ) {
-        window.gbaGB.pause();
+      if (realCore && typeof realCore.pause === "function") {
+        return realCore.pause();
       }
     },
 
     resume() {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.resume === "function"
-      ) {
-        window.gbaGB.resume();
+      if (realCore && typeof realCore.resume === "function") {
+        return realCore.resume();
       }
     },
 
     keyDown(keyName) {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.keyDown === "function"
-      ) {
-        window.gbaGB.keyDown(keyName);
+      if (realCore && typeof realCore.keyDown === "function") {
+        return realCore.keyDown(keyName);
       }
     },
 
     keyUp(keyName) {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.keyUp === "function"
-      ) {
-        window.gbaGB.keyUp(keyName);
+      if (realCore && typeof realCore.keyUp === "function") {
+        return realCore.keyUp(keyName);
       }
     },
 
     isRunning() {
-      if (
-        window.gbaGB &&
-        window.gbaGB !== facade &&
-        typeof window.gbaGB.isRunning === "function"
-      ) {
-        return window.gbaGB.isRunning();
+      if (realCore && typeof realCore.isRunning === "function") {
+        return realCore.isRunning();
       }
 
       return false;
