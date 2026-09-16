@@ -38,7 +38,7 @@
         },
         key(index) {
           const keys = Array.from(memoryStorage.keys());
-          return keys[index] ?? null;
+          return index >= 0 && index < keys.length ? keys[index] : null;
         },
         removeItem(key) {
           memoryStorage.delete(String(key));
