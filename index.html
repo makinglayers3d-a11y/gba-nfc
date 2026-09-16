@@ -17,7 +17,14 @@
 <body>
   <script>
     (() => {
-      const family = localStorage.getItem("ml3d-appearance-family") || "sp";
+      let family = "sp";
+
+      try {
+        family = localStorage.getItem("ml3d-appearance-family") || "sp";
+      } catch (error) {
+        console.warn("ML3D: no se pudo leer la apariencia guardada.", error);
+      }
+
       document.body.classList.add(family === "custom" ? "ml3d-custom-skin" : "sp-skin-test");
       document.body.dataset.appearanceFamily = family === "custom" ? "custom" : "sp";
     })();
@@ -486,21 +493,19 @@
 
 <!--
   Activamos binjgb en modo biblioteca.
-  En este modo no arranca ninguna ROM por sí solo
-  y tampoco crea sus propios controles.
+  El núcleo GB/GBC se carga de forma diferida únicamente cuando se necesita,
+  reduciendo memoria y trabajo de arranque para juegos GBA.
 -->
 <script>
   window.GBA_GB_LIBRARY_MODE = true;
 </script>
-
-<script src="GB/binjgb.js"></script>
-<script src="GB/simple.js?v=ios-resume-2"></script>
+<script src="GB/lazy-loader.js?v=playback-compat-1"></script>
 
   <script src="console-transitions.js?v=boot-sync-1"></script>
 <script src="appearance-selector.js?v=final-port-1"></script>
 <script src="EnhancedFeatures.js?v=boot-sync-1"></script>
 <script src="save-capture-v2.js?v=final-port-1"></script>
-<script src="user_scripts/BootIntro.js?v=game-list-fix-2"></script>
+<script src="user_scripts/BootIntro.js?v=playback-compat-1"></script>
 <script src="user_scripts/GameSelector.js?v=game-list-fix-2"></script>
 <script src="GB/GBSave.js?v=final-port-1"></script>
 <script src="dev-access.js?v=dev-access-2"></script>
