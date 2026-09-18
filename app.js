@@ -1072,6 +1072,16 @@ if (buttonColors) {
   });
 }
 
+async function showMl3dStartupMessages() {
+  try {
+    if (window.ml3dEmulatorTools && typeof window.ml3dEmulatorTools.showStartupMessages === "function") {
+      await window.ml3dEmulatorTools.showStartupMessages();
+    }
+  } catch (error) {
+    console.warn("No se pudieron mostrar los avisos del emulador:", error);
+  }
+}
+
 async function startApplication() {
   const params =
     new URLSearchParams(window.location.search);
@@ -1117,6 +1127,8 @@ async function startApplication() {
       bootScreen.style.pointerEvents = "none";
     }
 
+    await showMl3dStartupMessages();
+
     if (window.gbaOpenGameSelector) {
       await window.gbaOpenGameSelector();
     }
@@ -1139,6 +1151,7 @@ async function startApplication() {
       bootScreen.style.pointerEvents = "none";
     }
 
+    await showMl3dStartupMessages();
     await loadGame();
     return;
   }
@@ -1152,6 +1165,7 @@ async function startApplication() {
     await window.gbaBootIntro.start();
   }
 
+  await showMl3dStartupMessages();
   await loadGame();
 }
 

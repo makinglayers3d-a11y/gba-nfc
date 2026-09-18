@@ -72,3 +72,24 @@ CREATE INDEX IF NOT EXISTS idx_usage_sessions_device
   ON usage_sessions(device_id, expires_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_sessions_expires
   ON usage_sessions(expires_at);
+
+
+CREATE TABLE IF NOT EXISTS emulator_messages (
+  kind TEXT PRIMARY KEY CHECK(kind IN ('work','update','announcement')),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS emulator_reports (
+  id TEXT PRIMARY KEY,
+  message TEXT NOT NULL,
+  image_data TEXT,
+  page_url TEXT,
+  user_agent TEXT,
+  game TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_emulator_reports_created
+  ON emulator_reports(created_at DESC);
