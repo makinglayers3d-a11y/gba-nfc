@@ -63,10 +63,9 @@
         font-size:11px!important;font-weight:950!important;letter-spacing:.08em!important;box-shadow:none!important
       }
       .ml3d-report-form label{display:block;margin:10px 0 6px;font-size:11px;font-weight:900;letter-spacing:.05em}
-      .ml3d-report-form textarea{
-        box-sizing:border-box;width:100%;min-height:130px;resize:vertical;padding:12px;border:1px solid #ffffff30;
-        border-radius:12px;background:#0005;color:inherit;font:inherit;line-height:1.4;pointer-events:auto!important;
-        user-select:text!important;-webkit-user-select:text!important;-webkit-touch-callout:default!important;touch-action:auto!important
+      .ml3d-report-editor{
+        display:block;box-sizing:border-box;width:100%;height:150px;border:1px solid #ffffff30;border-radius:12px;
+        background:#0005;overflow:hidden;pointer-events:auto!important
       }
       .ml3d-report-image-row{display:flex;align-items:center;gap:12px}
       .ml3d-report-image-add{
@@ -213,8 +212,8 @@
     const form = document.createElement("div");
     form.className = "ml3d-report-form";
     form.innerHTML = `
-      <label for="ml3d-report-text">Mensaje</label>
-      <textarea id="ml3d-report-text" maxlength="4000" inputmode="text" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Describe el problema, sugerencia o incidencia…"></textarea>
+      <label>Mensaje</label>
+      <iframe id="ml3d-report-editor" class="ml3d-report-editor" title="Mensaje del reporte"></iframe>
       <label>Imagen (opcional)</label>
       <div class="ml3d-report-image-row">
         <button type="button" class="ml3d-report-image-add" aria-label="Añadir imagen">+</button>
@@ -230,7 +229,7 @@
     `;
     ui.card.appendChild(form);
 
-    const textarea = form.querySelector("textarea");
+    const editorFrame = form.querySelector("#ml3d-report-editor");
     const fileInput = form.querySelector("input[type=file]");
     const addImage = form.querySelector(".ml3d-report-image-add");
     const preview = form.querySelector(".ml3d-report-preview");
@@ -268,12 +267,31 @@
       }
     });
 
-    textarea.readOnly = false;
-    textarea.disabled = false;
-    textarea.tabIndex = 0;
+    editorFrame.srcdoc = `<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+html,body{margin:0;width:100%;height:100%;background:transparent;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+textarea{box-sizing:border-box;width:100%;height:100%;margin:0;padding:12px;border:0;outline:0;resize:none;background:transparent;color:#fff;font:14px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;caret-color:#fff;user-select:text;-webkit-user-select:text;-webkit-touch-callout:default;touch-action:auto}
+textarea::placeholder{color:#9aabba}
+</style>
+</head>
+<body>
+<textarea id="report-text" maxlength="4000" inputmode="text" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Describe el problema, sugerencia o incidencia…"></textarea>
+</body>
+</html>`;
+
+    function reportMessage() {
+      try {
+        return String(editorFrame.contentDocument?.getElementById("report-text")?.value || "").trim();
+      } catch (_) {
+        return "";
+      }
+    }
 
     send.addEventListener("click", async () => {
-      const message = textarea.value.trim();
+      const message = reportMessage();
       if (!message) {
         status.textContent = "Escribe un mensaje antes de enviar.";
         return;
