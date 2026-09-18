@@ -151,18 +151,6 @@
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
-    const updatesButton = document.getElementById("ml3d-updates-button");
-    if (updatesButton && updatesButton.dataset.ml3dNewsSeenBound !== "1") {
-      updatesButton.dataset.ml3dNewsSeenBound = "1";
-      updatesButton.addEventListener("click", () => {
-        window.setTimeout(() => {
-          if (updates && !updates.hidden) {
-            markNewsSeen();
-            updateChatBadgePlacement();
-          }
-        }, 0);
-      });
-    }
     const updatesOpen = Boolean(updates && !updates.hidden);
 
     if (updatesOpen && chatButton) {
@@ -809,6 +797,18 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
+    const updatesButton = document.getElementById("ml3d-updates-button");
+    if (updatesButton && updatesButton.dataset.ml3dNewsSeenBound !== "1") {
+      updatesButton.dataset.ml3dNewsSeenBound = "1";
+      updatesButton.addEventListener("click", () => {
+        window.setTimeout(() => {
+          if (updates && !updates.hidden) {
+            markNewsSeen();
+            updateChatBadgePlacement();
+          }
+        }, 0);
+      });
+    }
     if (menu && menu.dataset.ml3dChatBadgeObserver !== "1") {
       menu.dataset.ml3dChatBadgeObserver = "1";
       new MutationObserver(() => {
