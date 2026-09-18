@@ -108,7 +108,7 @@
   }
 
   function removeFloatingDot() {
-    document.getElementById("ml3d-chat-floating-dot")?.remove();
+    document.querySelectorAll(".ml3d-chat-dot-floating").forEach((dot) => dot.remove());
   }
 
   function setInlineDot(target) {
@@ -119,18 +119,25 @@
     target.appendChild(dot);
   }
 
-  function setFloatingDot(target) {
+  function setFloatingDot(target, id = "ml3d-chat-floating-dot") {
     if (!target) return;
-    removeFloatingDot();
     const rect = target.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
+    document.getElementById(id)?.remove();
     const dot = document.createElement("span");
-    dot.id = "ml3d-chat-floating-dot";
+    dot.id = id;
     dot.className = "ml3d-chat-dot ml3d-chat-dot-floating";
     dot.setAttribute("aria-hidden", "true");
-    dot.style.left = Math.round(rect.right - 6) + "px";
-    dot.style.top = Math.round(rect.top - 5) + "px";
+    dot.style.left = Math.round(rect.right - 7) + "px";
+    dot.style.top = Math.round(rect.top - 7) + "px";
     document.body.appendChild(dot);
+  }
+
+  function bootIntroActive() {
+    const boot = document.getElementById("boot-screen");
+    if (!boot || boot.classList.contains("boot-finished")) return false;
+    const style = getComputedStyle(boot);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
   }
 
   function updateChatBadgePlacement() {
@@ -142,23 +149,27 @@
 
     const hasChat = chatUnreadCount > 0;
     const hasNews = hasPendingNews();
+    const bootActive = bootIntroActive();
+
     if (updatesButton) {
-      updatesButton.classList.toggle("ml3d-notify-chat", hasChat);
-      updatesButton.classList.toggle("ml3d-notify-news", !hasChat && hasNews);
+      updatesButton.classList.toggle("ml3d-notify-chat", !bootActive && hasChat);
+      updatesButton.classList.toggle("ml3d-notify-news", !bootActive && !hasChat && hasNews);
     }
 
-    if (!hasChat) return;
+    if (bootActive || !hasChat) return;
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
     const updatesOpen = Boolean(updates && !updates.hidden);
 
     if (updatesOpen && chatButton) {
-      setInlineDot(chatButton);
+      // Punto independiente del panel para que nunca quede recortado por overflow.
+      setFloatingDot(chatButton, "ml3d-chat-panel-floating-dot");
     } else if (menu && menu.open && updatesButton) {
-      // En el menú principal el propio botón ? se anima; no añadimos punto extra.
+      // El botón ? lleva el aviso animado amarillo de mensaje.
     } else {
-      setFloatingDot(menuButton);
+      // En la pantalla principal: punto amarillo pulsante sobre MENÚ.
+      setFloatingDot(menuButton, "ml3d-chat-floating-dot");
     }
   }
 
@@ -232,8 +243,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       }
       .ml3d-chat-dot{
         position:absolute;top:-5px;right:-5px;width:12px;height:12px;border-radius:50%;
-        background:#79e8ff;border:2px solid #102331;box-shadow:0 0 5px #79e8ff,0 0 13px #79e8ffbb;
-        pointer-events:none;z-index:2147483647;animation:ml3dChatDotPulse .95s ease-in-out infinite
+        background:#ffe45e;border:2px solid #322b08;box-shadow:0 0 6px #ffe45e,0 0 15px #ffe45ecc;
+        pointer-events:none;z-index:2147483647;animation:ml3dChatDotPulse .82s ease-in-out infinite
       }
       .ml3d-chat-dot-floating{
         position:fixed!important;right:auto!important;bottom:auto!important;transform:none!important;
@@ -243,18 +254,18 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         opacity:0!important;visibility:hidden!important
       }
       #ml3d-updates-button.ml3d-notify-chat{
-        color:#e9fcff!important;border-color:#aaf4ff!important;background:#153644f5!important;
-        box-shadow:0 0 10px #77eaffaa,0 0 24px #77eaff66!important;
+        color:#fff8b5!important;border-color:#ffe45e!important;background:#3a3212f2!important;
+        box-shadow:0 0 12px #ffe45ecc,0 0 28px #ffe45e77!important;
         animation:ml3dQuestionChat 1.05s ease-in-out infinite!important
       }
       #ml3d-updates-button.ml3d-notify-news{
-        color:#fff5a9!important;border-color:#ffe45e!important;background:#3a3212f2!important;
-        box-shadow:0 0 10px #ffe45eaa,0 0 22px #ffe45e55!important;
+        color:#e9fcff!important;border-color:#aaf4ff!important;background:#153644f5!important;
+        box-shadow:0 0 10px #77eaffaa,0 0 24px #77eaff66!important;
         animation:ml3dQuestionNews 1.35s ease-in-out infinite!important
       }
       @keyframes ml3dChatDotPulse{
-        0%,100%{opacity:.28;transform:scale(.72)}
-        48%{opacity:1;transform:scale(1.18)}
+        0%,100%{opacity:.16;transform:scale(.62);box-shadow:0 0 2px #ffe45e55,0 0 5px #ffe45e44}
+        50%{opacity:1;transform:scale(1.28);box-shadow:0 0 8px #ffe45e,0 0 20px #ffe45eee}
       }
       @keyframes ml3dQuestionChat{
         0%,100%{transform:translateY(0) rotate(0deg) scale(1)}
@@ -842,6 +853,15 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     window.addEventListener("focus", refreshChatStatus);
     window.addEventListener("resize", updateChatBadgePlacement);
     window.addEventListener("orientationchange", () => window.setTimeout(updateChatBadgePlacement, 180));
+
+    const boot = document.getElementById("boot-screen");
+    if (boot && boot.dataset.ml3dNotificationObserver !== "1") {
+      boot.dataset.ml3dNotificationObserver = "1";
+      new MutationObserver(() => {
+        window.setTimeout(updateChatBadgePlacement, 0);
+      }).observe(boot, { attributes: true, attributeFilter: ["class", "style"] });
+    }
+
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshChatStatus();
     });
