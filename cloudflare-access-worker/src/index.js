@@ -583,12 +583,17 @@ async function publicChatStatus(env, request) {
   const last = await env.DB.prepare(
     "SELECT body, sender, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at DESC LIMIT 1"
   ).bind(client.clientId).first();
+  const latestAdmin = await env.DB.prepare(
+    "SELECT id, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? AND sender = 'admin' ORDER BY created_at DESC LIMIT 1"
+  ).bind(client.clientId).first();
   return response(env, request, {
     clientId: client.clientId,
     unreadCount: Number(unread?.count || 0),
     lastMessage: last?.body || "",
     lastSender: last?.sender || "",
-    lastAt: last?.createdAt || null
+    lastAt: last?.createdAt || null,
+    latestAdminId: latestAdmin?.id || "",
+    latestAdminAt: latestAdmin?.createdAt || null
   });
 }
 
