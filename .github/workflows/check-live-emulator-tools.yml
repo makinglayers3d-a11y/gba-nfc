@@ -1,0 +1,27 @@
+name: Check live emulator tools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/check-live-emulator-tools.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live Worker endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://ml3d-dev-access.makinglayers3d.workers.dev"
+          echo "Health:"
+          curl --fail --show-error --silent "$BASE/v1/health"
+          echo
+          echo "Emulator messages:"
+          curl --fail --show-error --silent "$BASE/v1/emulator/messages"
+          echo
