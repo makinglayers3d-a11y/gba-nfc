@@ -206,12 +206,17 @@
   }
 
   function openReportDialog() {
+    const settingsMenu = document.getElementById("menu");
+    if (settingsMenu && settingsMenu.open) {
+      try { settingsMenu.close(); } catch (_) {}
+    }
+
     const ui = createOverlay("REPORTES");
     const form = document.createElement("div");
     form.className = "ml3d-report-form";
     form.innerHTML = `
       <label for="ml3d-report-text">Mensaje</label>
-      <textarea id="ml3d-report-text" maxlength="4000" placeholder="Describe el problema, sugerencia o incidencia…"></textarea>
+      <textarea id="ml3d-report-text" maxlength="4000" inputmode="text" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Describe el problema, sugerencia o incidencia…"></textarea>
       <label>Imagen (opcional)</label>
       <div class="ml3d-report-image-row">
         <button type="button" class="ml3d-report-image-add" aria-label="Añadir imagen">+</button>
@@ -271,9 +276,16 @@
       }
     });
 
-    requestAnimationFrame(() => {
-      try { textarea.focus({ preventScroll: true }); } catch (_) { textarea.focus(); }
+    textarea.readOnly = false;
+    textarea.disabled = false;
+    textarea.tabIndex = 0;
+    try { textarea.focus({ preventScroll: true }); } catch (_) { textarea.focus(); }
+    textarea.addEventListener("pointerdown", () => {
+      if (document.activeElement !== textarea) textarea.focus();
     });
+    textarea.addEventListener("touchend", () => {
+      if (document.activeElement !== textarea) textarea.focus();
+    }, { passive: true });
 
     send.addEventListener("click", async () => {
       const message = textarea.value.trim();
