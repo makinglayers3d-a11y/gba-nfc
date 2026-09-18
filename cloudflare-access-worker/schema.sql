@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS emulator_reports (
   id TEXT PRIMARY KEY,
   message TEXT NOT NULL,
   image_data TEXT,
+  media_type TEXT,
   page_url TEXT,
   user_agent TEXT,
   game TEXT,
@@ -115,6 +116,8 @@ CREATE TABLE IF NOT EXISTS emulator_chat_messages (
   client_id TEXT NOT NULL,
   sender TEXT NOT NULL CHECK(sender IN ('user','admin')),
   body TEXT NOT NULL,
+  media_data TEXT,
+  media_type TEXT,
   created_at TEXT NOT NULL,
   read_user INTEGER NOT NULL DEFAULT 0,
   read_admin INTEGER NOT NULL DEFAULT 0
