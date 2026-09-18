@@ -50,33 +50,55 @@
     return client;
   }
 
-  function setDot(target, visible) {
+  function removeInlineDots() {
+    document.querySelectorAll(".ml3d-chat-dot").forEach((dot) => dot.remove());
+  }
+
+  function removeFloatingDot() {
+    document.getElementById("ml3d-chat-floating-dot")?.remove();
+  }
+
+  function setInlineDot(target) {
     if (!target) return;
-    const old = target.querySelector(":scope > .ml3d-chat-dot");
-    if (visible) {
-      if (!old) {
-        const dot = document.createElement("span");
-        dot.className = "ml3d-chat-dot";
-        dot.setAttribute("aria-hidden", "true");
-        target.appendChild(dot);
-      }
-    } else if (old) {
-      old.remove();
-    }
+    const dot = document.createElement("span");
+    dot.className = "ml3d-chat-dot";
+    dot.setAttribute("aria-hidden", "true");
+    target.appendChild(dot);
+  }
+
+  function setFloatingDot(target) {
+    if (!target) return;
+    removeFloatingDot();
+    const rect = target.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const dot = document.createElement("span");
+    dot.id = "ml3d-chat-floating-dot";
+    dot.className = "ml3d-chat-dot ml3d-chat-dot-floating";
+    dot.setAttribute("aria-hidden", "true");
+    dot.style.left = Math.round(rect.right - 6) + "px";
+    dot.style.top = Math.round(rect.top - 5) + "px";
+    document.body.appendChild(dot);
   }
 
   function updateChatBadgePlacement() {
     const menuButton = document.getElementById("menu-button");
     const updatesButton = document.getElementById("ml3d-updates-button");
     const chatButton = document.getElementById("ml3d-chat-button");
-    [menuButton, updatesButton, chatButton].forEach((button) => setDot(button, false));
+    removeInlineDots();
+    removeFloatingDot();
     if (chatUnreadCount <= 0) return;
+
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
     const updatesOpen = Boolean(updates && !updates.hidden);
-    if (updatesOpen && chatButton) setDot(chatButton, true);
-    else if (menu && menu.open && updatesButton) setDot(updatesButton, true);
-    else setDot(menuButton, true);
+
+    if (updatesOpen && chatButton) {
+      setInlineDot(chatButton);
+    } else if (menu && menu.open && updatesButton) {
+      setInlineDot(updatesButton);
+    } else {
+      setFloatingDot(menuButton);
+    }
   }
 
   async function refreshChatStatus() {
@@ -147,7 +169,11 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       }
       .ml3d-chat-dot{
         position:absolute;top:-5px;right:-5px;width:11px;height:11px;border-radius:50%;
-        background:#ff2d2d;border:2px solid #101820;box-shadow:0 0 8px #ff2d2dcc;pointer-events:none;z-index:10
+        background:#ff2d2d;border:2px solid #101820;box-shadow:0 0 8px #ff2d2dcc;pointer-events:none;z-index:2147483647
+      }
+      .ml3d-chat-dot-floating{
+        position:fixed!important;right:auto!important;bottom:auto!important;transform:none!important;
+        opacity:1!important;visibility:visible!important;filter:none!important;mix-blend-mode:normal!important
       }
       .ml3d-report-form label{display:block;margin:10px 0 6px;font-size:11px;font-weight:900;letter-spacing:.05em}
       .ml3d-report-editor{
@@ -593,6 +619,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     refreshChatStatus();
     if (!chatStatusTimer) chatStatusTimer = window.setInterval(refreshChatStatus, 15000);
     window.addEventListener("focus", refreshChatStatus);
+    window.addEventListener("resize", updateChatBadgePlacement);
+    window.addEventListener("orientationchange", () => window.setTimeout(updateChatBadgePlacement, 180));
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshChatStatus();
     });
