@@ -1,6 +1,7 @@
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const encoder = new TextEncoder();
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const MAX_EMULATOR_MEDIA_DATA = 1500000;
 
 function cors(env, request) {
   const origin = request.headers.get("Origin") || "";
@@ -421,6 +422,7 @@ async function ensureEmulatorToolsSchema(env) {
       id TEXT PRIMARY KEY,
       message TEXT NOT NULL,
       image_data TEXT,
+      media_type TEXT,
       page_url TEXT,
       user_agent TEXT,
       game TEXT,
@@ -441,6 +443,8 @@ async function ensureEmulatorToolsSchema(env) {
       client_id TEXT NOT NULL,
       sender TEXT NOT NULL CHECK(sender IN ('user','admin')),
       body TEXT NOT NULL,
+      media_data TEXT,
+      media_type TEXT,
       created_at TEXT NOT NULL,
       read_user INTEGER NOT NULL DEFAULT 0,
       read_admin INTEGER NOT NULL DEFAULT 0
@@ -449,6 +453,21 @@ async function ensureEmulatorToolsSchema(env) {
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_report_clients_client ON emulator_report_clients(client_id)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_chat_client_created ON emulator_chat_messages(client_id, created_at)")
   ]);
+  const reportColumns = await env.DB.prepare("PRAGMA table_info(emulator_reports)").all();
+  const reportNames = new Set((reportColumns.results || []).map((row) => row.name));
+  if (!reportNames.has("media_type")) {
+    await env.DB.prepare("ALTER TABLE emulator_reports ADD COLUMN media_type TEXT").run();
+  }
+
+  const chatColumns = await env.DB.prepare("PRAGMA table_info(emulator_chat_messages)").all();
+  const chatNames = new Set((chatColumns.results || []).map((row) => row.name));
+  if (!chatNames.has("media_data")) {
+    await env.DB.prepare("ALTER TABLE emulator_chat_messages ADD COLUMN media_data TEXT").run();
+  }
+  if (!chatNames.has("media_type")) {
+    await env.DB.prepare("ALTER TABLE emulator_chat_messages ADD COLUMN media_type TEXT").run();
+  }
+
   const now = nowIso();
   await env.DB.batch(Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) =>
     env.DB.prepare("INSERT OR IGNORE INTO emulator_messages (kind, enabled, body, updated_at) VALUES (?, 0, '', ?)")
@@ -497,6 +516,22 @@ async function updateEmulatorMessage(env, request, kindValue) {
   });
 }
 
+function emulatorMedia(body) {
+  const raw = body.mediaData == null
+    ? (body.imageData == null ? "" : String(body.imageData))
+    : String(body.mediaData);
+  if (!raw) return { data: null, type: "" };
+  if (raw.length > MAX_EMULATOR_MEDIA_DATA) {
+    return { error: "El archivo adjunto es demasiado grande" };
+  }
+  const match = raw.match(/^data:(image\/(?:jpeg|png|webp|gif)|video\/(?:mp4|webm|quicktime));base64,/i);
+  if (!match) return { error: "Formato de archivo no válido" };
+  return {
+    data: raw,
+    type: match[1].toLowerCase()
+  };
+}
+
 async function verifyEmulatorClient(env, clientIdValue, tokenValue, createIfMissing = false) {
   const clientId = cleanText(clientIdValue, 120);
   const token = cleanText(tokenValue, 240);
@@ -524,12 +559,9 @@ async function submitEmulatorReport(env, request) {
   await ensureEmulatorToolsSchema(env);
   const body = await bodyJson(request);
   const message = cleanText(body.message, 4000);
-  if (!message) return bad(env, request, "El reporte necesita un mensaje");
-  const rawImage = body.imageData == null ? "" : String(body.imageData);
-  if (rawImage.length > 340000) return bad(env, request, "La imagen del reporte es demasiado grande", 413);
-  if (rawImage && !/^data:image\/(jpeg|png|webp);base64,/i.test(rawImage)) {
-    return bad(env, request, "Formato de imagen no válido");
-  }
+  const media = emulatorMedia(body);
+  if (media.error) return bad(env, request, media.error, 413);
+  if (!message && !media.data) return bad(env, request, "El reporte necesita un mensaje o archivo");
 
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, true);
   if (!client.ok) return bad(env, request, client.error, client.status);
@@ -541,9 +573,9 @@ async function submitEmulatorReport(env, request) {
   const game = cleanText(body.game, 240);
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO emulator_reports
-      (id, message, image_data, page_url, user_agent, game, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, message, rawImage || null, pageUrl, userAgent, game, now),
+      (id, message, image_data, media_type, page_url, user_agent, game, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, message, media.data, media.type || null, pageUrl, userAgent, game, now),
     env.DB.prepare("INSERT INTO emulator_report_clients (report_id, client_id) VALUES (?, ?)")
       .bind(id, client.clientId)
   ]);
@@ -552,7 +584,8 @@ async function submitEmulatorReport(env, request) {
 
 async function listEmulatorReports(env, request) {
   await ensureEmulatorToolsSchema(env);
-  const result = await env.DB.prepare(`SELECT r.id, r.message, r.image_data AS imageData, r.page_url AS pageUrl,
+  const result = await env.DB.prepare(`SELECT r.id, r.message, r.image_data AS mediaData,
+      COALESCE(r.media_type, '') AS mediaType, r.page_url AS pageUrl,
       r.user_agent AS userAgent, r.game, r.created_at AS createdAt,
       COALESCE(rc.client_id, '') AS clientId
       FROM emulator_reports r
@@ -603,7 +636,7 @@ async function publicChatHistory(env, request) {
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
   const result = await env.DB.prepare(
-    "SELECT id, sender, body, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
+    "SELECT id, sender, body, media_data AS mediaData, COALESCE(media_type, '') AS mediaType, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
   ).bind(client.clientId).all();
   await env.DB.prepare(
     "UPDATE emulator_chat_messages SET read_user = 1 WHERE client_id = ? AND sender = 'admin'"
@@ -617,16 +650,18 @@ async function publicChatSend(env, request) {
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
   const message = cleanText(body.message, 3000);
-  if (!message) return bad(env, request, "Escribe un mensaje");
+  const media = emulatorMedia(body);
+  if (media.error) return bad(env, request, media.error, 413);
+  if (!message && !media.data) return bad(env, request, "Escribe un mensaje o adjunta un archivo");
   const id = crypto.randomUUID();
   const now = nowIso();
   await env.DB.prepare(`INSERT INTO emulator_chat_messages
-    (id, client_id, sender, body, created_at, read_user, read_admin)
-    VALUES (?, ?, 'user', ?, ?, 1, 0)`)
-    .bind(id, client.clientId, message, now).run();
+    (id, client_id, sender, body, media_data, media_type, created_at, read_user, read_admin)
+    VALUES (?, ?, 'user', ?, ?, ?, ?, 1, 0)`)
+    .bind(id, client.clientId, message, media.data, media.type || null, now).run();
   return response(env, request, {
     ok: true,
-    message: { id, sender: "user", body: message, createdAt: now }
+    message: { id, sender: "user", body: message, mediaData: media.data, mediaType: media.type, createdAt: now }
   });
 }
 
@@ -684,16 +719,18 @@ async function adminChatSend(env, request, clientIdValue) {
   if (!client) return bad(env, request, "Chat no encontrado", 404);
   const body = await bodyJson(request);
   const message = cleanText(body.message, 3000);
-  if (!message) return bad(env, request, "Escribe un mensaje");
+  const media = emulatorMedia(body);
+  if (media.error) return bad(env, request, media.error, 413);
+  if (!message && !media.data) return bad(env, request, "Escribe un mensaje o adjunta un archivo");
   const id = crypto.randomUUID();
   const now = nowIso();
   await env.DB.prepare(`INSERT INTO emulator_chat_messages
-    (id, client_id, sender, body, created_at, read_user, read_admin)
-    VALUES (?, ?, 'admin', ?, ?, 0, 1)`)
-    .bind(id, clientId, message, now).run();
+    (id, client_id, sender, body, media_data, media_type, created_at, read_user, read_admin)
+    VALUES (?, ?, 'admin', ?, ?, ?, ?, 0, 1)`)
+    .bind(id, clientId, message, media.data, media.type || null, now).run();
   return response(env, request, {
     ok: true,
-    message: { id, sender: "admin", body: message, createdAt: now }
+    message: { id, sender: "admin", body: message, mediaData: media.data, mediaType: media.type, createdAt: now }
   });
 }
 
