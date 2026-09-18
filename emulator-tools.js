@@ -140,6 +140,39 @@
     return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
   }
 
+  function setUpdatesButtonVisualState(button, state) {
+    if (!button) return;
+
+    const props = ["color", "border-color", "background", "box-shadow", "text-shadow", "animation"];
+    const clear = () => props.forEach((name) => button.style.removeProperty(name));
+
+    button.classList.remove("ml3d-notify-chat", "ml3d-notify-news");
+
+    if (state === "chat") {
+      button.classList.add("ml3d-notify-chat");
+      button.style.setProperty("color", "#fff8b5", "important");
+      button.style.setProperty("border-color", "#ffe45e", "important");
+      button.style.setProperty("background", "#3a3212f2", "important");
+      button.style.setProperty("box-shadow", "0 0 12px #ffe45ecc, 0 0 28px #ffe45e77", "important");
+      button.style.setProperty("text-shadow", "0 0 8px #ffe45e, 0 0 15px #ffe45eaa", "important");
+      button.style.setProperty("animation", "ml3dQuestionChat 1.05s ease-in-out infinite", "important");
+      return;
+    }
+
+    if (state === "news") {
+      button.classList.add("ml3d-notify-news");
+      button.style.setProperty("color", "#e9fcff", "important");
+      button.style.setProperty("border-color", "#aaf4ff", "important");
+      button.style.setProperty("background", "#153644f5", "important");
+      button.style.setProperty("box-shadow", "0 0 10px #77eaffaa, 0 0 24px #77eaff66", "important");
+      button.style.setProperty("text-shadow", "0 0 8px #8cecff, 0 0 15px #77eaff99", "important");
+      button.style.setProperty("animation", "ml3dQuestionNews 1.35s ease-in-out infinite", "important");
+      return;
+    }
+
+    clear();
+  }
+
   function updateChatBadgePlacement() {
     const menuButton = document.getElementById("menu-button");
     const updatesButton = document.getElementById("ml3d-updates-button");
@@ -152,8 +185,10 @@
     const bootActive = bootIntroActive();
 
     if (updatesButton) {
-      updatesButton.classList.toggle("ml3d-notify-chat", !bootActive && hasChat);
-      updatesButton.classList.toggle("ml3d-notify-news", !bootActive && !hasChat && hasNews);
+      setUpdatesButtonVisualState(
+        updatesButton,
+        bootActive ? "none" : (hasChat ? "chat" : (hasNews ? "news" : "none"))
+      );
     }
 
     if (bootActive || !hasChat) return;
@@ -166,8 +201,7 @@
       // El punto vive en la capa superior del dialog, pero fuera del panel NOVEDADES.
       setFloatingDot(chatButton, "ml3d-chat-panel-floating-dot", menu || document.body);
     } else if (menu && menu.open && updatesButton) {
-      updatesButton.classList.add("ml3d-notify-chat");
-      updatesButton.classList.remove("ml3d-notify-news");
+      setUpdatesButtonVisualState(updatesButton, "chat");
     } else {
       // En la pantalla principal: punto amarillo pulsante sobre MENÚ.
       setFloatingDot(menuButton, "ml3d-chat-floating-dot", document.body);
