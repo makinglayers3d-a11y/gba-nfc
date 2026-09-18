@@ -37,14 +37,13 @@
     const style = document.createElement("style");
     style.id = "ml3d-emulator-tools-style";
     style.textContent = `
-      dialog.ml3d-tools-overlay{
+      .ml3d-tools-overlay{
         position:fixed!important;inset:0!important;z-index:2147483647!important;display:flex!important;align-items:center!important;justify-content:center!important;
         box-sizing:border-box!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;
         padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom))!important;border:0!important;
         background:rgba(0,0,0,.68)!important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
         color:#fff;font-family:system-ui,sans-serif;pointer-events:auto!important;touch-action:auto!important
       }
-      dialog.ml3d-tools-overlay::backdrop{background:rgba(0,0,0,.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
       .ml3d-tools-card{
         position:relative;box-sizing:border-box;width:min(92vw,520px);max-height:min(82vh,680px);overflow:auto;
         padding:22px 20px 20px;border:1px solid #ffffff36;border-radius:18px;background:#101820f6;color:#fff;
@@ -67,7 +66,7 @@
       .ml3d-report-form textarea{
         box-sizing:border-box;width:100%;min-height:130px;resize:vertical;padding:12px;border:1px solid #ffffff30;
         border-radius:12px;background:#0005;color:inherit;font:inherit;line-height:1.4;pointer-events:auto!important;
-        user-select:text!important;-webkit-user-select:text!important;touch-action:manipulation!important
+        user-select:text!important;-webkit-user-select:text!important;-webkit-touch-callout:default!important;touch-action:auto!important
       }
       .ml3d-report-image-row{display:flex;align-items:center;gap:12px}
       .ml3d-report-image-add{
@@ -110,7 +109,7 @@
 
   function createOverlay(title) {
     ensureStyles();
-    const overlay = document.createElement("dialog");
+    const overlay = document.createElement("div");
     overlay.className = "ml3d-tools-overlay";
     overlay.setAttribute("aria-label", title);
     const card = document.createElement("section");
@@ -129,11 +128,6 @@
     overlay.appendChild(card);
     document.body.appendChild(overlay);
     styleLikeCurrentMenu(card);
-    try {
-      overlay.showModal();
-    } catch (_) {
-      overlay.setAttribute("open", "");
-    }
     return { overlay, card, close };
   }
 
@@ -146,7 +140,6 @@
       text.textContent = item.body || "";
       ui.card.appendChild(text);
       const done = () => {
-        try { if (ui.overlay.open) ui.overlay.close(); } catch (_) {}
         ui.overlay.remove();
         resolve();
       };
@@ -206,12 +199,17 @@
   }
 
   function openReportDialog() {
+    if (document.querySelector(".ml3d-tools-overlay[data-ml3d-report='1']")) return;
+
     const settingsMenu = document.getElementById("menu");
     if (settingsMenu && settingsMenu.open) {
       try { settingsMenu.close(); } catch (_) {}
+      window.setTimeout(openReportDialog, 120);
+      return;
     }
 
     const ui = createOverlay("REPORTES");
+    ui.overlay.dataset.ml3dReport = "1";
     const form = document.createElement("div");
     form.className = "ml3d-report-form";
     form.innerHTML = `
@@ -242,17 +240,11 @@
     let imageData = null;
 
     const close = () => {
-      try { if (ui.overlay.open) ui.overlay.close(); } catch (_) {}
       ui.overlay.remove();
     };
     ui.close.addEventListener("click", close, { once: true });
     cancel.addEventListener("click", close);
-    ui.overlay.addEventListener("cancel", (event) => {
-      event.preventDefault();
-      close();
-    });
-
-    ["keydown","keyup","keypress","beforeinput","input","pointerdown","pointerup","click","touchstart","touchend"].forEach((type) => {
+    ["keydown","keyup","keypress"].forEach((type) => {
       form.addEventListener(type, (event) => event.stopPropagation());
     });
 
@@ -279,13 +271,6 @@
     textarea.readOnly = false;
     textarea.disabled = false;
     textarea.tabIndex = 0;
-    try { textarea.focus({ preventScroll: true }); } catch (_) { textarea.focus(); }
-    textarea.addEventListener("pointerdown", () => {
-      if (document.activeElement !== textarea) textarea.focus();
-    });
-    textarea.addEventListener("touchend", () => {
-      if (document.activeElement !== textarea) textarea.focus();
-    }, { passive: true });
 
     send.addEventListener("click", async () => {
       const message = textarea.value.trim();
