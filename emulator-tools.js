@@ -6,6 +6,9 @@
   const STARTUP_NOTICE_KEY = "ml3d-startup-notices-shown-v1";
   const CHAT_CLIENT_KEY = "ml3d-help-chat-client-v1";
   const CHAT_SEEN_KEY = "ml3d-help-chat-seen-v1";
+  const NEWS_SEEN_KEY = "ml3d-updates-seen-v1";
+  const NEWS_REVISION = "2026-09-18-rich-media-1";
+  const MAX_VIDEO_FILE_BYTES = 1050000;
   let chatUnreadCount = 0;
   let chatStatusTimer = 0;
 
@@ -49,6 +52,20 @@
     };
     localStorage.setItem(CHAT_CLIENT_KEY, JSON.stringify(client));
     return client;
+  }
+
+  function hasPendingNews() {
+    try {
+      return localStorage.getItem(NEWS_SEEN_KEY) !== NEWS_REVISION;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function markNewsSeen() {
+    try {
+      localStorage.setItem(NEWS_SEEN_KEY, NEWS_REVISION);
+    } catch (_) {}
   }
 
   function readChatSeen() {
@@ -122,7 +139,15 @@
     const chatButton = document.getElementById("ml3d-chat-button");
     removeInlineDots();
     removeFloatingDot();
-    if (chatUnreadCount <= 0) return;
+
+    const hasChat = chatUnreadCount > 0;
+    const hasNews = hasPendingNews();
+    if (updatesButton) {
+      updatesButton.classList.toggle("ml3d-notify-chat", hasChat);
+      updatesButton.classList.toggle("ml3d-notify-news", !hasChat && hasNews);
+    }
+
+    if (!hasChat) return;
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
@@ -131,7 +156,7 @@
     if (updatesOpen && chatButton) {
       setInlineDot(chatButton);
     } else if (menu && menu.open && updatesButton) {
-      setInlineDot(updatesButton);
+      // En el menú principal el propio botón ? se anima; no añadimos punto extra.
     } else {
       setFloatingDot(menuButton);
     }
@@ -206,12 +231,41 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         font-size:11px!important;font-weight:950!important;letter-spacing:.08em!important;box-shadow:none!important
       }
       .ml3d-chat-dot{
-        position:absolute;top:-5px;right:-5px;width:11px;height:11px;border-radius:50%;
-        background:#ff2d2d;border:2px solid #101820;box-shadow:0 0 8px #ff2d2dcc;pointer-events:none;z-index:2147483647
+        position:absolute;top:-5px;right:-5px;width:12px;height:12px;border-radius:50%;
+        background:#79e8ff;border:2px solid #102331;box-shadow:0 0 5px #79e8ff,0 0 13px #79e8ffbb;
+        pointer-events:none;z-index:2147483647;animation:ml3dChatDotPulse .95s ease-in-out infinite
       }
       .ml3d-chat-dot-floating{
         position:fixed!important;right:auto!important;bottom:auto!important;transform:none!important;
         opacity:1!important;visibility:visible!important;filter:none!important;mix-blend-mode:normal!important
+      }
+      body.ml3d-console-transitioning #ml3d-chat-floating-dot{
+        opacity:0!important;visibility:hidden!important
+      }
+      #ml3d-updates-button.ml3d-notify-chat{
+        color:#e9fcff!important;border-color:#aaf4ff!important;background:#153644f5!important;
+        box-shadow:0 0 10px #77eaffaa,0 0 24px #77eaff66!important;
+        animation:ml3dQuestionChat 1.05s ease-in-out infinite!important
+      }
+      #ml3d-updates-button.ml3d-notify-news{
+        color:#fff5a9!important;border-color:#ffe45e!important;background:#3a3212f2!important;
+        box-shadow:0 0 10px #ffe45eaa,0 0 22px #ffe45e55!important;
+        animation:ml3dQuestionNews 1.35s ease-in-out infinite!important
+      }
+      @keyframes ml3dChatDotPulse{
+        0%,100%{opacity:.28;transform:scale(.72)}
+        48%{opacity:1;transform:scale(1.18)}
+      }
+      @keyframes ml3dQuestionChat{
+        0%,100%{transform:translateY(0) rotate(0deg) scale(1)}
+        30%{transform:translateY(-3px) rotate(-6deg) scale(1.08)}
+        55%{transform:translateY(1px) rotate(5deg) scale(1.03)}
+        78%{transform:translateY(-2px) rotate(-3deg) scale(1.07)}
+      }
+      @keyframes ml3dQuestionNews{
+        0%,100%{transform:translateY(0) scale(1)}
+        45%{transform:translateY(-2px) scale(1.07)}
+        70%{transform:translateY(1px) scale(1.03)}
       }
       .ml3d-report-form label{display:block;margin:10px 0 6px;font-size:11px;font-weight:900;letter-spacing:.05em}
       .ml3d-report-editor{
@@ -227,7 +281,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       }
       .ml3d-report-image-add::before,.ml3d-report-image-add::after{content:none!important;display:none!important}
       .ml3d-report-image-help{font-size:11px;line-height:1.35;color:#a8b5c2}
-      .ml3d-report-preview{display:block;width:100%;max-height:240px;object-fit:contain;margin-top:10px;border-radius:10px;border:1px solid #ffffff20;background:#000}
+      .ml3d-media-preview{margin-top:10px;border-radius:10px;border:1px solid #ffffff20;background:#000;overflow:hidden}
+      .ml3d-media-preview img,.ml3d-media-preview video{display:block;width:100%;max-height:260px;object-fit:contain;background:#000}
       .ml3d-report-actions{display:flex;gap:9px;margin-top:14px}
       .ml3d-report-actions button{
         flex:1;min-height:42px;border:1px solid #ffffff34;border-radius:11px;background:#ffffff10;color:inherit;font-weight:900
@@ -236,6 +291,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-report-status{margin-top:10px;font-size:12px;line-height:1.35;color:#a8dfff}
       .ml3d-chat-list{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;padding:4px 2px 8px}
       .ml3d-chat-message{max-width:86%;padding:9px 11px;border-radius:12px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
+      .ml3d-chat-message img,.ml3d-chat-message video{display:block;width:100%;max-height:260px;object-fit:contain;margin-top:7px;border-radius:8px;background:#000}
       .ml3d-chat-message.user{align-self:flex-end;background:#1d6076}
       .ml3d-chat-message.admin{align-self:flex-start;background:#242d38}
       .ml3d-chat-time{display:block;margin-top:4px;font-size:9px;opacity:.65}
@@ -363,6 +419,55 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     return dataUrl;
   }
 
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function mediaToData(file) {
+    if (!file) return { data: null, type: "" };
+    if (file.type.startsWith("image/")) {
+      return { data: await imageToDataUrl(file), type: "image/jpeg" };
+    }
+    if (file.type.startsWith("video/")) {
+      if (file.size > MAX_VIDEO_FILE_BYTES) {
+        throw new Error("El vídeo es demasiado grande. Usa un vídeo corto de aproximadamente 1 MB.");
+      }
+      const data = await fileToDataUrl(file);
+      if (data.length > 1500000) {
+        throw new Error("El vídeo es demasiado grande para enviarlo.");
+      }
+      const allowed = ["video/mp4", "video/webm", "video/quicktime"];
+      if (!allowed.includes(file.type.toLowerCase())) {
+        throw new Error("Usa un vídeo MP4, WebM o MOV.");
+      }
+      return { data, type: file.type.toLowerCase() };
+    }
+    throw new Error("Selecciona una imagen o un vídeo.");
+  }
+
+  function renderMediaPreview(container, data, type) {
+    container.innerHTML = "";
+    container.hidden = !data;
+    if (!data) return;
+    if (String(type || "").startsWith("video/")) {
+      const video = document.createElement("video");
+      video.controls = true;
+      video.preload = "metadata";
+      video.src = data;
+      container.appendChild(video);
+    } else {
+      const image = document.createElement("img");
+      image.alt = "Archivo adjunto";
+      image.src = data;
+      container.appendChild(image);
+    }
+  }
+
   function openReportDialog() {
     if (document.querySelector(".ml3d-tools-overlay[data-ml3d-report='1']")) return;
 
@@ -380,13 +485,13 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     form.innerHTML = `
       <label>Mensaje</label>
       <iframe id="ml3d-report-editor" class="ml3d-report-editor" title="Mensaje del reporte"></iframe>
-      <label>Imagen (opcional)</label>
+      <label>Imagen o vídeo (opcional)</label>
       <div class="ml3d-report-image-row">
-        <button type="button" class="ml3d-report-image-add" aria-label="Añadir imagen">+</button>
-        <div class="ml3d-report-image-help">Pulsa + para añadir una captura o imagen.</div>
-        <input id="ml3d-report-image" type="file" accept="image/*" hidden>
+        <button type="button" class="ml3d-report-image-add" aria-label="Añadir imagen o vídeo">+</button>
+        <div class="ml3d-report-image-help">Pulsa + para añadir una imagen o un vídeo corto.</div>
+        <input id="ml3d-report-image" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" hidden>
       </div>
-      <img class="ml3d-report-preview" alt="Vista previa del reporte" hidden>
+      <div class="ml3d-media-preview" hidden></div>
       <div class="ml3d-report-actions">
         <button type="button" class="secondary">Cancelar</button>
         <button type="button" class="primary">Enviar reporte</button>
@@ -398,11 +503,12 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     const editorFrame = form.querySelector("#ml3d-report-editor");
     const fileInput = form.querySelector("input[type=file]");
     const addImage = form.querySelector(".ml3d-report-image-add");
-    const preview = form.querySelector(".ml3d-report-preview");
+    const preview = form.querySelector(".ml3d-media-preview");
     const cancel = form.querySelector(".secondary");
     const send = form.querySelector(".primary");
     const status = form.querySelector(".ml3d-report-status");
-    let imageData = null;
+    let mediaData = null;
+    let mediaType = "";
 
     const close = () => {
       ui.overlay.remove();
@@ -416,17 +522,19 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     addImage.addEventListener("click", () => fileInput.click());
 
     fileInput.addEventListener("change", async () => {
-      imageData = null;
-      preview.hidden = true;
+      mediaData = null;
+      mediaType = "";
+      renderMediaPreview(preview, null, "");
       status.textContent = "";
       const file = fileInput.files && fileInput.files[0];
       if (!file) return;
       try {
-        status.textContent = "Preparando imagen…";
-        imageData = await imageToDataUrl(file);
-        preview.src = imageData;
-        preview.hidden = false;
-        status.textContent = "Imagen preparada.";
+        status.textContent = "Preparando archivo…";
+        const prepared = await mediaToData(file);
+        mediaData = prepared.data;
+        mediaType = prepared.type;
+        renderMediaPreview(preview, mediaData, mediaType);
+        status.textContent = mediaType.startsWith("video/") ? "Vídeo preparado." : "Imagen preparada.";
       } catch (error) {
         fileInput.value = "";
         status.textContent = error.message;
@@ -441,8 +549,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
     send.addEventListener("click", async () => {
       const message = reportMessage();
-      if (!message) {
-        status.textContent = "Escribe un mensaje antes de enviar.";
+      if (!message && !mediaData) {
+        status.textContent = "Escribe un mensaje o adjunta una imagen/vídeo.";
         return;
       }
       send.disabled = true;
@@ -455,7 +563,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
           method: "POST",
           body: JSON.stringify({
             message,
-            imageData,
+            mediaData,
+            mediaType,
             clientId: client.clientId,
             clientToken: client.clientToken,
             pageUrl: (location.origin + location.pathname).slice(0, 1500),
@@ -487,7 +596,25 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     messages.forEach((item) => {
       const bubble = document.createElement("div");
       bubble.className = "ml3d-chat-message " + (item.sender === "admin" ? "admin" : "user");
-      bubble.textContent = item.body || "";
+      if (item.body) {
+        const text = document.createElement("div");
+        text.textContent = item.body;
+        bubble.appendChild(text);
+      }
+      if (item.mediaData) {
+        if (String(item.mediaType || "").startsWith("video/")) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.preload = "metadata";
+          video.src = item.mediaData;
+          bubble.appendChild(video);
+        } else {
+          const image = document.createElement("img");
+          image.alt = "Imagen adjunta";
+          image.src = item.mediaData;
+          bubble.appendChild(image);
+        }
+      }
       const time = document.createElement("span");
       time.className = "ml3d-chat-time";
       time.textContent = item.createdAt ? new Date(item.createdAt).toLocaleString() : "";
@@ -535,6 +662,12 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
     compose.innerHTML = `
       <iframe class="ml3d-chat-editor" title="Escribir mensaje"></iframe>
+      <div class="ml3d-report-image-row">
+        <button type="button" class="ml3d-report-image-add ml3d-chat-media-add" aria-label="Añadir imagen o vídeo">+</button>
+        <div class="ml3d-report-image-help">Imagen o vídeo corto</div>
+        <input class="ml3d-chat-media-input" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" hidden>
+      </div>
+      <div class="ml3d-media-preview ml3d-chat-media-preview" hidden></div>
       <div class="ml3d-chat-actions">
         <button type="button" class="secondary">Actualizar</button>
         <button type="button" class="primary">Enviar</button>
@@ -544,7 +677,32 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     const refresh = compose.querySelector(".secondary");
     const send = compose.querySelector(".primary");
     const status = compose.querySelector(".ml3d-report-status");
+    const mediaAdd = compose.querySelector(".ml3d-chat-media-add");
+    const mediaInput = compose.querySelector(".ml3d-chat-media-input");
+    const mediaPreview = compose.querySelector(".ml3d-chat-media-preview");
+    let chatMediaData = null;
+    let chatMediaType = "";
     frame.srcdoc = editorSrcdoc("chat-text", "Escribe tu mensaje…");
+
+    mediaAdd.addEventListener("click", () => mediaInput.click());
+    mediaInput.addEventListener("change", async () => {
+      chatMediaData = null;
+      chatMediaType = "";
+      renderMediaPreview(mediaPreview, null, "");
+      const file = mediaInput.files && mediaInput.files[0];
+      if (!file) return;
+      try {
+        status.textContent = "Preparando archivo…";
+        const prepared = await mediaToData(file);
+        chatMediaData = prepared.data;
+        chatMediaType = prepared.type;
+        renderMediaPreview(mediaPreview, chatMediaData, chatMediaType);
+        status.textContent = "";
+      } catch (error) {
+        mediaInput.value = "";
+        status.textContent = error.message;
+      }
+    });
 
     const load = async () => {
       try {
@@ -569,8 +727,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     refresh.addEventListener("click", load);
     send.addEventListener("click", async () => {
       const message = editorValue(frame, "chat-text");
-      if (!message) {
-        status.textContent = "Escribe un mensaje.";
+      if (!message && !chatMediaData) {
+        status.textContent = "Escribe un mensaje o adjunta una imagen/vídeo.";
         return;
       }
       send.disabled = true;
@@ -578,9 +736,13 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       try {
         await api("/v1/emulator/chat/messages", {
           method: "POST",
-          body: JSON.stringify({ ...client, message })
+          body: JSON.stringify({ ...client, message, mediaData: chatMediaData, mediaType: chatMediaType })
         });
         frame.srcdoc = editorSrcdoc("chat-text", "Escribe tu mensaje…");
+        chatMediaData = null;
+        chatMediaType = "";
+        mediaInput.value = "";
+        renderMediaPreview(mediaPreview, null, "");
         await load();
       } catch (error) {
         status.textContent = error.message;
@@ -635,6 +797,18 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
+    const updatesButton = document.getElementById("ml3d-updates-button");
+    if (updatesButton && updatesButton.dataset.ml3dNewsSeenBound !== "1") {
+      updatesButton.dataset.ml3dNewsSeenBound = "1";
+      updatesButton.addEventListener("click", () => {
+        window.setTimeout(() => {
+          if (updates && !updates.hidden) {
+            markNewsSeen();
+            updateChatBadgePlacement();
+          }
+        }, 0);
+      });
+    }
     if (menu && menu.dataset.ml3dChatBadgeObserver !== "1") {
       menu.dataset.ml3dChatBadgeObserver = "1";
       new MutationObserver(() => {
