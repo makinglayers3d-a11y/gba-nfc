@@ -251,7 +251,7 @@
           body: JSON.stringify({
             message,
             imageData,
-            pageUrl: location.href.slice(0, 1500),
+            pageUrl: (location.origin + location.pathname).slice(0, 1500),
             userAgent: navigator.userAgent.slice(0, 500),
             game: (params.get("rom") || params.get("game") || "").slice(0, 240)
           })
