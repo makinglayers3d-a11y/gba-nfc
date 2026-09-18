@@ -119,8 +119,8 @@
     target.appendChild(dot);
   }
 
-  function setFloatingDot(target, id = "ml3d-chat-floating-dot") {
-    if (!target) return;
+  function setFloatingDot(target, id = "ml3d-chat-floating-dot", host = document.body) {
+    if (!target || !host) return;
     const rect = target.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     document.getElementById(id)?.remove();
@@ -130,7 +130,7 @@
     dot.setAttribute("aria-hidden", "true");
     dot.style.left = Math.round(rect.right - 7) + "px";
     dot.style.top = Math.round(rect.top - 7) + "px";
-    document.body.appendChild(dot);
+    host.appendChild(dot);
   }
 
   function bootIntroActive() {
@@ -163,13 +163,14 @@
     const updatesOpen = Boolean(updates && !updates.hidden);
 
     if (updatesOpen && chatButton) {
-      // Punto independiente del panel para que nunca quede recortado por overflow.
-      setFloatingDot(chatButton, "ml3d-chat-panel-floating-dot");
+      // El punto vive en la capa superior del dialog, pero fuera del panel NOVEDADES.
+      setFloatingDot(chatButton, "ml3d-chat-panel-floating-dot", menu || document.body);
     } else if (menu && menu.open && updatesButton) {
-      // El botón ? lleva el aviso animado amarillo de mensaje.
+      updatesButton.classList.add("ml3d-notify-chat");
+      updatesButton.classList.remove("ml3d-notify-news");
     } else {
       // En la pantalla principal: punto amarillo pulsante sobre MENÚ.
-      setFloatingDot(menuButton, "ml3d-chat-floating-dot");
+      setFloatingDot(menuButton, "ml3d-chat-floating-dot", document.body);
     }
   }
 
@@ -250,6 +251,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         position:fixed!important;right:auto!important;bottom:auto!important;transform:none!important;
         opacity:1!important;visibility:visible!important;filter:none!important;mix-blend-mode:normal!important
       }
+      #menu{overflow:visible!important}
+      #ml3d-chat-panel-floating-dot{z-index:2147483647!important}
       body.ml3d-console-transitioning #ml3d-chat-floating-dot{
         opacity:0!important;visibility:hidden!important
       }
@@ -853,6 +856,24 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     window.addEventListener("focus", refreshChatStatus);
     window.addEventListener("resize", updateChatBadgePlacement);
     window.addEventListener("orientationchange", () => window.setTimeout(updateChatBadgePlacement, 180));
+
+    const menuButton = document.getElementById("menu-button");
+    if (menuButton && menuButton.dataset.ml3dNotificationBound !== "1") {
+      menuButton.dataset.ml3dNotificationBound = "1";
+      menuButton.addEventListener("click", () => {
+        window.setTimeout(updateChatBadgePlacement, 40);
+        window.setTimeout(refreshChatStatus, 90);
+      });
+    }
+
+    const updatesButton = document.getElementById("ml3d-updates-button");
+    if (updatesButton && updatesButton.dataset.ml3dNotificationSyncBound !== "1") {
+      updatesButton.dataset.ml3dNotificationSyncBound = "1";
+      updatesButton.addEventListener("click", () => {
+        window.setTimeout(updateChatBadgePlacement, 40);
+        window.setTimeout(updateChatBadgePlacement, 160);
+      });
+    }
 
     const boot = document.getElementById("boot-screen");
     if (boot && boot.dataset.ml3dNotificationObserver !== "1") {
