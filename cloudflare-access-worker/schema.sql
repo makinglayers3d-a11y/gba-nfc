@@ -93,3 +93,32 @@ CREATE TABLE IF NOT EXISTS emulator_reports (
 
 CREATE INDEX IF NOT EXISTS idx_emulator_reports_created
   ON emulator_reports(created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS emulator_clients (
+  client_id TEXT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS emulator_report_clients (
+  report_id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_emulator_report_clients_client
+  ON emulator_report_clients(client_id);
+
+CREATE TABLE IF NOT EXISTS emulator_chat_messages (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  sender TEXT NOT NULL CHECK(sender IN ('user','admin')),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_user INTEGER NOT NULL DEFAULT 0,
+  read_admin INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_emulator_chat_client_created
+  ON emulator_chat_messages(client_id, created_at);

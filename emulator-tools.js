@@ -3,6 +3,10 @@
 
   const CONFIG_URL = "dev-access-config.json";
   const MESSAGE_ORDER = ["work", "update", "announcement"];
+  const STARTUP_NOTICE_KEY = "ml3d-startup-notices-shown-v1";
+  const CHAT_CLIENT_KEY = "ml3d-help-chat-client-v1";
+  let chatUnreadCount = 0;
+  let chatStatusTimer = 0;
 
   const MESSAGE_LABELS = {
     work: "MENSAJE DE TRABAJO",
@@ -32,6 +36,84 @@
     return data;
   }
 
+  function readChatClient(create = true) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_CLIENT_KEY) || "null");
+      if (parsed && parsed.clientId && parsed.clientToken) return parsed;
+    } catch (_) {}
+    if (!create) return null;
+    const client = {
+      clientId: crypto.randomUUID(),
+      clientToken: crypto.randomUUID() + crypto.randomUUID()
+    };
+    localStorage.setItem(CHAT_CLIENT_KEY, JSON.stringify(client));
+    return client;
+  }
+
+  function setDot(target, visible) {
+    if (!target) return;
+    const old = target.querySelector(":scope > .ml3d-chat-dot");
+    if (visible) {
+      if (!old) {
+        const dot = document.createElement("span");
+        dot.className = "ml3d-chat-dot";
+        dot.setAttribute("aria-hidden", "true");
+        target.appendChild(dot);
+      }
+    } else if (old) {
+      old.remove();
+    }
+  }
+
+  function updateChatBadgePlacement() {
+    const menuButton = document.getElementById("menu-button");
+    const updatesButton = document.getElementById("ml3d-updates-button");
+    const chatButton = document.getElementById("ml3d-chat-button");
+    [menuButton, updatesButton, chatButton].forEach((button) => setDot(button, false));
+    if (chatUnreadCount <= 0) return;
+    const menu = document.getElementById("menu");
+    const updates = document.getElementById("ml3d-updates-panel");
+    const updatesOpen = Boolean(updates && !updates.hidden);
+    if (updatesOpen && chatButton) setDot(chatButton, true);
+    else if (menu && menu.open && updatesButton) setDot(updatesButton, true);
+    else setDot(menuButton, true);
+  }
+
+  async function refreshChatStatus() {
+    const client = readChatClient(false);
+    if (!client) {
+      chatUnreadCount = 0;
+      updateChatBadgePlacement();
+      return;
+    }
+    try {
+      const result = await api("/v1/emulator/chat/status", {
+        method: "POST",
+        body: JSON.stringify(client)
+      });
+      chatUnreadCount = Number(result.unreadCount || 0);
+    } catch (_) {
+      chatUnreadCount = 0;
+    }
+    updateChatBadgePlacement();
+  }
+
+  function editorSrcdoc(id, placeholder) {
+    const safePlaceholder = String(placeholder || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>
+html,body{margin:0;width:100%;height:100%;background:transparent;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+textarea{box-sizing:border-box;width:100%;height:100%;margin:0;padding:12px;border:0;outline:0;resize:none;background:transparent;color:#fff;font:14px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;caret-color:#fff;user-select:text;-webkit-user-select:text;-webkit-touch-callout:default;touch-action:auto}
+textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" maxlength="4000" inputmode="text" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="${safePlaceholder}"></textarea></body></html>`;
+  }
+
+  function editorValue(frame, id) {
+    try {
+      return String(frame.contentDocument?.getElementById(id)?.value || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
   function ensureStyles() {
     if (document.getElementById("ml3d-emulator-tools-style")) return;
     const style = document.createElement("style");
@@ -57,10 +139,15 @@
       .ml3d-tools-close::before,.ml3d-tools-close::after{content:none!important;display:none!important}
       .ml3d-tools-title{margin:0 42px 12px 0;font-size:17px;font-weight:950;letter-spacing:.06em}
       .ml3d-tools-message{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.55;color:inherit}
-      .ml3d-report-button{
-        width:100%!important;min-height:42px!important;margin:0 0 4px!important;padding:9px 12px!important;
+      .ml3d-help-row{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin:0 0 4px}
+      .ml3d-report-button,.ml3d-chat-button{
+        position:relative;width:100%!important;min-height:42px!important;margin:0!important;padding:9px 12px!important;
         border:1px solid #8fe7ff66!important;border-radius:11px!important;background:#102331!important;color:#eafcff!important;
         font-size:11px!important;font-weight:950!important;letter-spacing:.08em!important;box-shadow:none!important
+      }
+      .ml3d-chat-dot{
+        position:absolute;top:-5px;right:-5px;width:11px;height:11px;border-radius:50%;
+        background:#ff2d2d;border:2px solid #101820;box-shadow:0 0 8px #ff2d2dcc;pointer-events:none;z-index:10
       }
       .ml3d-report-form label{display:block;margin:10px 0 6px;font-size:11px;font-weight:900;letter-spacing:.05em}
       .ml3d-report-editor{
@@ -83,6 +170,16 @@
       }
       .ml3d-report-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       .ml3d-report-status{margin-top:10px;font-size:12px;line-height:1.35;color:#a8dfff}
+      .ml3d-chat-list{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;padding:4px 2px 8px}
+      .ml3d-chat-message{max-width:86%;padding:9px 11px;border-radius:12px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
+      .ml3d-chat-message.user{align-self:flex-end;background:#1d6076}
+      .ml3d-chat-message.admin{align-self:flex-start;background:#242d38}
+      .ml3d-chat-time{display:block;margin-top:4px;font-size:9px;opacity:.65}
+      .ml3d-chat-compose{margin-top:10px}
+      .ml3d-chat-editor{display:block;box-sizing:border-box;width:100%;height:96px;border:1px solid #ffffff30;border-radius:12px;background:#0005;overflow:hidden}
+      .ml3d-chat-actions{display:flex;gap:8px;margin-top:8px}
+      .ml3d-chat-actions button{flex:1;min-height:40px;border:1px solid #ffffff34;border-radius:11px;background:#ffffff10;color:inherit;font-weight:900}
+      .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       @media(max-width:420px){.ml3d-tools-card{width:96vw;padding:20px 15px 16px}.ml3d-tools-overlay{padding-left:8px;padding-right:8px}}
     `;
     document.head.appendChild(style);
@@ -150,6 +247,11 @@
   }
 
   async function showStartupMessages() {
+    try {
+      if (sessionStorage.getItem(STARTUP_NOTICE_KEY) === "1") return;
+      sessionStorage.setItem(STARTUP_NOTICE_KEY, "1");
+    } catch (_) {}
+
     let payload;
     try {
       payload = await api("/v1/emulator/messages");
@@ -267,27 +369,10 @@
       }
     });
 
-    editorFrame.srcdoc = `<!doctype html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<style>
-html,body{margin:0;width:100%;height:100%;background:transparent;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-textarea{box-sizing:border-box;width:100%;height:100%;margin:0;padding:12px;border:0;outline:0;resize:none;background:transparent;color:#fff;font:14px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;caret-color:#fff;user-select:text;-webkit-user-select:text;-webkit-touch-callout:default;touch-action:auto}
-textarea::placeholder{color:#9aabba}
-</style>
-</head>
-<body>
-<textarea id="report-text" maxlength="4000" inputmode="text" autocomplete="off" autocapitalize="sentences" spellcheck="true" placeholder="Describe el problema, sugerencia o incidencia…"></textarea>
-</body>
-</html>`;
+    editorFrame.srcdoc = editorSrcdoc("report-text", "Describe el problema, sugerencia o incidencia…");
 
     function reportMessage() {
-      try {
-        return String(editorFrame.contentDocument?.getElementById("report-text")?.value || "").trim();
-      } catch (_) {
-        return "";
-      }
+      return editorValue(editorFrame, "report-text");
     }
 
     send.addEventListener("click", async () => {
@@ -301,11 +386,14 @@ textarea::placeholder{color:#9aabba}
       status.textContent = "Enviando reporte…";
       try {
         const params = new URLSearchParams(location.search);
+        const client = readChatClient(true);
         const result = await api("/v1/emulator/reports", {
           method: "POST",
           body: JSON.stringify({
             message,
             imageData,
+            clientId: client.clientId,
+            clientToken: client.clientToken,
             pageUrl: (location.origin + location.pathname).slice(0, 1500),
             userAgent: navigator.userAgent.slice(0, 500),
             game: (params.get("rom") || params.get("game") || "").slice(0, 240)
@@ -313,6 +401,7 @@ textarea::placeholder{color:#9aabba}
         });
         status.textContent = `Reporte enviado · ${result.id ? result.id.slice(0, 8) : "OK"}`;
         send.textContent = "Enviado";
+        refreshChatStatus();
         setTimeout(close, 900);
       } catch (error) {
         send.disabled = false;
@@ -322,21 +411,173 @@ textarea::placeholder{color:#9aabba}
     });
   }
 
+  function renderChatMessages(container, messages) {
+    container.innerHTML = "";
+    if (!messages.length) {
+      const empty = document.createElement("div");
+      empty.className = "ml3d-report-status";
+      empty.textContent = "Todavía no hay mensajes. Puedes escribir para continuar la incidencia.";
+      container.appendChild(empty);
+      return;
+    }
+    messages.forEach((item) => {
+      const bubble = document.createElement("div");
+      bubble.className = "ml3d-chat-message " + (item.sender === "admin" ? "admin" : "user");
+      bubble.textContent = item.body || "";
+      const time = document.createElement("span");
+      time.className = "ml3d-chat-time";
+      time.textContent = item.createdAt ? new Date(item.createdAt).toLocaleString() : "";
+      bubble.appendChild(time);
+      container.appendChild(bubble);
+    });
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function openHelpChat() {
+    if (document.querySelector(".ml3d-tools-overlay[data-ml3d-chat='1']")) return;
+    const settingsMenu = document.getElementById("menu");
+    if (settingsMenu && settingsMenu.open) {
+      try { settingsMenu.close(); } catch (_) {}
+      window.setTimeout(openHelpChat, 120);
+      return;
+    }
+
+    const ui = createOverlay("CHAT DE AYUDA");
+    ui.overlay.dataset.ml3dChat = "1";
+    const client = readChatClient(false);
+    const body = document.createElement("div");
+    const list = document.createElement("div");
+    list.className = "ml3d-chat-list";
+    const compose = document.createElement("div");
+    compose.className = "ml3d-chat-compose";
+    body.append(list, compose);
+    ui.card.appendChild(body);
+    let poll = 0;
+
+    const close = () => {
+      if (poll) clearInterval(poll);
+      ui.overlay.remove();
+      refreshChatStatus();
+    };
+    ui.close.addEventListener("click", close, { once: true });
+
+    if (!client) {
+      const empty = document.createElement("div");
+      empty.className = "ml3d-report-status";
+      empty.textContent = "Envía primero una incidencia desde REPORTES para iniciar tu chat de ayuda.";
+      list.appendChild(empty);
+      return;
+    }
+
+    compose.innerHTML = `
+      <iframe class="ml3d-chat-editor" title="Escribir mensaje"></iframe>
+      <div class="ml3d-chat-actions">
+        <button type="button" class="secondary">Actualizar</button>
+        <button type="button" class="primary">Enviar</button>
+      </div>
+      <div class="ml3d-report-status" aria-live="polite"></div>`;
+    const frame = compose.querySelector("iframe");
+    const refresh = compose.querySelector(".secondary");
+    const send = compose.querySelector(".primary");
+    const status = compose.querySelector(".ml3d-report-status");
+    frame.srcdoc = editorSrcdoc("chat-text", "Escribe tu mensaje…");
+
+    const load = async () => {
+      try {
+        const result = await api("/v1/emulator/chat/history", {
+          method: "POST",
+          body: JSON.stringify(client)
+        });
+        renderChatMessages(list, Array.isArray(result.messages) ? result.messages : []);
+        chatUnreadCount = 0;
+        updateChatBadgePlacement();
+        status.textContent = "";
+      } catch (error) {
+        status.textContent = error.message === "Chat no autorizado"
+          ? "Envía primero una incidencia desde REPORTES para iniciar tu chat de ayuda."
+          : error.message;
+      }
+    };
+
+    refresh.addEventListener("click", load);
+    send.addEventListener("click", async () => {
+      const message = editorValue(frame, "chat-text");
+      if (!message) {
+        status.textContent = "Escribe un mensaje.";
+        return;
+      }
+      send.disabled = true;
+      status.textContent = "Enviando…";
+      try {
+        await api("/v1/emulator/chat/messages", {
+          method: "POST",
+          body: JSON.stringify({ ...client, message })
+        });
+        frame.srcdoc = editorSrcdoc("chat-text", "Escribe tu mensaje…");
+        await load();
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        send.disabled = false;
+      }
+    });
+
+    load();
+    poll = window.setInterval(load, 6000);
+  }
+
   function ensureReportButton() {
     const list = document.querySelector("#ml3d-updates-panel .ml3d-updates-list");
-    if (!list || document.getElementById("ml3d-report-button")) return Boolean(list);
-    const button = document.createElement("button");
-    button.id = "ml3d-report-button";
-    button.type = "button";
-    button.className = "ml3d-report-button";
-    button.textContent = "REPORTES";
-    button.setAttribute("aria-label", "Enviar reporte");
-    button.addEventListener("click", (event) => {
+    if (!list) return false;
+    if (document.getElementById("ml3d-help-row")) {
+      updateChatBadgePlacement();
+      return true;
+    }
+
+    const row = document.createElement("div");
+    row.id = "ml3d-help-row";
+    row.className = "ml3d-help-row";
+
+    const reportButton = document.createElement("button");
+    reportButton.id = "ml3d-report-button";
+    reportButton.type = "button";
+    reportButton.className = "ml3d-report-button";
+    reportButton.textContent = "REPORTES";
+    reportButton.setAttribute("aria-label", "Enviar reporte");
+
+    const chatButton = document.createElement("button");
+    chatButton.id = "ml3d-chat-button";
+    chatButton.type = "button";
+    chatButton.className = "ml3d-chat-button";
+    chatButton.textContent = "CHAT";
+    chatButton.setAttribute("aria-label", "Abrir chat de ayuda");
+
+    reportButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       openReportDialog();
     });
-    list.prepend(button);
+    chatButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openHelpChat();
+    });
+
+    row.append(reportButton, chatButton);
+    list.prepend(row);
+
+    const menu = document.getElementById("menu");
+    const updates = document.getElementById("ml3d-updates-panel");
+    if (menu && menu.dataset.ml3dChatBadgeObserver !== "1") {
+      menu.dataset.ml3dChatBadgeObserver = "1";
+      new MutationObserver(updateChatBadgePlacement).observe(menu, { attributes: true, attributeFilter: ["open"] });
+    }
+    if (updates && updates.dataset.ml3dChatBadgeObserver !== "1") {
+      updates.dataset.ml3dChatBadgeObserver = "1";
+      new MutationObserver(updateChatBadgePlacement).observe(updates, { attributes: true, attributeFilter: ["hidden"] });
+    }
+
+    updateChatBadgePlacement();
     return true;
   }
 
@@ -348,14 +589,29 @@ textarea::placeholder{color:#9aabba}
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  function installChatStatusWatch() {
+    refreshChatStatus();
+    if (!chatStatusTimer) chatStatusTimer = window.setInterval(refreshChatStatus, 15000);
+    window.addEventListener("focus", refreshChatStatus);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshChatStatus();
+    });
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installReportButton, { once: true });
+    document.addEventListener("DOMContentLoaded", () => {
+      installReportButton();
+      installChatStatusWatch();
+    }, { once: true });
   } else {
     installReportButton();
+    installChatStatusWatch();
   }
 
   window.ml3dEmulatorTools = {
     showStartupMessages,
-    openReportDialog
+    openReportDialog,
+    openHelpChat,
+    refreshChatStatus
   };
 })();

@@ -6,7 +6,7 @@ function cors(env, request) {
   const origin = request.headers.get("Origin") || "";
   const allowed = env.ALLOWED_ORIGIN || "https://makinglayers3d-a11y.github.io";
   const headers = {
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Max-Age": "86400"
   };
@@ -426,7 +426,28 @@ async function ensureEmulatorToolsSchema(env) {
       game TEXT,
       created_at TEXT NOT NULL
     )`),
-    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_reports_created ON emulator_reports(created_at DESC)")
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_clients (
+      client_id TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_report_clients (
+      report_id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_chat_messages (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      sender TEXT NOT NULL CHECK(sender IN ('user','admin')),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_user INTEGER NOT NULL DEFAULT 0,
+      read_admin INTEGER NOT NULL DEFAULT 0
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_reports_created ON emulator_reports(created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_report_clients_client ON emulator_report_clients(client_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_chat_client_created ON emulator_chat_messages(client_id, created_at)")
   ]);
   const now = nowIso();
   await env.DB.batch(Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) =>
@@ -476,6 +497,29 @@ async function updateEmulatorMessage(env, request, kindValue) {
   });
 }
 
+async function verifyEmulatorClient(env, clientIdValue, tokenValue, createIfMissing = false) {
+  const clientId = cleanText(clientIdValue, 120);
+  const token = cleanText(tokenValue, 240);
+  if (!clientId || !token) return { ok: false, clientId: "", status: 400, error: "Identidad de chat no válida" };
+  const row = await env.DB.prepare(
+    "SELECT access_token AS accessToken FROM emulator_clients WHERE client_id = ?"
+  ).bind(clientId).first();
+  const now = nowIso();
+  if (!row) {
+    if (!createIfMissing) return { ok: false, clientId, status: 403, error: "Chat no autorizado" };
+    await env.DB.prepare(
+      "INSERT INTO emulator_clients (client_id, access_token, created_at, updated_at) VALUES (?, ?, ?, ?)"
+    ).bind(clientId, token, now, now).run();
+    return { ok: true, clientId };
+  }
+  if (String(row.accessToken || "") !== token) {
+    return { ok: false, clientId, status: 403, error: "Chat no autorizado" };
+  }
+  await env.DB.prepare("UPDATE emulator_clients SET updated_at = ? WHERE client_id = ?")
+    .bind(now, clientId).run();
+  return { ok: true, clientId };
+}
+
 async function submitEmulatorReport(env, request) {
   await ensureEmulatorToolsSchema(env);
   const body = await bodyJson(request);
@@ -486,24 +530,166 @@ async function submitEmulatorReport(env, request) {
   if (rawImage && !/^data:image\/(jpeg|png|webp);base64,/i.test(rawImage)) {
     return bad(env, request, "Formato de imagen no válido");
   }
+
+  const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, true);
+  if (!client.ok) return bad(env, request, client.error, client.status);
+
   const id = crypto.randomUUID();
   const now = nowIso();
   const pageUrl = cleanText(body.pageUrl, 1500);
   const userAgent = cleanText(body.userAgent, 500);
   const game = cleanText(body.game, 240);
-  await env.DB.prepare(`INSERT INTO emulator_reports
-    (id, message, image_data, page_url, user_agent, game, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, message, rawImage || null, pageUrl, userAgent, game, now).run();
-  return response(env, request, { ok: true, id, createdAt: now });
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO emulator_reports
+      (id, message, image_data, page_url, user_agent, game, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, message, rawImage || null, pageUrl, userAgent, game, now),
+    env.DB.prepare("INSERT INTO emulator_report_clients (report_id, client_id) VALUES (?, ?)")
+      .bind(id, client.clientId)
+  ]);
+  return response(env, request, { ok: true, id, clientId: client.clientId, createdAt: now });
 }
 
 async function listEmulatorReports(env, request) {
   await ensureEmulatorToolsSchema(env);
-  const result = await env.DB.prepare(`SELECT id, message, image_data AS imageData, page_url AS pageUrl,
-      user_agent AS userAgent, game, created_at AS createdAt
-      FROM emulator_reports ORDER BY created_at DESC LIMIT 40`).all();
+  const result = await env.DB.prepare(`SELECT r.id, r.message, r.image_data AS imageData, r.page_url AS pageUrl,
+      r.user_agent AS userAgent, r.game, r.created_at AS createdAt,
+      COALESCE(rc.client_id, '') AS clientId
+      FROM emulator_reports r
+      LEFT JOIN emulator_report_clients rc ON rc.report_id = r.id
+      ORDER BY r.created_at DESC LIMIT 80`).all();
   return response(env, request, { reports: result.results || [] });
+}
+
+async function deleteEmulatorReport(env, request, reportIdValue) {
+  await ensureEmulatorToolsSchema(env);
+  const reportId = cleanText(reportIdValue, 120);
+  if (!reportId) return bad(env, request, "Reporte no válido", 404);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM emulator_report_clients WHERE report_id = ?").bind(reportId),
+    env.DB.prepare("DELETE FROM emulator_reports WHERE id = ?").bind(reportId)
+  ]);
+  return response(env, request, { ok: true, id: reportId });
+}
+
+async function publicChatStatus(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const body = await bodyJson(request);
+  const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
+  if (!client.ok) return bad(env, request, client.error, client.status);
+  const unread = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM emulator_chat_messages WHERE client_id = ? AND sender = 'admin' AND read_user = 0"
+  ).bind(client.clientId).first();
+  const last = await env.DB.prepare(
+    "SELECT body, sender, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at DESC LIMIT 1"
+  ).bind(client.clientId).first();
+  return response(env, request, {
+    clientId: client.clientId,
+    unreadCount: Number(unread?.count || 0),
+    lastMessage: last?.body || "",
+    lastSender: last?.sender || "",
+    lastAt: last?.createdAt || null
+  });
+}
+
+async function publicChatHistory(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const body = await bodyJson(request);
+  const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
+  if (!client.ok) return bad(env, request, client.error, client.status);
+  const result = await env.DB.prepare(
+    "SELECT id, sender, body, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
+  ).bind(client.clientId).all();
+  await env.DB.prepare(
+    "UPDATE emulator_chat_messages SET read_user = 1 WHERE client_id = ? AND sender = 'admin'"
+  ).bind(client.clientId).run();
+  return response(env, request, { clientId: client.clientId, messages: result.results || [] });
+}
+
+async function publicChatSend(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const body = await bodyJson(request);
+  const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
+  if (!client.ok) return bad(env, request, client.error, client.status);
+  const message = cleanText(body.message, 3000);
+  if (!message) return bad(env, request, "Escribe un mensaje");
+  const id = crypto.randomUUID();
+  const now = nowIso();
+  await env.DB.prepare(`INSERT INTO emulator_chat_messages
+    (id, client_id, sender, body, created_at, read_user, read_admin)
+    VALUES (?, ?, 'user', ?, ?, 1, 0)`)
+    .bind(id, client.clientId, message, now).run();
+  return response(env, request, {
+    ok: true,
+    message: { id, sender: "user", body: message, createdAt: now }
+  });
+}
+
+async function publicChatRead(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const body = await bodyJson(request);
+  const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
+  if (!client.ok) return bad(env, request, client.error, client.status);
+  await env.DB.prepare(
+    "UPDATE emulator_chat_messages SET read_user = 1 WHERE client_id = ? AND sender = 'admin'"
+  ).bind(client.clientId).run();
+  return response(env, request, { ok: true });
+}
+
+async function listAdminChats(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const result = await env.DB.prepare(`SELECT
+      c.client_id AS clientId,
+      (SELECT COUNT(*) FROM emulator_chat_messages m
+        WHERE m.client_id = c.client_id AND m.sender = 'user' AND m.read_admin = 0) AS unreadCount,
+      COALESCE((SELECT m.body FROM emulator_chat_messages m
+        WHERE m.client_id = c.client_id ORDER BY m.created_at DESC LIMIT 1), '') AS lastMessage,
+      (SELECT m.created_at FROM emulator_chat_messages m
+        WHERE m.client_id = c.client_id ORDER BY m.created_at DESC LIMIT 1) AS lastAt,
+      COALESCE((SELECT r.message FROM emulator_reports r
+        JOIN emulator_report_clients rc ON rc.report_id = r.id
+        WHERE rc.client_id = c.client_id ORDER BY r.created_at DESC LIMIT 1), '') AS reportPreview,
+      (SELECT COUNT(*) FROM emulator_report_clients rc WHERE rc.client_id = c.client_id) AS reportCount
+    FROM emulator_clients c
+    WHERE EXISTS (SELECT 1 FROM emulator_report_clients rc WHERE rc.client_id = c.client_id)
+       OR EXISTS (SELECT 1 FROM emulator_chat_messages m WHERE m.client_id = c.client_id)
+    ORDER BY COALESCE(lastAt, c.updated_at) DESC
+    LIMIT 100`).all();
+  return response(env, request, { chats: result.results || [] });
+}
+
+async function adminChatHistory(env, request, clientIdValue) {
+  await ensureEmulatorToolsSchema(env);
+  const clientId = cleanText(clientIdValue, 120);
+  const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
+  if (!client) return bad(env, request, "Chat no encontrado", 404);
+  const result = await env.DB.prepare(
+    "SELECT id, sender, body, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
+  ).bind(clientId).all();
+  await env.DB.prepare(
+    "UPDATE emulator_chat_messages SET read_admin = 1 WHERE client_id = ? AND sender = 'user'"
+  ).bind(clientId).run();
+  return response(env, request, { clientId, messages: result.results || [] });
+}
+
+async function adminChatSend(env, request, clientIdValue) {
+  await ensureEmulatorToolsSchema(env);
+  const clientId = cleanText(clientIdValue, 120);
+  const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
+  if (!client) return bad(env, request, "Chat no encontrado", 404);
+  const body = await bodyJson(request);
+  const message = cleanText(body.message, 3000);
+  if (!message) return bad(env, request, "Escribe un mensaje");
+  const id = crypto.randomUUID();
+  const now = nowIso();
+  await env.DB.prepare(`INSERT INTO emulator_chat_messages
+    (id, client_id, sender, body, created_at, read_user, read_admin)
+    VALUES (?, ?, 'admin', ?, ?, 0, 1)`)
+    .bind(id, clientId, message, now).run();
+  return response(env, request, {
+    ok: true,
+    message: { id, sender: "admin", body: message, createdAt: now }
+  });
 }
 
 export default {
@@ -518,6 +704,10 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/access/request-more-uses") return requestMoreUses(env, request);
       if (request.method === "GET" && url.pathname === "/v1/emulator/messages") return listEmulatorMessages(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/reports") return submitEmulatorReport(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/emulator/chat/status") return publicChatStatus(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/emulator/chat/history") return publicChatHistory(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/emulator/chat/messages") return publicChatSend(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/emulator/chat/read") return publicChatRead(env, request);
 
       if (url.pathname.startsWith("/v1/admin/")) {
         if (!adminAuthorized(env, request)) return bad(env, request, "No autorizado", 401);
@@ -526,9 +716,18 @@ export default {
         if (request.method === "GET" && url.pathname === "/v1/admin/devices") return listDevices(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/messages") return listEmulatorMessages(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/reports") return listEmulatorReports(env, request);
+        if (request.method === "GET" && url.pathname === "/v1/admin/emulator/chats") return listAdminChats(env, request);
 
         const messageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/messages\/([^/]+)$/);
         if (request.method === "POST" && messageMatch) return updateEmulatorMessage(env, request, messageMatch[1]);
+
+        const reportMatch = url.pathname.match(/^\/v1\/admin\/emulator\/reports\/([^/]+)$/);
+        if (request.method === "DELETE" && reportMatch) return deleteEmulatorReport(env, request, reportMatch[1]);
+
+        const chatMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)$/);
+        if (request.method === "GET" && chatMatch) return adminChatHistory(env, request, chatMatch[1]);
+        const chatMessageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)\/messages$/);
+        if (request.method === "POST" && chatMessageMatch) return adminChatSend(env, request, chatMessageMatch[1]);
 
         const requestMatch = url.pathname.match(/^\/v1\/admin\/requests\/([^/]+)\/(approve|reject)$/);
         if (request.method === "POST" && requestMatch) return decideRequest(env, request, requestMatch[1], requestMatch[2]);
