@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 13,
-  "versionName": "0.8.1",
+  "versionCode": 14,
+  "versionName": "0.8.2",
   "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "e1591ceb594dfec37ee1f7dad03f726b65dc2ecf77622aa19b614e0d987114ab",
-  "sizeBytes": 7246383,
+  "sha256": "f0a6ac184ec4da8b9fec40144d2baa25e905d84e8f6135112d2da357bae9f2bd",
+  "sizeBytes": 7262767,
   "changelog": [
-    "Merge ML3Demu-tools 0.8.1 help chat"
+    "Merge ML3Demu-tools 0.8.2 rich notifications and media"
   ]
 }
