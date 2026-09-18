@@ -6,6 +6,9 @@
   const STARTUP_NOTICE_KEY = "ml3d-startup-notices-shown-v1";
   const CHAT_CLIENT_KEY = "ml3d-help-chat-client-v1";
   const CHAT_SEEN_KEY = "ml3d-help-chat-seen-v1";
+  const NEWS_SEEN_KEY = "ml3d-updates-seen-v1";
+  const NEWS_REVISION = "2026-09-18-rich-media-1";
+  const MAX_VIDEO_FILE_BYTES = 1050000;
   let chatUnreadCount = 0;
   let chatStatusTimer = 0;
 
@@ -49,6 +52,20 @@
     };
     localStorage.setItem(CHAT_CLIENT_KEY, JSON.stringify(client));
     return client;
+  }
+
+  function hasPendingNews() {
+    try {
+      return localStorage.getItem(NEWS_SEEN_KEY) !== NEWS_REVISION;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function markNewsSeen() {
+    try {
+      localStorage.setItem(NEWS_SEEN_KEY, NEWS_REVISION);
+    } catch (_) {}
   }
 
   function readChatSeen() {
@@ -122,7 +139,15 @@
     const chatButton = document.getElementById("ml3d-chat-button");
     removeInlineDots();
     removeFloatingDot();
-    if (chatUnreadCount <= 0) return;
+
+    const hasChat = chatUnreadCount > 0;
+    const hasNews = hasPendingNews();
+    if (updatesButton) {
+      updatesButton.classList.toggle("ml3d-notify-chat", hasChat);
+      updatesButton.classList.toggle("ml3d-notify-news", !hasChat && hasNews);
+    }
+
+    if (!hasChat) return;
 
     const menu = document.getElementById("menu");
     const updates = document.getElementById("ml3d-updates-panel");
@@ -131,7 +156,7 @@
     if (updatesOpen && chatButton) {
       setInlineDot(chatButton);
     } else if (menu && menu.open && updatesButton) {
-      setInlineDot(updatesButton);
+      // En el menú principal el propio botón ? se anima; no añadimos punto extra.
     } else {
       setFloatingDot(menuButton);
     }
@@ -206,12 +231,41 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         font-size:11px!important;font-weight:950!important;letter-spacing:.08em!important;box-shadow:none!important
       }
       .ml3d-chat-dot{
-        position:absolute;top:-5px;right:-5px;width:11px;height:11px;border-radius:50%;
-        background:#ff2d2d;border:2px solid #101820;box-shadow:0 0 8px #ff2d2dcc;pointer-events:none;z-index:2147483647
+        position:absolute;top:-5px;right:-5px;width:12px;height:12px;border-radius:50%;
+        background:#79e8ff;border:2px solid #102331;box-shadow:0 0 5px #79e8ff,0 0 13px #79e8ffbb;
+        pointer-events:none;z-index:2147483647;animation:ml3dChatDotPulse .95s ease-in-out infinite
       }
       .ml3d-chat-dot-floating{
         position:fixed!important;right:auto!important;bottom:auto!important;transform:none!important;
         opacity:1!important;visibility:visible!important;filter:none!important;mix-blend-mode:normal!important
+      }
+      body.ml3d-console-transitioning #ml3d-chat-floating-dot{
+        opacity:0!important;visibility:hidden!important
+      }
+      #ml3d-updates-button.ml3d-notify-chat{
+        color:#e9fcff!important;border-color:#aaf4ff!important;background:#153644f5!important;
+        box-shadow:0 0 10px #77eaffaa,0 0 24px #77eaff66!important;
+        animation:ml3dQuestionChat 1.05s ease-in-out infinite!important
+      }
+      #ml3d-updates-button.ml3d-notify-news{
+        color:#fff5a9!important;border-color:#ffe45e!important;background:#3a3212f2!important;
+        box-shadow:0 0 10px #ffe45eaa,0 0 22px #ffe45e55!important;
+        animation:ml3dQuestionNews 1.35s ease-in-out infinite!important
+      }
+      @keyframes ml3dChatDotPulse{
+        0%,100%{opacity:.28;transform:scale(.72)}
+        48%{opacity:1;transform:scale(1.18)}
+      }
+      @keyframes ml3dQuestionChat{
+        0%,100%{transform:translateY(0) rotate(0deg) scale(1)}
+        30%{transform:translateY(-3px) rotate(-6deg) scale(1.08)}
+        55%{transform:translateY(1px) rotate(5deg) scale(1.03)}
+        78%{transform:translateY(-2px) rotate(-3deg) scale(1.07)}
+      }
+      @keyframes ml3dQuestionNews{
+        0%,100%{transform:translateY(0) scale(1)}
+        45%{transform:translateY(-2px) scale(1.07)}
+        70%{transform:translateY(1px) scale(1.03)}
       }
       .ml3d-report-form label{display:block;margin:10px 0 6px;font-size:11px;font-weight:900;letter-spacing:.05em}
       .ml3d-report-editor{
