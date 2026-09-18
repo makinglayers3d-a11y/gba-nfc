@@ -849,10 +849,12 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
+      ensureStyles();
       installReportButton();
       installChatStatusWatch();
     }, { once: true });
   } else {
+    ensureStyles();
     installReportButton();
     installChatStatusWatch();
   }
