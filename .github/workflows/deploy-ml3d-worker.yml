@@ -1,0 +1,92 @@
+name: Deploy ML3D access Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-access-worker/**'
+      - '.github/workflows/deploy-ml3d-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::Falta el secreto CLOUDFLARE_API_TOKEN"
+            exit 2
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Wrangler
+        working-directory: cloudflare-access-worker
+        run: npm install
+
+      - name: Resolve D1 database and create deployment config
+        working-directory: cloudflare-access-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_JSON="$(npx wrangler d1 list --json)"
+          DB_ID="$(printf '%s' "$DB_JSON" | node -e '
+            let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const rows=JSON.parse(s);
+              const hit=rows.find(x => x.name === "ml3d-dev-access");
+              if (!hit) process.exit(3);
+              process.stdout.write(hit.uuid || hit.id || "");
+            });
+          ')"
+          if [ -z "$DB_ID" ]; then
+            echo "::error::No se encontró la base D1 ml3d-dev-access"
+            exit 3
+          fi
+          {
+            echo 'name = "ml3d-dev-access"'
+            echo 'main = "src/index.js"'
+            echo 'compatibility_date = "2026-09-01"'
+            if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+              echo "account_id = \"${CLOUDFLARE_ACCOUNT_ID}\""
+            fi
+            echo
+            echo '[vars]'
+            echo 'ALLOWED_ORIGIN = "https://makinglayers3d-a11y.github.io"'
+            echo
+            echo '[[d1_databases]]'
+            echo 'binding = "DB"'
+            echo 'database_name = "ml3d-dev-access"'
+            echo "database_id = \"$DB_ID\""
+          } > wrangler.toml
+
+      - name: Deploy Worker
+        working-directory: cloudflare-access-worker
+        run: npx wrangler deploy
+
+      - name: Verify emulator tools API
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://ml3d-dev-access.makinglayers3d.workers.dev"
+          for i in $(seq 1 12); do
+            if curl --fail --show-error --silent "$BASE/v1/emulator/messages" > /tmp/messages.json; then
+              cat /tmp/messages.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::El Worker se desplegó pero el endpoint de Herramientas emulador no respondió"
+          exit 4
