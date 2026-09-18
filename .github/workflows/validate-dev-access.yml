@@ -3,11 +3,15 @@ on:
   push:
     paths:
       - dev-access.js
+      - emulator-tools.js
+      - app.js
       - cloudflare-access-worker/**
       - .github/workflows/validate-dev-access.yml
   pull_request:
     paths:
       - dev-access.js
+      - emulator-tools.js
+      - app.js
       - cloudflare-access-worker/**
 permissions:
   contents: read
@@ -22,6 +26,8 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check dev-access.js
+          node --check emulator-tools.js
+          node --check app.js
           node --check cloudflare-access-worker/src/index.js
       - name: Validate package metadata
         run: node -e "JSON.parse(require('fs').readFileSync('cloudflare-access-worker/package.json','utf8'))"
