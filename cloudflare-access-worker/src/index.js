@@ -704,7 +704,7 @@ async function adminChatHistory(env, request, clientIdValue) {
   const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
   if (!client) return bad(env, request, "Chat no encontrado", 404);
   const result = await env.DB.prepare(
-    "SELECT id, sender, body, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
+    "SELECT id, sender, body, media_data AS mediaData, COALESCE(media_type, '') AS mediaType, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
   ).bind(clientId).all();
   await env.DB.prepare(
     "UPDATE emulator_chat_messages SET read_admin = 1 WHERE client_id = ? AND sender = 'user'"
