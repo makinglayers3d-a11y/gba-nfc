@@ -5,6 +5,7 @@
   const MESSAGE_ORDER = ["work", "update", "announcement"];
   const STARTUP_NOTICE_KEY = "ml3d-startup-notices-shown-v1";
   const CHAT_CLIENT_KEY = "ml3d-help-chat-client-v1";
+  const CHAT_SEEN_KEY = "ml3d-help-chat-seen-v1";
   let chatUnreadCount = 0;
   let chatStatusTimer = 0;
 
@@ -48,6 +49,41 @@
     };
     localStorage.setItem(CHAT_CLIENT_KEY, JSON.stringify(client));
     return client;
+  }
+
+  function readChatSeen() {
+    try {
+      const value = JSON.parse(localStorage.getItem(CHAT_SEEN_KEY) || "null");
+      if (value && typeof value === "object") {
+        return {
+          id: String(value.id || ""),
+          at: String(value.at || "")
+        };
+      }
+    } catch (_) {}
+    return { id: "", at: "" };
+  }
+
+  function markChatSeen(message) {
+    if (!message || message.sender !== "admin") return;
+    const value = {
+      id: String(message.id || ""),
+      at: String(message.createdAt || "")
+    };
+    try {
+      localStorage.setItem(CHAT_SEEN_KEY, JSON.stringify(value));
+    } catch (_) {}
+  }
+
+  function isNewerAdminMessage(latestId, latestAt) {
+    if (!latestId && !latestAt) return false;
+    const seen = readChatSeen();
+    if (latestId && seen.id && latestId === seen.id) return false;
+    const latestTime = Date.parse(latestAt || "");
+    const seenTime = Date.parse(seen.at || "");
+    if (Number.isFinite(latestTime) && Number.isFinite(seenTime)) return latestTime > seenTime;
+    if (latestId && seen.id) return latestId !== seen.id;
+    return Boolean(latestId || latestAt);
   }
 
   function removeInlineDots() {
@@ -113,9 +149,11 @@
         method: "POST",
         body: JSON.stringify(client)
       });
-      chatUnreadCount = Number(result.unreadCount || 0);
-    } catch (_) {
-      chatUnreadCount = 0;
+      const serverUnread = Number(result.unreadCount || 0);
+      const localUnread = isNewerAdminMessage(result.latestAdminId || "", result.latestAdminAt || null);
+      chatUnreadCount = Math.max(serverUnread, localUnread ? 1 : 0);
+    } catch (error) {
+      console.warn("ML3D chat status:", error);
     }
     updateChatBadgePlacement();
   }
@@ -514,7 +552,10 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
           method: "POST",
           body: JSON.stringify(client)
         });
-        renderChatMessages(list, Array.isArray(result.messages) ? result.messages : []);
+        const messages = Array.isArray(result.messages) ? result.messages : [];
+        renderChatMessages(list, messages);
+        const latestAdmin = [...messages].reverse().find((item) => item.sender === "admin");
+        if (latestAdmin) markChatSeen(latestAdmin);
         chatUnreadCount = 0;
         updateChatBadgePlacement();
         status.textContent = "";
@@ -596,11 +637,17 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     const updates = document.getElementById("ml3d-updates-panel");
     if (menu && menu.dataset.ml3dChatBadgeObserver !== "1") {
       menu.dataset.ml3dChatBadgeObserver = "1";
-      new MutationObserver(updateChatBadgePlacement).observe(menu, { attributes: true, attributeFilter: ["open"] });
+      new MutationObserver(() => {
+        updateChatBadgePlacement();
+        refreshChatStatus();
+      }).observe(menu, { attributes: true, attributeFilter: ["open"] });
     }
     if (updates && updates.dataset.ml3dChatBadgeObserver !== "1") {
       updates.dataset.ml3dChatBadgeObserver = "1";
-      new MutationObserver(updateChatBadgePlacement).observe(updates, { attributes: true, attributeFilter: ["hidden"] });
+      new MutationObserver(() => {
+        updateChatBadgePlacement();
+        refreshChatStatus();
+      }).observe(updates, { attributes: true, attributeFilter: ["hidden"] });
     }
 
     updateChatBadgePlacement();
@@ -617,7 +664,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
   function installChatStatusWatch() {
     refreshChatStatus();
-    if (!chatStatusTimer) chatStatusTimer = window.setInterval(refreshChatStatus, 15000);
+    if (!chatStatusTimer) chatStatusTimer = window.setInterval(refreshChatStatus, 5000);
     window.addEventListener("focus", refreshChatStatus);
     window.addEventListener("resize", updateChatBadgePlacement);
     window.addEventListener("orientationchange", () => window.setTimeout(updateChatBadgePlacement, 180));
