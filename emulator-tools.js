@@ -2,7 +2,6 @@
   "use strict";
 
   const CONFIG_URL = "dev-access-config.json";
-  const SESSION_KEY = "ml3d-emulator-tools-startup-messages-shown";
   const MESSAGE_ORDER = ["work", "update", "announcement"];
 
   const MESSAGE_LABELS = {
@@ -141,8 +140,6 @@
   }
 
   async function showStartupMessages() {
-    if (sessionStorage.getItem(SESSION_KEY) === "1") return;
-    sessionStorage.setItem(SESSION_KEY, "1");
     let payload;
     try {
       payload = await api("/v1/emulator/messages");
