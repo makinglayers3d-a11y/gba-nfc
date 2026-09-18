@@ -402,6 +402,110 @@ async function revokeDevice(env, request, deviceId) {
   return response(env, request, { ok: true, status: "revoked" });
 }
 
+
+const EMULATOR_MESSAGE_TITLES = {
+  work: "MENSAJE DE TRABAJO",
+  update: "MENSAJE DE ACTUALIZACIÓN",
+  announcement: "MENSAJE DE COMUNICADO"
+};
+
+async function ensureEmulatorToolsSchema(env) {
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_messages (
+      kind TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      body TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_reports (
+      id TEXT PRIMARY KEY,
+      message TEXT NOT NULL,
+      image_data TEXT,
+      page_url TEXT,
+      user_agent TEXT,
+      game TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_reports_created ON emulator_reports(created_at DESC)")
+  ]);
+  const now = nowIso();
+  await env.DB.batch(Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) =>
+    env.DB.prepare("INSERT OR IGNORE INTO emulator_messages (kind, enabled, body, updated_at) VALUES (?, 0, '', ?)")
+      .bind(kind, now)
+  ));
+}
+
+function normalizeMessageKind(kind) {
+  return Object.prototype.hasOwnProperty.call(EMULATOR_MESSAGE_TITLES, kind) ? kind : null;
+}
+
+async function listEmulatorMessages(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const result = await env.DB.prepare(
+    "SELECT kind, enabled, body, updated_at AS updatedAt FROM emulator_messages"
+  ).all();
+  const rows = new Map((result.results || []).map((row) => [row.kind, row]));
+  const messages = Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) => {
+    const row = rows.get(kind) || {};
+    return {
+      kind,
+      title: EMULATOR_MESSAGE_TITLES[kind],
+      enabled: Number(row.enabled || 0) !== 0,
+      body: row.body || "",
+      updatedAt: row.updatedAt || null
+    };
+  });
+  return response(env, request, { messages });
+}
+
+async function updateEmulatorMessage(env, request, kindValue) {
+  await ensureEmulatorToolsSchema(env);
+  const kind = normalizeMessageKind(kindValue);
+  if (!kind) return bad(env, request, "Tipo de mensaje no válido", 404);
+  const body = await bodyJson(request);
+  const enabled = Boolean(body.enabled);
+  const message = cleanText(body.body, 6000);
+  const now = nowIso();
+  await env.DB.prepare(
+    "INSERT INTO emulator_messages (kind, enabled, body, updated_at) VALUES (?, ?, ?, ?) " +
+    "ON CONFLICT(kind) DO UPDATE SET enabled = excluded.enabled, body = excluded.body, updated_at = excluded.updated_at"
+  ).bind(kind, enabled ? 1 : 0, message, now).run();
+  return response(env, request, {
+    ok: true,
+    message: { kind, title: EMULATOR_MESSAGE_TITLES[kind], enabled, body: message, updatedAt: now }
+  });
+}
+
+async function submitEmulatorReport(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const body = await bodyJson(request);
+  const message = cleanText(body.message, 4000);
+  if (!message) return bad(env, request, "El reporte necesita un mensaje");
+  const rawImage = body.imageData == null ? "" : String(body.imageData);
+  if (rawImage.length > 340000) return bad(env, request, "La imagen del reporte es demasiado grande", 413);
+  if (rawImage && !/^data:image\/(jpeg|png|webp);base64,/i.test(rawImage)) {
+    return bad(env, request, "Formato de imagen no válido");
+  }
+  const id = crypto.randomUUID();
+  const now = nowIso();
+  const pageUrl = cleanText(body.pageUrl, 1500);
+  const userAgent = cleanText(body.userAgent, 500);
+  const game = cleanText(body.game, 240);
+  await env.DB.prepare(`INSERT INTO emulator_reports
+    (id, message, image_data, page_url, user_agent, game, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, message, rawImage || null, pageUrl, userAgent, game, now).run();
+  return response(env, request, { ok: true, id, createdAt: now });
+}
+
+async function listEmulatorReports(env, request) {
+  await ensureEmulatorToolsSchema(env);
+  const result = await env.DB.prepare(`SELECT id, message, image_data AS imageData, page_url AS pageUrl,
+      user_agent AS userAgent, game, created_at AS createdAt
+      FROM emulator_reports ORDER BY created_at DESC LIMIT 40`).all();
+  return response(env, request, { reports: result.results || [] });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
@@ -412,12 +516,19 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/access/challenge") return challenge(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/verify") return verify(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/request-more-uses") return requestMoreUses(env, request);
+      if (request.method === "GET" && url.pathname === "/v1/emulator/messages") return listEmulatorMessages(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/emulator/reports") return submitEmulatorReport(env, request);
 
       if (url.pathname.startsWith("/v1/admin/")) {
         if (!adminAuthorized(env, request)) return bad(env, request, "No autorizado", 401);
         if (request.method === "GET" && url.pathname === "/v1/admin/requests") return listRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/use-requests") return listUseRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/devices") return listDevices(env, request);
+        if (request.method === "GET" && url.pathname === "/v1/admin/emulator/messages") return listEmulatorMessages(env, request);
+        if (request.method === "GET" && url.pathname === "/v1/admin/emulator/reports") return listEmulatorReports(env, request);
+
+        const messageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/messages\/([^/]+)$/);
+        if (request.method === "POST" && messageMatch) return updateEmulatorMessage(env, request, messageMatch[1]);
 
         const requestMatch = url.pathname.match(/^\/v1\/admin\/requests\/([^/]+)\/(approve|reject)$/);
         if (request.method === "POST" && requestMatch) return decideRequest(env, request, requestMatch[1], requestMatch[2]);
