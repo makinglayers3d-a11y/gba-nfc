@@ -1,0 +1,58 @@
+/* ML3D Link · avatar modular unificado */
+#avatarFinalControls{display:none!important}
+#avatarCustomizerV3{display:block;margin:12px 0 4px;padding:10px;border:1px solid #2b536f;border-radius:14px;background:rgba(4,13,21,.88);box-shadow:inset 0 0 0 1px rgba(84,193,255,.05)}
+.avatar-v3-tabs{display:grid;grid-template-columns:1fr;gap:5px;margin:8px 0 10px}
+.avatar-v3-tabs button{min-height:40px;padding:7px 4px!important;border:1px solid #2a5069!important;background:#091721!important;color:#a8c9dc!important;font-size:10px!important;font-weight:800!important}
+.avatar-v3-tabs button.active{outline:2px solid #55c7ff;background:#123b55!important;color:#fff!important}
+.avatar-v3-options{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;padding:3px 2px 9px;overflow:visible;touch-action:auto}
+.avatar-v3-options::-webkit-scrollbar{display:none}
+.avatar-v3-option{position:relative;width:100%;min-width:0;min-height:96px;padding:5px 4px!important;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;border:1px solid #29465d!important;border-radius:10px!important;background:#08141e!important;overflow:hidden}
+.avatar-v3-option.selected{outline:2px solid #55c7ff!important;background:#123750!important}
+.avatar-v3-option canvas.avatar-v3-thumb{display:block!important;visibility:visible!important;opacity:1!important;width:58px!important;height:76px!important;object-fit:contain;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none}
+.avatar-v3-option[data-kind="hair"]{justify-content:center!important;padding-bottom:20px!important}
+.avatar-v3-option[data-kind="hair"] canvas.avatar-v3-thumb{width:60px!important;height:60px!important;margin:auto!important}
+.avatar-v3-no-hair{display:flex;align-items:center;justify-content:center;width:60px;height:60px;margin:auto;color:#9fdcff;font-size:28px;font-weight:800;line-height:1}
+.avatar-v3-option[data-no-hair="1"] small{font-size:8px}
+.avatar-v3-option[data-kind="hair"] small{position:absolute;left:0;right:0;bottom:6px;text-align:center}
+.avatar-v3-option small{font-size:9px;color:#b9d8e9;white-space:nowrap;pointer-events:none}
+.avatar-v3-skin,.avatar-v3-colors{display:grid;gap:8px}.avatar-v3-skin{margin-bottom:7px;padding-bottom:8px;border-bottom:1px solid rgba(83,166,214,.18)}
+.avatar-v3-color-control{display:grid;gap:6px;padding:7px 8px;border:1px solid rgba(52,96,126,.58);border-radius:10px;background:rgba(6,18,27,.78)}
+.avatar-v3-color-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.avatar-v3-color-head b{font-size:10px;color:#9fdcff}.avatar-v3-color-head span{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:#8ca8b8}
+.avatar-v3-swatches{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.avatar-v3-swatch{width:31px!important;height:31px!important;min-height:31px!important;flex:0 0 31px;padding:0!important;border:2px solid #1d3444!important;border-radius:8px!important;background:var(--sw)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}.avatar-v3-swatch.selected{outline:2px solid #55c7ff!important;outline-offset:1px}.avatar-v3-picker{width:43px;height:31px;padding:1px;border:1px solid #47718d;border-radius:8px;background:#07111a;cursor:pointer}.avatar-v3-status{margin:9px 2px 0;color:#7295aa;font-size:10px;text-align:center}
+
+/* Un solo cuerpo en la sala: V5 dibuja la base; V3 solo superpone piel y pelo. */
+.player.avatar-v3-runtime>.avatar-wrap{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+.avatar-base-host.avatar-v3-composed>.avatar-base-canvas,
+.avatar-base-host.avatar-v3-composed>.avatar-clean-canvas,
+.avatar-base-host.avatar-v3-composed>.avatar-v3-canvas,
+.avatar-base-host.avatar-v3-composed>.avatar-v4-smooth,
+.avatar-base-host.avatar-v3-composed>.avatar-idle-complete-canvas{display:none!important;opacity:0!important;visibility:hidden!important}
+.avatar-base-host.avatar-v3-composed>.avatar-v5-canvas{display:block!important;visibility:visible!important;opacity:1!important}
+.avatar-v3-final-canvas{display:none!important}
+.avatar-v3-overlay-canvas{display:block!important;visibility:visible!important;opacity:1!important;position:absolute!important;left:50%!important;bottom:0!important;transform:translateX(-50%)!important;width:56px;height:84px;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none;z-index:13}
+
+/* La caja grande de arriba ES la preview final. */
+html.ml3d-avatar-v3-active #avatarFinalPreview{position:relative!important;overflow:visible!important}
+.avatar-hair-calibrator{position:absolute;right:8px;top:8px;width:142px;padding:7px;border:1px solid #2b536f;border-radius:10px;background:rgba(4,13,21,.94);z-index:40;box-shadow:0 6px 18px rgba(0,0,0,.32)}
+.avatar-hair-calibrator-title{text-align:center;font-size:9px;font-weight:900;color:#9fdcff;letter-spacing:.06em;margin-bottom:5px}
+.avatar-hair-calibrator-values{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:5px}
+.avatar-hair-calibrator-values span{padding:3px 2px;border-radius:5px;background:#091721;color:#b9d8e9;font:8px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
+.avatar-hair-calibrator-dpad{display:grid;grid-template-columns:repeat(3,30px);grid-template-rows:repeat(3,26px);gap:3px;justify-content:center}
+.avatar-hair-calibrator-dpad button,.avatar-hair-calibrator-size button,.avatar-hair-calibrator-actions button{min-height:0!important;padding:0!important;border:1px solid #31536a!important;border-radius:6px!important;background:#0b1b28!important;color:#d9f2ff!important;font-weight:900!important}
+.avatar-hair-calibrator-dpad [data-hair-move="up"]{grid-column:2;grid-row:1}
+.avatar-hair-calibrator-dpad [data-hair-move="left"]{grid-column:1;grid-row:2}
+.avatar-hair-calibrator-dpad [data-hair-center]{grid-column:2;grid-row:2}
+.avatar-hair-calibrator-dpad [data-hair-move="right"]{grid-column:3;grid-row:2}
+.avatar-hair-calibrator-dpad [data-hair-move="down"]{grid-column:2;grid-row:3}
+.avatar-hair-calibrator-size{display:grid;grid-template-columns:30px 1fr 30px;gap:4px;align-items:center;margin-top:5px}
+.avatar-hair-calibrator-size span{text-align:center;font-size:8px;color:#9fdcff;font-weight:800}
+.avatar-hair-calibrator-size button{height:25px!important}
+.avatar-hair-calibrator-actions{display:grid;grid-template-columns:48px 1fr;gap:5px;margin-top:6px}
+.avatar-hair-calibrator-actions button{height:28px!important;font-size:7px!important}
+.avatar-hair-calibrator-actions [data-hair-apply]{background:#124a68!important;border-color:#55c7ff!important;color:#fff!important}
+html.ml3d-avatar-v3-active #avatarFinalPreview.avatar-v3-composed>canvas.avatar-v5-preview{opacity:0!important;visibility:hidden!important;position:absolute!important}
+html.ml3d-avatar-v3-active #avatarFinalPreview>canvas.avatar-v3-final-preview{display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;left:auto!important;top:auto!important;width:112px!important;height:147px!important;margin:auto!important;image-rendering:pixelated;image-rendering:crisp-edges;filter:drop-shadow(0 9px 8px rgba(0,0,0,.38));pointer-events:none!important;z-index:20!important}
+/* Oculta restos del enfoque de canvases superpuestos anterior. */
+.avatar-v3-skin-canvas,.avatar-v3-layer-canvas,.avatar-v3-skin-preview,.avatar-v3-layer-preview,.avatar-custom-skin-canvas,.avatar-custom-layer-canvas,.avatar-custom-skin-preview,.avatar-custom-layer-preview{display:none!important}
+
+@media(max-width:560px){.avatar-hair-calibrator{right:5px;top:5px;width:126px;padding:5px}.avatar-hair-calibrator-dpad{grid-template-columns:repeat(3,27px);grid-template-rows:repeat(3,24px)}#avatarCustomizerV3{padding:8px}.avatar-v3-tabs{grid-template-columns:1fr}.avatar-v3-options{grid-template-columns:repeat(3,minmax(0,1fr))}.avatar-v3-option{min-height:88px}.avatar-v3-option canvas.avatar-v3-thumb{width:52px!important;height:68px!important}.avatar-v3-option[data-kind="hair"] canvas.avatar-v3-thumb{width:54px!important;height:54px!important}.avatar-v3-overlay-canvas{width:48px;height:72px}html.ml3d-avatar-v3-active #avatarFinalPreview>canvas.avatar-v3-final-preview{width:96px!important;height:126px!important}}
