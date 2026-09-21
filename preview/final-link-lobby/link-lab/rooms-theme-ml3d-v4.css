@@ -1,0 +1,406 @@
+/* ML3D Link Lobby visual v4
+   Arena compacta con perspectiva alta y personajes ML3D más elaborados.
+   Pensado para integrarse después dentro de la pantalla 3:2 del emulador. */
+
+.lobby-stage {
+  position:relative;
+  aspect-ratio:3/2;
+  min-height:0;
+  overflow:hidden;
+  isolation:isolate;
+  border:1px solid #34424f;
+  background:
+    radial-gradient(ellipse at 50% 48%,rgba(79,139,180,.12),transparent 62%),
+    linear-gradient(180deg,#070b0f 0%,#020407 100%);
+  box-shadow:inset 0 0 34px rgba(0,0,0,.7),0 14px 34px rgba(0,0,0,.28);
+}
+
+/* Recinto exterior: más estrecho atrás y más ancho delante. */
+.lobby-stage::before {
+  content:"";
+  position:absolute;
+  z-index:0;
+  left:4.2%;
+  right:4.2%;
+  top:5.8%;
+  bottom:5.2%;
+  clip-path:polygon(12% 0,88% 0,96% 11%,99% 79%,93% 100%,7% 100%,1% 79%,4% 11%);
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.22) 0 2%,rgba(255,255,255,.06) 3% 8%,transparent 11%),
+    linear-gradient(90deg,#172029 0%,#4b5864 4%,#27333e 10%,#1b242d 50%,#27333e 90%,#4b5864 96%,#172029 100%);
+  box-shadow:
+    0 14px 26px rgba(0,0,0,.72),
+    inset 0 0 0 2px rgba(255,255,255,.09),
+    inset 0 -22px 26px rgba(0,0,0,.46),
+    inset 0 8px 16px rgba(128,180,214,.09);
+}
+
+/* Sombra interior del muro para dar altura al borde. */
+.lobby-stage::after {
+  content:"";
+  position:absolute;
+  z-index:1;
+  left:8.3%;
+  right:8.3%;
+  top:12.8%;
+  bottom:10.7%;
+  clip-path:polygon(10% 0,90% 0,96% 9%,99% 78%,93% 100%,7% 100%,1% 78%,4% 9%);
+  background:linear-gradient(180deg,rgba(0,0,0,.48) 0 4%,transparent 12% 84%,rgba(0,0,0,.25) 100%);
+  box-shadow:0 -4px 10px rgba(0,0,0,.42),0 5px 12px rgba(0,0,0,.2);
+  pointer-events:none;
+}
+
+/* Suelo. La forma comparte la misma perspectiva del recinto. */
+.room-pattern {
+  position:absolute;
+  z-index:2;
+  left:9.2%;
+  right:9.2%;
+  top:14.4%;
+  bottom:12.3%;
+  clip-path:polygon(10% 0,90% 0,96% 9%,99% 78%,93% 100%,7% 100%,1% 78%,4% 9%);
+  background:
+    linear-gradient(180deg,rgba(111,169,206,.06),transparent 14%),
+    repeating-linear-gradient(90deg,rgba(150,194,221,.035) 0 1px,transparent 1px 56px),
+    repeating-linear-gradient(0deg,rgba(255,255,255,.024) 0 1px,transparent 1px 48px),
+    radial-gradient(ellipse at 50% 51%,rgba(83,145,186,.12),transparent 38%),
+    linear-gradient(160deg,#26343f 0%,#1b2730 47%,#121a21 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(139,194,227,.32),
+    inset 0 0 0 7px rgba(4,9,13,.54),
+    inset 0 0 30px rgba(65,125,165,.08);
+}
+
+.room-pattern::before {
+  content:"";
+  position:absolute;
+  inset:6.5% 5.4% 7.4%;
+  clip-path:polygon(7% 0,93% 0,98% 7%,100% 82%,94% 100%,6% 100%,0 82%,2% 7%);
+  border:2px solid rgba(179,217,239,.56);
+  box-shadow:inset 0 0 0 3px rgba(5,10,15,.52),0 0 10px rgba(94,164,210,.08);
+}
+
+.room-pattern::after {
+  content:"MAKING LAYERS // LINK SPACE";
+  position:absolute;
+  left:50%;
+  bottom:3.6%;
+  transform:translateX(-50%);
+  color:rgba(188,214,231,.32);
+  font:800 clamp(5px,.9vw,9px)/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.18em;
+  white-space:nowrap;
+}
+
+/* Centro: marca integrada en el pavimento, sin plataforma elevada. */
+.room-rug {
+  position:absolute;
+  z-index:3;
+  left:38%;
+  top:37%;
+  width:24%;
+  height:28%;
+  border:0;
+  border-radius:50%;
+  background:
+    radial-gradient(ellipse at 50% 50%,transparent 0 39%,rgba(132,195,233,.1) 40% 42%,transparent 43% 59%,rgba(132,195,233,.06) 60% 62%,transparent 63%);
+  box-shadow:none;
+  opacity:.86;
+  pointer-events:none;
+}
+
+.room-rug::before {
+  content:"";
+  position:absolute;
+  inset:17%;
+  background:linear-gradient(180deg,rgba(221,239,250,.56),rgba(99,166,208,.34));
+  -webkit-mask:url("../assets/ml3d-logo.png") center/contain no-repeat;
+  mask:url("../assets/ml3d-logo.png") center/contain no-repeat;
+  filter:drop-shadow(0 0 8px rgba(98,177,226,.22));
+  opacity:.8;
+  transform:scaleY(.72);
+}
+.room-rug::after { content:none; }
+
+/* Panel pequeño en la pared trasera. */
+.room-console {
+  z-index:6;
+  left:50%;
+  top:7.2%;
+  width:28%;
+  height:6.3%;
+  min-height:0;
+  transform:translateX(-50%);
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid rgba(138,187,216,.22);
+  border-radius:5px;
+  background:linear-gradient(180deg,#273640,#10171e);
+  color:transparent;
+  font-size:0;
+  box-shadow:0 4px 11px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.11);
+}
+.room-console::before {
+  content:"MAKING LAYERS";
+  color:#e7eef3;
+  font:900 clamp(5px,.95vw,9px)/1 system-ui,sans-serif;
+  letter-spacing:.17em;
+}
+.room-console::after {
+  content:"ML3D // LINK";
+  position:absolute;
+  left:50%;
+  bottom:9%;
+  transform:translateX(-50%);
+  color:#79b8e1;
+  font:900 clamp(3px,.55vw,5px)/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.14em;
+  white-space:nowrap;
+}
+
+.players-layer { position:absolute; inset:0; z-index:10; }
+
+.player {
+  position:absolute;
+  width:88px;
+  transform:translate(-50%,-50%) scale(var(--depth-scale,1));
+  transform-origin:50% 88%;
+  text-align:center;
+  pointer-events:none;
+  transition:left 90ms linear,top 90ms linear,transform 110ms ease;
+  animation:ml3dPlayerEnterV4 260ms cubic-bezier(.18,1.08,.34,1) both;
+}
+.player.local { transition:none; }
+
+.player-name {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  max-width:88px;
+  padding:2px 7px;
+  border:1px solid rgba(165,208,234,.25);
+  border-radius:999px;
+  background:rgba(3,8,12,.88);
+  color:#f6f9fb;
+  font-size:9px;
+  font-weight:850;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  box-shadow:0 3px 8px rgba(0,0,0,.34);
+}
+
+.quality-dot {
+  width:8px;
+  height:8px;
+  flex:0 0 auto;
+  border-radius:50%;
+  background:#6b747d;
+  box-shadow:0 0 0 1px rgba(255,255,255,.2);
+}
+.quality-dot.good { background:#46c978; box-shadow:0 0 0 1px rgba(255,255,255,.18),0 0 6px rgba(70,201,120,.72); }
+.quality-dot.ok { background:#e5b748; box-shadow:0 0 0 1px rgba(255,255,255,.18),0 0 6px rgba(229,183,72,.62); }
+.quality-dot.bad { background:#e25d66; box-shadow:0 0 0 1px rgba(255,255,255,.18),0 0 6px rgba(226,93,102,.68); }
+
+/* Avatar ML3D Pro --------------------------------------------------------- */
+.avatar-wrap {
+  --skin:#f2c9a9;
+  --skin-shadow:#d9a987;
+  --hair:#18222b;
+  position:relative;
+  width:54px;
+  height:72px;
+  margin:3px auto 0;
+  filter:drop-shadow(0 7px 4px rgba(0,0,0,.36));
+  animation:ml3dAvatarIdleV4 2.6s ease-in-out infinite;
+}
+
+.avatar-wrap::before {
+  content:"";
+  position:absolute;
+  z-index:0;
+  left:50%;
+  bottom:1px;
+  width:38px;
+  height:10px;
+  transform:translateX(-50%);
+  border-radius:50%;
+  background:rgba(0,0,0,.38);
+  filter:blur(1px);
+}
+
+.player.local .avatar-wrap::after {
+  content:"";
+  position:absolute;
+  z-index:-1;
+  left:50%;
+  bottom:-1px;
+  width:50px;
+  height:17px;
+  transform:translateX(-50%);
+  border-radius:50%;
+  border:1px solid rgba(105,186,233,.65);
+  box-shadow:0 0 11px rgba(105,186,233,.4),inset 0 0 8px rgba(105,186,233,.12);
+  animation:ml3dLocalRingV4 2s ease-in-out infinite;
+}
+
+.avatar-head {
+  position:absolute;
+  z-index:7;
+  left:12px;
+  top:3px;
+  width:30px;
+  height:31px;
+  border-radius:47% 47% 44% 44%;
+  background:
+    radial-gradient(circle at 35% 30%,rgba(255,255,255,.38),transparent 24%),
+    linear-gradient(155deg,#f7d7bd 0%,var(--skin) 58%,var(--skin-shadow) 100%);
+  border:1px solid rgba(72,46,34,.16);
+  box-shadow:inset -3px -4px 5px rgba(116,73,49,.12),inset 2px 2px 4px rgba(255,255,255,.15);
+}
+
+.avatar-head::before {
+  content:"";
+  position:absolute;
+  z-index:3;
+  left:-2px;
+  right:-2px;
+  top:-4px;
+  height:13px;
+  border-radius:55% 55% 34% 34%;
+  background:linear-gradient(165deg,#2b3a45,#10171d 72%);
+  clip-path:polygon(0 45%,12% 12%,28% 32%,44% 0,58% 29%,76% 8%,100% 42%,96% 90%,80% 74%,65% 100%,49% 75%,31% 100%,15% 75%,3% 90%);
+  box-shadow:0 2px 3px rgba(0,0,0,.2);
+}
+
+.avatar-head::after {
+  content:"";
+  position:absolute;
+  left:4px;
+  right:4px;
+  bottom:3px;
+  height:3px;
+  border-radius:50%;
+  background:linear-gradient(90deg,transparent,rgba(207,92,91,.14),transparent);
+}
+
+.avatar-eye { position:absolute; z-index:4; top:13px; width:4px; height:5px; border-radius:50%; background:#10161b; box-shadow:inset 1px 1px rgba(255,255,255,.18); }
+.avatar-eye.left { left:7px; }
+.avatar-eye.right { right:7px; }
+.face-happy .avatar-mouth { position:absolute; z-index:4; left:9px; top:21px; width:10px; height:4px; border-bottom:1.5px solid #6d4034; border-radius:0 0 50% 50%; }
+.face-flat .avatar-mouth { position:absolute; z-index:4; left:10px; top:23px; width:9px; border-top:1.5px solid #6d4034; }
+.face-wow .avatar-mouth { position:absolute; z-index:4; left:12px; top:20px; width:6px; height:7px; border-radius:50%; background:#754638; }
+
+.avatar-body {
+  position:absolute;
+  z-index:4;
+  left:10px;
+  top:31px;
+  width:34px;
+  height:27px;
+  border:1px solid rgba(255,255,255,.18);
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.2),transparent 32%),
+    linear-gradient(150deg,var(--avatar-color,#4d9be6),color-mix(in srgb,var(--avatar-color,#4d9be6) 72%,#081018));
+  box-shadow:inset -4px -5px 7px rgba(0,0,0,.16),0 2px 3px rgba(0,0,0,.18);
+}
+.body-round .avatar-body { border-radius:45% 45% 30% 30%; }
+.body-square .avatar-body { border-radius:7px 7px 5px 5px; }
+.body-bean .avatar-body { border-radius:52% 35% 43% 38%; transform:rotate(-2deg); }
+
+/* detalle de ropa: cremallera + pequeño chevrón ML3D */
+.avatar-body::before {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:3px;
+  bottom:3px;
+  width:1px;
+  transform:translateX(-50%);
+  background:rgba(7,15,21,.3);
+  box-shadow:1px 0 rgba(255,255,255,.08);
+}
+.avatar-body::after {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:8px;
+  width:9px;
+  height:6px;
+  transform:translateX(-50%);
+  clip-path:polygon(0 0,50% 55%,100% 0,100% 32%,50% 90%,0 32%);
+  background:rgba(234,246,253,.72);
+  opacity:.72;
+}
+
+.avatar-pro-layer { position:absolute; inset:0; z-index:6; pointer-events:none; }
+.avatar-pro-ear { position:absolute; z-index:1; top:15px; width:6px; height:9px; border-radius:50%; background:var(--skin); border:1px solid rgba(88,54,38,.12); }
+.avatar-pro-ear.left { left:8px; }
+.avatar-pro-ear.right { right:8px; }
+.avatar-pro-neck { position:absolute; z-index:2; left:23px; top:29px; width:8px; height:8px; border-radius:3px; background:var(--skin-shadow); }
+
+.avatar-pro-arm { position:absolute; z-index:3; top:36px; width:10px; height:24px; border-radius:7px; background:linear-gradient(180deg,var(--avatar-color,#4d9be6) 0 57%,var(--skin) 58% 100%); box-shadow:inset -2px -2px 4px rgba(0,0,0,.12); transform-origin:50% 10%; }
+.avatar-pro-arm.left { left:5px; transform:rotate(10deg); }
+.avatar-pro-arm.right { right:5px; transform:rotate(-10deg); }
+
+.avatar-pro-collar { position:absolute; z-index:8; left:17px; top:31px; width:20px; height:8px; clip-path:polygon(0 0,50% 70%,100% 0,84% 100%,50% 72%,16% 100%); background:#dbeaf3; opacity:.86; }
+.avatar-pro-belt { position:absolute; z-index:8; left:13px; top:52px; width:28px; height:4px; border-radius:3px; background:#151e25; box-shadow:inset 0 1px rgba(255,255,255,.12); }
+
+.avatar-pro-leg { position:absolute; z-index:2; top:55px; width:12px; height:12px; border-radius:3px 3px 5px 5px; background:linear-gradient(180deg,#26343e,#11181e); }
+.avatar-pro-leg.left { left:14px; }
+.avatar-pro-leg.right { right:14px; }
+.avatar-pro-shoe { position:absolute; z-index:3; top:64px; width:14px; height:6px; border-radius:5px 5px 4px 4px; background:linear-gradient(180deg,#24313b,#090e12); border-top:1px solid rgba(255,255,255,.08); }
+.avatar-pro-shoe.left { left:11px; transform:rotate(-4deg); }
+.avatar-pro-shoe.right { right:11px; transform:rotate(4deg); }
+
+/* Accesorios rehechos para encajar con la nueva cabeza. */
+.avatar-accessory { position:absolute; z-index:12; }
+.accessory-cap { left:8px; top:0; width:38px; height:12px; border-radius:15px 15px 5px 5px; background:linear-gradient(180deg,#31414d,#151e25); border:1px solid #607889; box-shadow:inset 0 2px rgba(255,255,255,.1); }
+.accessory-cap::after { content:""; position:absolute; right:-5px; bottom:-2px; width:13px; height:4px; border-radius:50%; background:#151e25; }
+.accessory-antenna { left:25px; top:-8px; width:3px; height:13px; background:#91a8ba; border-radius:5px; }
+.accessory-antenna::after { content:""; position:absolute; left:-3px; top:-5px; width:9px; height:9px; border-radius:50%; background:#e6b84b; box-shadow:0 0 5px rgba(230,184,75,.45); }
+.accessory-bow { left:5px; top:7px; width:14px; height:10px; background:#e06f9b; clip-path:polygon(0 0,50% 35%,100% 0,78% 100%,50% 60%,22% 100%); }
+
+.player.is-moving .avatar-wrap { animation:ml3dWalkV4 180ms steps(2,end) infinite; }
+.player.is-moving .avatar-pro-arm.left { animation:ml3dArmLeftV4 360ms ease-in-out infinite alternate; }
+.player.is-moving .avatar-pro-arm.right { animation:ml3dArmRightV4 360ms ease-in-out infinite alternate; }
+
+.chat-bubble {
+  bottom:75px;
+  max-width:170px;
+  min-width:44px;
+  padding:7px 9px;
+  border:1px solid rgba(9,16,22,.1);
+  border-radius:12px 12px 12px 3px;
+  background:#fff;
+  color:#10151a;
+  font-size:10px;
+  line-height:1.25;
+  box-shadow:0 5px 15px rgba(0,0,0,.3);
+  animation:ml3dBubbleInV4 180ms cubic-bezier(.2,1.25,.35,1) both;
+}
+.chat-bubble::after { border-top-color:#fff; }
+
+.lobby-toolbar { border-color:#2f3c49; background:linear-gradient(180deg,#111820,#0c1218); }
+.lobby-help { border-color:#2f3c49; background:#0c1218; }
+.touch-controls { opacity:.78; }
+
+@keyframes ml3dPlayerEnterV4 { from{opacity:0;transform:translate(-50%,-44%) scale(.72)} to{opacity:1;transform:translate(-50%,-50%) scale(var(--depth-scale,1))} }
+@keyframes ml3dAvatarIdleV4 { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-1.4px)} }
+@keyframes ml3dLocalRingV4 { 0%,100%{opacity:.52;transform:translateX(-50%) scale(.92)} 50%{opacity:1;transform:translateX(-50%) scale(1.08)} }
+@keyframes ml3dWalkV4 { 0%{transform:translateY(0) rotate(-1deg)} 50%{transform:translateY(-2px) rotate(1deg)} 100%{transform:translateY(0) rotate(-1deg)} }
+@keyframes ml3dArmLeftV4 { from{transform:rotate(17deg)} to{transform:rotate(2deg)} }
+@keyframes ml3dArmRightV4 { from{transform:rotate(-2deg)} to{transform:rotate(-17deg)} }
+@keyframes ml3dBubbleInV4 { from{opacity:0;transform:translateX(-50%) translateY(5px) scale(.86)} to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)} }
+
+@media(max-width:640px){
+  .player{width:74px}
+  .player-name{max-width:74px;font-size:8px;padding:2px 5px}
+  .avatar-wrap{transform-origin:50% 100%}
+  .room-pattern::after{letter-spacing:.12em}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .player,.avatar-wrap,.player.local .avatar-wrap::after,.chat-bubble,.player.is-moving .avatar-pro-arm{animation:none!important;transition:none!important}
+}

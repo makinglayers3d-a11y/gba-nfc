@@ -1,0 +1,64 @@
+/* ML3D Link — sala final aprobada.
+   La arena se renderiza como <img> real para conservar el encuadre 3:2 completo
+   a cualquier resolución y evitar recortes heredados de fondos CSS anteriores. */
+
+.lobby-stage {
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 3 / 2 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  isolation: isolate !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #02060b !important;
+  box-shadow: none !important;
+  perspective: none !important;
+}
+
+.lobby-stage::before,
+.lobby-stage::after,
+.lobby-stage .room-pattern,
+.lobby-stage .room-rug,
+.lobby-stage .room-console {
+  display: none !important;
+  content: none !important;
+}
+
+.lobby-stage .arena-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  object-position: 50% 50%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.lobby-stage .players-layer {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 20 !important;
+  overflow: hidden !important;
+}
+
+.lobby-stage .player { z-index: 21 !important; }
+.lobby-stage .player-name,
+.lobby-stage .chat-bubble { z-index: 24 !important; }
+.lobby-stage .session-banner { z-index: 30 !important; }
+
+/* El portal inferior forma parte de la imagen, no de la zona de movimiento. */
+.lobby-stage .players-layer::before,
+.lobby-stage .players-layer::after { content: none !important; display: none !important; }
+
+@media (max-width: 640px) {
+  .lobby-stage {
+    aspect-ratio: 3 / 2 !important;
+    min-height: 0 !important;
+  }
+}

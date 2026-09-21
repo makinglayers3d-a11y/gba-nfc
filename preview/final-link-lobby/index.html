@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+  >
+  <meta name="theme-color" content="#10141b">
+  <title>ML3Demuler</title>
+
+  <link rel="stylesheet" href="style.css?v=boot-sync-1">
+  <link rel="stylesheet" href="EnhancedFeatures.css?v=boot-sync-1">
+  <link rel="stylesheet" href="save-capture-v2.css?v=final-port-1">
+</head>
+
+<body>
+  <script>
+    (() => {
+      let family = "sp";
+
+      try {
+        family = localStorage.getItem("ml3d-appearance-family") || "sp";
+      } catch (error) {
+        console.warn("ML3D: no se pudo leer la apariencia guardada.", error);
+      }
+
+      document.body.classList.add(family === "custom" ? "ml3d-custom-skin" : "sp-skin-test");
+      document.body.dataset.appearanceFamily = family === "custom" ? "custom" : "sp";
+    })();
+  </script>
+
+  <main class="app">
+
+  <div class="sp-top-labels" aria-hidden="true">
+    <span class="sp-power-label">POWER ON</span>
+    <span class="sp-code-brand">
+      <img src="assets/ml3d-logo.png" alt="">
+      <span>ML3Demuler</span>
+    </span>
+    <span class="sp-battery-label">BATTERY FULL</span>
+  </div>
+
+   <header class="topbar">
+  <div class="brand">
+  <img
+    src="assets/ml3d-logo.png"
+    alt="ML3D"
+    class="brand-logo"
+  >
+
+  <span class="brand-name">ML3Demuler</span>
+
+  <span id="game-title" class="game-title-hidden">
+    Preparando juego…
+  </span>
+</div>
+  <button
+    id="menu-button"
+    class="icon-button"
+    type="button"
+    aria-label="Abrir menú"
+  >
+    ☰
+  </button>
+</header>
+
+    <section class="console">
+
+     
+  <div class="screen-frame">
+  <canvas id="screen" width="240" height="160"></canvas>
+
+  <div id="status">Preparando emulador…</div>
+
+  <div id="boot-screen">
+    <div id="boot-logo-screen">
+      <img
+        src="assets/ml3d-logo.png"
+        alt="ML3D"
+        id="boot-logo"
+      >
+
+    <div id="boot-brand" aria-label="Makinglayers3d creations">
+  <span class="boot-letter" style="--letter-delay: 0.70s;">M</span>
+  <span class="boot-letter" style="--letter-delay: 0.755s;">a</span>
+  <span class="boot-letter" style="--letter-delay: 0.81s;">k</span>
+  <span class="boot-letter" style="--letter-delay: 0.865s;">i</span>
+  <span class="boot-letter" style="--letter-delay: 0.92s;">n</span>
+  <span class="boot-letter" style="--letter-delay: 0.975s;">g</span>
+  <span class="boot-letter" style="--letter-delay: 1.03s;">l</span>
+  <span class="boot-letter" style="--letter-delay: 1.085s;">a</span>
+  <span class="boot-letter" style="--letter-delay: 1.14s;">y</span>
+  <span class="boot-letter" style="--letter-delay: 1.195s;">e</span>
+  <span class="boot-letter" style="--letter-delay: 1.25s;">r</span>
+  <span class="boot-letter" style="--letter-delay: 1.305s;">s</span>
+  <span class="boot-letter" style="--letter-delay: 1.36s;">3</span>
+  <span class="boot-letter" style="--letter-delay: 1.415s;">d</span>
+
+  <span class="boot-letter" style="--letter-delay: 1.47s;">&nbsp;</span>
+
+  <span class="boot-letter" style="--letter-delay: 1.525s;">c</span>
+  <span class="boot-letter" style="--letter-delay: 1.58s;">r</span>
+  <span class="boot-letter" style="--letter-delay: 1.635s;">e</span>
+  <span class="boot-letter" style="--letter-delay: 1.69s;">a</span>
+  <span class="boot-letter" style="--letter-delay: 1.745s;">t</span>
+  <span class="boot-letter" style="--letter-delay: 1.80s;">i</span>
+  <span class="boot-letter" style="--letter-delay: 1.855s;">o</span>
+  <span class="boot-letter" style="--letter-delay: 1.91s;">n</span>
+  <span class="boot-letter" style="--letter-delay: 1.965s;">s</span>
+</div>
+    </div>
+
+    <div id="update-screen">
+      <div class="update-message">
+        Se recomienda forzar la actualización<br>
+        de la página para implementar<br>
+        posibles actualizaciones.
+      </div>
+    </div>
+  </div>
+</div>    
+
+      <section id="controls" class="controls">
+
+        <button class="shoulder left" data-key="L">L</button>
+        <button class="shoulder right" data-key="R">R</button>
+
+        <div class="dpad">
+          <button data-key="UP">▲</button>
+          <button data-key="LEFT">◀</button>
+          <button data-key="RIGHT">▶</button>
+          <button data-key="DOWN">▼</button>
+        </div>
+
+        <div class="face-buttons">
+          <button class="face b" data-key="B">B</button>
+          <button class="face a" data-key="A">A</button>
+        </div>
+
+        <div class="start-select">
+          <button data-key="SELECT">SELECT</button>
+          <button data-key="START">START</button>
+        </div>
+
+      </section>
+<div class="bottom-brand">
+  <img
+    src="assets/ml3d-logo.png"
+    alt="ML3D"
+    class="bottom-logo"
+  >
+  <span>ML3Demuler</span>
+</div>
+    </section>
+
+    <dialog id="menu">
+      <div class="menu-card">
+        <button id="close-menu" type="button">×</button>
+        <h2 style="display:flex;align-items:center;gap:8px;color:#fff;font-weight:900;">
+          <img src="assets/ml3d-logo.png" alt="" style="width:28px;height:28px;object-fit:contain;">
+          <span>ML3D</span>
+        </h2>
+        <button id="select-game-button" type="button">
+  Seleccionar juego
+</button>
+<div class="speed-control">
+  <label for="speed-select">Velocidad</label>
+
+  <select id="speed-select">
+    <option value="0.5">50%</option>
+    <option value="0.75">75%</option>
+    <option value="0.9">90%</option>
+    <option value="0.95" selected>95%</option>
+    <option value="1">100%</option>
+    <option value="1.1">110%</option>
+    <option value="1.25">125%</option>
+    <option value="1.5">150%</option>
+  </select>
+
+  <button
+    id="haptic-button"
+    type="button"
+    aria-pressed="false"
+    aria-label="Activar vibración de los controles"
+  >
+    Vibración
+  </button>
+</div>
+ <section class="audio-control">
+  <h3>Sonido</h3>
+
+  <div class="volume-row">
+    <div class="volume-label-row">
+      <label for="volume-slider">Volumen</label>
+      <span id="volume-value">100%</span>
+    </div>
+
+    <div class="volume-controls">
+      <input
+        id="volume-slider"
+        type="range"
+        min="0"
+        max="100"
+        value="100"
+        step="1"
+      >
+
+      <button
+        id="mute-button"
+        type="button"
+      >
+        Silenciar
+      </button>
+    </div>
+  </div>
+</section>
+        
+<section class="appearance-control">
+  <h3>Apariencia</h3>
+
+  <div class="color-group">
+    <span>Fondo</span>
+    <div class="color-options" id="background-colors">
+      <button class="color-swatch" type="button" data-bg="#0b0f15" style="background:#0b0f15" aria-label="Fondo negro azulado"></button>
+      <button class="color-swatch" type="button" data-bg="#111111" style="background:#111111" aria-label="Fondo negro"></button>
+      <button class="color-swatch" type="button" data-bg="#263238" style="background:#263238" aria-label="Fondo gris"></button>
+      <button class="color-swatch" type="button" data-bg="#123524" style="background:#123524" aria-label="Fondo verde"></button>
+      <button class="color-swatch" type="button" data-bg="#2a1740" style="background:#2a1740" aria-label="Fondo morado"></button>
+      <button class="color-swatch" type="button" data-bg="#401919" style="background:#401919" aria-label="Fondo rojo"></button>
+    </div>
+  </div>
+
+  <div class="color-group">
+    <span>Teclas</span>
+    <div class="color-options" id="button-colors">
+      <button class="color-swatch" type="button" data-button="#273244" style="background:#273244" aria-label="Teclas azules"></button>
+      <button class="color-swatch" type="button" data-button="#3a3a3a" style="background:#3a3a3a" aria-label="Teclas grises"></button>
+      <button class="color-swatch" type="button" data-button="#24543a" style="background:#24543a" aria-label="Teclas verdes"></button>
+      <button class="color-swatch" type="button" data-button="#55337a" style="background:#55337a" aria-label="Teclas moradas"></button>
+      <button class="color-swatch" type="button" data-button="#6a3030" style="background:#6a3030" aria-label="Teclas rojas"></button>
+      <button class="color-swatch" type="button" data-button="#6a4a20" style="background:#6a4a20" aria-label="Teclas naranjas"></button>
+    </div>
+  </div>
+</section>
+
+<button id="save-game" type="button">
+  Guardar partida
+</button>
+
+<button id="reload-game" type="button">
+  Reiniciar juego
+</button>
+
+<button
+  id="social-link"
+  class="social-link"
+  type="button"
+  aria-label="Abrir Instagram de Makinglayers3d"
+  onclick="window.open('https://www.instagram.com/makinglayers3d/', '_blank', 'noopener,noreferrer')"
+>
+  <span class="social-label">
+    <img
+      src="assets/makinglayers3d-label.png?v=1f853638"
+      alt="MAKINGLAYERS3D"
+      class="social-label-image"
+    >
+  </span>
+
+  <span
+    class="social-reflection"
+    aria-hidden="true"
+  ></span>
+</button>
+<style>
+  #reload-game {
+    position: relative;
+    z-index: 2;
+  }
+
+  .menu-card > button#social-link {
+    position: relative;
+    z-index: 1;
+
+    display: block;
+
+    width: 100%;
+    height: auto;
+    margin-top: -29.5px;
+    padding: 0;
+
+    overflow: visible;
+
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+
+    box-shadow: none;
+
+    cursor: pointer;
+    isolation: isolate;
+    transform-origin: center;
+
+    animation: socialDoubleClick 4s ease-in-out infinite;
+  }
+
+  .menu-card > button#social-link::before {
+    content: none;
+  }
+
+  .social-label {
+    position: relative;
+    z-index: 1;
+
+    display: block;
+    width: 100%;
+    line-height: 0;
+    overflow: visible;
+  }
+
+  .social-label-image {
+    display: block;
+
+    width: 115.65%;
+    max-width: none;
+    height: auto;
+    margin-left: -7.825%;
+
+    object-fit: contain;
+    transform: translateY(-12px);
+    transform-origin: center;
+
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+
+    filter: none;
+  }
+
+  .social-reflection {
+    position: absolute;
+    top: 0;
+    left: -7.825%;
+    width: 115.65%;
+    height: auto;
+    aspect-ratio: 1774 / 887;
+    z-index: 2;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        108deg,
+        transparent 0%,
+        transparent 39%,
+        #ffffff18 44%,
+        #ffffff75 50%,
+        #ffffff18 56%,
+        transparent 61%,
+        transparent 100%
+      );
+    background-size: 220% 100%;
+    background-position: 130% 0;
+    -webkit-mask-image: url("assets/makinglayers3d-label.png?v=1f853638");
+    mask-image: url("assets/makinglayers3d-label.png?v=1f853638");
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    transform: translateY(-12px);
+    transform-origin: center;
+    animation: socialReflection 2.8s linear infinite;
+  }
+
+  .menu-card > button#social-link:active {
+    background: transparent;
+    border: 0;
+  }
+
+  .menu-card > button#social-link:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 3px;
+  }
+
+  @keyframes socialReflection {
+    0% {
+      background-position: 130% 0;
+    }
+
+    100% {
+      background-position: -120% 0;
+    }
+  }
+
+  @keyframes socialDoubleClick {
+    0%, 70%, 76%, 82%, 88%, 100% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+    73%, 85% {
+      transform: scale(0.975);
+      filter: brightness(1.12);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu-card > button#social-link,
+    .social-reflection {
+      animation: none;
+    }
+    .social-reflection {
+      display: none;
+    }
+  }
+</style>
+       
+      </div>
+    </dialog>
+<dialog id="game-selector">
+  <div class="menu-card game-selector-card">
+    <button id="close-game-selector" type="button">×</button>
+
+    <h2>Seleccionar juego</h2>
+
+    <div id="game-list">
+      <div class="game-list-status">Cargando juegos…</div>
+    </div>
+  </div>
+</dialog>
+  </main>
+<script src="IodineGBA/includes/TypedArrayShim.js"></script>
+
+<script src="IodineGBA/core/Cartridge.js"></script>
+<script src="IodineGBA/core/DMA.js"></script>
+<script src="IodineGBA/core/Emulator.js"></script>
+<script src="IodineGBA/core/Graphics.js"></script>
+<script src="IodineGBA/core/RunLoop.js?v=link-final-1"></script>
+<script src="IodineGBA/core/Memory.js?v=link-final-1"></script>
+<script src="IodineGBA/core/IRQ.js"></script>
+<script src="IodineGBA/core/JoyPad.js"></script>
+<script src="IodineGBA/core/Serial.js?v=link-final-1"></script>
+<script src="IodineGBA/core/Sound.js"></script>
+<script src="IodineGBA/core/Timer.js"></script>
+<script src="IodineGBA/core/Wait.js"></script>
+<script src="IodineGBA/core/CPU.js"></script>
+<script src="IodineGBA/core/Saves.js"></script>
+<script src="IodineGBA/core/SaveState.js"></script>  
+
+<script src="IodineGBA/core/sound/FIFO.js"></script>
+<script src="IodineGBA/core/sound/Channel1.js"></script>
+<script src="IodineGBA/core/sound/Channel2.js"></script>
+<script src="IodineGBA/core/sound/Channel3.js"></script>
+<script src="IodineGBA/core/sound/Channel4.js"></script>
+
+<script src="IodineGBA/core/CPU/ARM.js"></script>
+<script src="IodineGBA/core/CPU/THUMB.js"></script>
+<script src="IodineGBA/core/CPU/CPSR.js"></script>
+<script src="IodineGBA/core/CPU/SWI.js"></script>  
+<script src="IodineGBA/core/HLE-BIOS.js"></script>
+
+<script src="IodineGBA/core/graphics/Renderer.js"></script>
+<script src="IodineGBA/core/graphics/RendererShim.js"></script>
+<script src="IodineGBA/core/graphics/RendererProxy.js"></script>
+<script src="IodineGBA/core/graphics/BGTEXT.js"></script>
+<script src="IodineGBA/core/graphics/BG2FrameBuffer.js"></script>
+<script src="IodineGBA/core/graphics/BGMatrix.js"></script>
+<script src="IodineGBA/core/graphics/AffineBG.js"></script>
+<script src="IodineGBA/core/graphics/ColorEffects.js"></script>
+<script src="IodineGBA/core/graphics/Mosaic.js"></script>
+<script src="IodineGBA/core/graphics/OBJ.js"></script>
+<script src="IodineGBA/core/graphics/OBJWindow.js"></script>
+<script src="IodineGBA/core/graphics/Window.js"></script>
+<script src="IodineGBA/core/graphics/Compositor.js"></script>
+
+<script src="IodineGBA/core/memory/DMA0.js"></script>
+<script src="IodineGBA/core/memory/DMA1.js"></script>
+<script src="IodineGBA/core/memory/DMA2.js"></script>
+<script src="IodineGBA/core/memory/DMA3.js"></script>
+
+<script src="IodineGBA/core/cartridge/SaveDeterminer.js"></script>
+<script src="IodineGBA/core/cartridge/SRAM.js"></script>
+<script src="IodineGBA/core/cartridge/FLASH.js"></script>
+<script src="IodineGBA/core/cartridge/EEPROM.js"></script>
+<script src="IodineGBA/core/cartridge/GPIO.js"></script>
+<script src="IodineGBA/core/cartridge/RTC.js"></script>
+
+<script src="user_scripts/XAudioJS/swfobject.js"></script>
+<script src="user_scripts/XAudioJS/resampler.js"></script>
+<script src="user_scripts/XAudioJS/XAudioServer.js"></script>
+<script src="user_scripts/AudioGlueCode.js"></script>
+
+<script src="user_scripts/GfxGlueCode.js"></script>
+
+<!--
+  Activamos binjgb en modo biblioteca.
+  El núcleo GB/GBC se carga de forma diferida únicamente cuando se necesita,
+  reduciendo memoria y trabajo de arranque para juegos GBA.
+-->
+<script>
+  window.GBA_GB_LIBRARY_MODE = true;
+</script>
+<script src="GB/lazy-loader.js?v=playback-compat-2"></script>
+
+<script src="console-transitions.js?v=boot-sync-1"></script>
+<script src="user_scripts/BootIntro.js?v=playback-compat-2"></script>
+<script src="appearance-selector.js?v=final-port-1"></script>
+<script src="EnhancedFeatures.js?v=boot-sync-1"></script>
+<script src="save-capture-v2.js?v=final-port-1"></script>
+<script src="user_scripts/GameSelector.js?v=game-list-fix-2"></script>
+<script src="GB/GBSave.js?v=final-port-1"></script>
+<script src="user_scripts/LinkCableBridge.js?v=link-final-1"></script>
+<script src="user_scripts/LocalLinkSession.js?v=link-final-1"></script>
+<script src="dev-access.js?v=dev-access-2"></script>
+<script src="emulator-tools.js?v=ml3demu-tools-13"></script>
+<script src="app.js?v=link-final-1"></script>
+  
+</body>
+</html>

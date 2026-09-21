@@ -1,0 +1,33 @@
+/* SP-only developer gesture and quick radial positioning. */
+@media (orientation: portrait) {
+  body.sp-skin-test .sp-code-brand,
+  body.sp-skin-test .sp-code-brand * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+
+  body.sp-skin-test .sp-code-brand {
+    pointer-events: auto !important;
+    touch-action: none;
+  }
+
+  /* The SP menu hit target is centered at top:60.75%. Place the 220px radial
+     directly above it, centered on the same physical button. */
+  body.sp-skin-test #ml3d-radial-menu {
+    left: 50% !important;
+    right: auto !important;
+    top: calc(60.75% - 18px) !important;
+    transform: translate(-50%, -100%);
+    transform-origin: 50% 100%;
+  }
+
+  body.sp-skin-test #ml3d-radial-menu {
+    animation: ml3dSpRadialIn 260ms cubic-bezier(.2,.9,.25,1.25) both;
+  }
+}
+
+@keyframes ml3dSpRadialIn {
+  from { opacity: 0; transform: translate(-50%, -82%) scale(.08) rotate(-35deg); }
+  to   { opacity: 1; transform: translate(-50%, -100%) scale(1) rotate(0); }
+}

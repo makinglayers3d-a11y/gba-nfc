@@ -1,0 +1,107 @@
+/* Main stylesheet loader. Base snapshot + current SP alignment overrides. */
+@import url("base-style.css?v=final-port-1");
+@import url("sp-controls-fix.css?v=final-port-1");
+
+/* Temporary snapshots keep final layout and touch geometry completely untouched. */
+body.ml3d-console-transitioning{overflow:hidden!important;touch-action:none}
+body.ml3d-console-transitioning> .app{opacity:0!important;pointer-events:none!important}
+body.ml3d-console-transitioning #menu-button,
+body.ml3d-console-transitioning #controls{pointer-events:none!important}
+.ml3d-console-transition-overlay{position:fixed;z-index:2147483000;overflow:hidden;pointer-events:none;transform-origin:50% 50%;transform-style:preserve-3d;perspective:1500px;contain:layout paint;will-change:transform,opacity}
+.ml3d-console-transition-shell{position:absolute;inset:0;will-change:opacity}
+.ml3d-console-transition-shell>.app{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;min-height:0!important;max-width:none!important;margin:0!important;overflow:hidden!important}
+.ml3d-console-transition-base{z-index:0;clip-path:polygon(0 49%,100% 49%,100% 100%,0 100%)}
+.ml3d-console-transition-top{z-index:1;clip-path:polygon(0 0,100% 0,100% 50.7%,0 50.7%);transform-origin:50% 50.62%;backface-visibility:hidden;will-change:transform,opacity}
+.ml3d-console-transition-lid{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;backface-visibility:hidden;will-change:transform,opacity}
+.ml3d-console-transition-panel{z-index:2;clip-path:polygon(0 51.15%,100% 51.15%,100% 100%,0 100%);transform-origin:50% 50.62%}
+@media(prefers-reduced-motion:reduce){.ml3d-console-transition-overlay,.ml3d-console-transition-shell,.ml3d-console-transition-lid{will-change:auto}}
+body.sp-skin-test .sp-top-labels,body.sp-skin-test .sp-top-labels *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.sp-skin-test .sp-code-brand{pointer-events:auto!important;touch-action:none}
+/* Browser selection is disabled for all emulator labels and logos. */
+.brand,.brand *, .bottom-brand,.bottom-brand *, .sp-top-labels,.sp-top-labels *, #boot-screen,#boot-screen *, #controls,#controls *, #menu-button{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;-webkit-user-drag:none!important}.brand img,.bottom-brand img,.sp-top-labels img,#boot-screen img{pointer-events:none;-webkit-user-drag:none!important}.bottom-brand{touch-action:none}
+/* SP-only holographic language. */
+body.sp-skin-test #ml3d-radial-menu{background:radial-gradient(circle,#65eaff24 0 18%,#0ddcff18 19% 58%,#001d2d22 59%)!important;border:1px solid #70efffaa!important;box-shadow:0 0 12px #42eaffbb,0 0 34px #00bfffa0,inset 0 0 28px #51efff45!important;backdrop-filter:blur(3px);overflow:visible;color:#bdf8ff!important}body.sp-skin-test #ml3d-radial-menu::before,body.sp-skin-test #menu .menu-card::before{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 3px,#b8f8ff12 4px,#00d9ff10 5px);mix-blend-mode:screen;animation:spHoloScan 3.2s linear infinite}body.sp-skin-test #ml3d-radial-menu::after{content:"";position:absolute;z-index:-1;left:50%;top:96%;width:54px;height:var(--sp-projector-height,92px);transform:translateX(-50%);transform-origin:50% 100%;clip-path:polygon(40% 100%,60% 100%,100% 0,0 0);background:repeating-linear-gradient(90deg,transparent 0 6px,#aafaff4a 7px,#24dcff20 9px,transparent 12px),linear-gradient(0deg,#d9ffff9a,#27dcff18 75%,transparent);filter:blur(.2px) drop-shadow(0 0 7px #56efff);opacity:.75;animation:spProjectorFlicker 1.45s steps(2,end) infinite;pointer-events:none}body.sp-skin-test #ml3d-radial-menu button{background:#0a77935c!important;border:1px solid #6df4ff99!important;color:#d8fcff!important;text-shadow:0 0 6px #36eaff;box-shadow:inset 0 0 12px #44eaff30,0 0 8px #00cfff55!important;backdrop-filter:blur(2px)}body.sp-skin-test #ml3d-radial-menu i{color:#bdfaff;text-shadow:0 0 8px #35eaff,0 0 15px #00bfff}
+body.sp-skin-test #menu{background:transparent!important;overflow:visible}body.sp-skin-test #menu::backdrop{background:#00121d55;backdrop-filter:blur(2px)}body.sp-skin-test #menu .menu-card{position:relative;overflow:hidden;background:linear-gradient(145deg,#063c4ccf,#04141ecf)!important;border:1px solid #74f3ffbb!important;box-shadow:0 0 16px #42eaffaa,0 0 48px #00bfff70,inset 0 0 30px #40eaff25!important;color:#e5fdff!important;text-shadow:0 0 4px #26dfff;transform-origin:50% 50%;animation:spHoloMenuBuild .62s cubic-bezier(.16,.84,.2,1) both}body.sp-skin-test #menu .menu-card>*{position:relative;z-index:2}body.sp-skin-test #menu .menu-card::after{content:"";position:absolute;inset:-15%;pointer-events:none;background:linear-gradient(100deg,transparent 42%,#e8ffff38 48%,#58eaff18 51%,transparent 57%);animation:spHoloSweep 4.8s ease-in-out infinite}body.sp-skin-test #menu button,body.sp-skin-test #menu select,body.sp-skin-test #menu input{filter:drop-shadow(0 0 3px #26dfff55)}body.sp-skin-test #menu .menu-card{isolation:isolate}body.sp-skin-test #menu #close-menu{position:absolute!important;top:12px!important;right:12px!important;left:auto!important;bottom:auto!important;margin:0!important;transform:none!important;transform-origin:center!important;z-index:20!important}body.sp-skin-test #menu #haptic-button.enabled,body.sp-skin-test #menu #haptic-button[aria-pressed="true"]{background:var(--button-active,#24543a)!important;border-color:#8dffff!important;color:#fff!important;box-shadow:0 0 10px #51efff88,inset 0 0 10px #ffffff18!important;text-shadow:0 0 5px #9effff!important}body.sp-skin-test #menu.menu-closing-comic .menu-card{animation:spHoloMenuOff .34s cubic-bezier(.7,0,1,.35) both!important}
+/* Normal-menu appearance selector. */
+.sp-top-labels{display:none}
+body.ml3d-custom-skin{min-height:100dvh;overflow-x:hidden;overflow-y:auto;background:var(--bg)}
+body.ml3d-custom-skin .app{position:relative;width:100%;height:auto;min-height:100dvh;overflow:visible}
+body.ml3d-custom-skin .app::before{content:none!important;display:none!important}
+body.ml3d-custom-skin .sp-top-labels{display:none!important;pointer-events:none!important}
+body.ml3d-custom-skin #menu-button{opacity:1;pointer-events:auto}
+#ml3d-appearance-selector{margin:.45rem 0 .75rem}.ml3d-family-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.ml3d-family-tabs button{min-height:40px;border:1px solid #ffffff35;border-radius:10px;background:#ffffff0c;color:inherit;font-weight:800}.ml3d-family-tabs button.active{border-color:#79f4ff;background:#0d789455;box-shadow:0 0 12px #36eaff66}.ml3d-family-panel[hidden]{display:none!important}.ml3d-style-label{display:block;margin:4px 0 9px;font-weight:700}.ml3d-sp-swatches{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.ml3d-sp-swatches button{width:38px!important;height:38px!important;min-width:38px!important;padding:0!important;border-radius:50%!important;background:var(--swatch)!important;border:3px solid #ffffff80!important;box-shadow:inset 0 0 8px #0005!important}.ml3d-sp-swatches button.active{outline:3px solid #75f3ff;outline-offset:3px;box-shadow:0 0 15px #46eaff,inset 0 0 8px #0005!important}.ml3d-family-panel small{display:block;margin-top:9px;opacity:.7}.ml3d-custom-slot .color-group{margin-top:10px}
+/* Selectable SP shells. Every variant preserves the reference geometry. */
+body.sp-skin-test{--ml3d-sp-shell:url("assets/gba-sp-silver.jpg?v=4")}
+body.sp-skin-test[data-sp-style="ml3d"]{--ml3d-sp-shell:url("assets/gba-sp-ml3d.webp?v=1")}
+body.sp-skin-test[data-sp-style="gray-red"]{--ml3d-sp-shell:url("assets/gba-sp-gray-red.png?v=3")}
+body.sp-skin-test[data-sp-style="cream-burgundy"]{--ml3d-sp-shell:url("assets/gba-sp-cream-burgundy.png?v=full-1")}
+body.sp-skin-test[data-sp-style="gold-zelda"]{--ml3d-sp-shell:url("assets/gba-sp-gold-zelda.png?v=full-1")}
+body.sp-skin-test[data-sp-style="yellow-character"]{--ml3d-sp-shell:url("assets/gba-sp-yellow-character.jpg?v=1")}
+body.sp-skin-test[data-sp-style="groudon"]{--ml3d-sp-shell:url("assets/gba-sp-groudon.webp?v=2")}
+body.sp-skin-test[data-sp-style="kyogre"]{--ml3d-sp-shell:url("assets/gba-sp-kyogre.webp?v=2")}
+body.sp-skin-test[data-sp-style="rayquaza"]{--ml3d-sp-shell:url("assets/gba-sp-rayquaza.webp?v=2")}
+body.sp-skin-test .app::before{background-image:var(--ml3d-sp-shell)!important}
+
+/* Menu buttons follow the active appearance family. */
+body.sp-skin-test #menu button:not(.color-swatch):not([data-sp]):not(#social-link){
+  position:relative;
+  overflow:hidden;
+  border:1px solid #79f4ffb8!important;
+  background:linear-gradient(145deg,#0b78956e,#04384c82)!important;
+  color:#e2fdff!important;
+  box-shadow:0 0 10px #37eaff70,inset 0 0 14px #64f5ff32!important;
+  text-shadow:0 0 6px #45eaff!important;
+  backdrop-filter:blur(3px);
+}
+body.sp-skin-test #menu button:not(.color-swatch):not([data-sp]):not(#social-link)::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(105deg,transparent 25%,#efffff5c 48%,transparent 70%);
+  transform:translateX(-135%);
+  animation:spButtonGlint 3.4s ease-in-out infinite;
+}
+body.sp-skin-test #menu button:not(.color-swatch):not([data-sp]):not(#social-link):active{
+  background:linear-gradient(145deg,#14b5d49a,#075b748f)!important;
+  box-shadow:0 0 17px #72f7ff,inset 0 0 18px #b5ffff4d!important;
+}
+body.sp-skin-test #menu #haptic-button.enabled,
+body.sp-skin-test #menu #haptic-button[aria-pressed="true"],
+body.sp-skin-test #menu .ml3d-family-tabs button.active{
+  border-color:#d8ffff!important;
+  background:linear-gradient(145deg,#18abc6a8,#08728d9c)!important;
+  color:#fff!important;
+  box-shadow:0 0 16px #63f4ff,inset 0 0 16px #a9ffff45!important;
+}
+body.sp-skin-test #menu .color-swatch,
+body.sp-skin-test #menu [data-sp]{
+  border-color:#9ef8ff!important;
+  box-shadow:0 0 10px #45eaff8c,inset 0 0 8px #0005!important;
+}
+
+body.ml3d-custom-skin #menu button:not(.color-swatch):not([data-sp]):not(#social-link){
+  border:1px solid #ffffff18!important;
+  background:var(--button)!important;
+  color:var(--text)!important;
+  box-shadow:inset 0 0 0 1px #ffffff0b!important;
+  text-shadow:none!important;
+  filter:none;
+}
+body.ml3d-custom-skin #menu button:not(.color-swatch):not([data-sp]):not(#social-link):active,
+body.ml3d-custom-skin #menu .ml3d-family-tabs button.active,
+body.ml3d-custom-skin #menu #haptic-button.enabled,
+body.ml3d-custom-skin #menu #haptic-button[aria-pressed="true"]{
+  border-color:#ffffff30!important;
+  background:var(--button)!important;
+  color:var(--text)!important;
+  box-shadow:inset 0 0 0 1px #ffffff14!important;
+  filter:brightness(1.22);
+}
+
+@keyframes spButtonGlint{
+  0%,58%{transform:translateX(-135%);opacity:0}
+  66%{opacity:.85}
+  82%,100%{transform:translateX(135%);opacity:0}
+}
+@media (orientation:portrait){body.sp-skin-test #ml3d-radial-menu{left:50%!important;right:auto!important;top:auto!important;bottom:calc(39.25dvh + 22px)!important;transform-origin:50% 100%;margin-left:-110px;animation:spHoloRadialIn .34s cubic-bezier(.18,.9,.2,1.25) both}}
+@keyframes spHoloRadialIn{0%{opacity:0;transform:translateY(82px) scale(.03);filter:brightness(3)}45%{opacity:.65;transform:translateY(18px) scale(.82) skewX(-2deg)}65%{opacity:.35;filter:brightness(2.3)}100%{opacity:1;transform:translateY(0) scale(1);filter:brightness(1)}}@keyframes spHoloMenuBuild{0%{opacity:0;transform:translate(var(--sp-menu-x,0px),var(--sp-menu-y,80px)) scale(.01,.006);filter:brightness(10) blur(1px)}12%{opacity:1;transform:translate(calc(var(--sp-menu-x,0px)*.78),calc(var(--sp-menu-y,80px)*.78)) scale(.05,.009);filter:brightness(12)}25%{opacity:.95;transform:translate(calc(var(--sp-menu-x,0px)*.42),calc(var(--sp-menu-y,80px)*.42)) scale(.88,.012);filter:brightness(8);box-shadow:0 0 16px #fff,0 0 42px #5ff4ff}39%{opacity:.45;transform:translate(calc(var(--sp-menu-x,0px)*.12),calc(var(--sp-menu-y,80px)*.12)) scale(1,.2);filter:brightness(3)}51%{opacity:.9;transform:translate(0,0) scale(1,.58);filter:brightness(2.2)}61%{opacity:.38;transform:scale(1,.72);filter:brightness(3.4)}70%{opacity:.88;transform:scale(1,.9);filter:brightness(1.6)}78%{opacity:.52;transform:scale(1,.96);filter:brightness(2.2)}88%{opacity:1;transform:scale(1,1.012);filter:brightness(1.25)}100%{opacity:1;transform:none;filter:none}}@keyframes spHoloMenuOff{0%{opacity:1;transform:scaleY(1);filter:brightness(1)}45%{opacity:.8;transform:scaleY(.38);filter:brightness(1.8)}76%{opacity:1;transform:scaleY(.018);filter:brightness(7);box-shadow:0 0 9px #fff,0 0 30px #7df5ff,0 0 58px #19dfff}90%{opacity:1;transform:scaleY(.006) scaleX(1.04);filter:brightness(12);box-shadow:0 0 14px #fff,0 0 42px #8cffff}100%{opacity:0;transform:scaleY(.001) scaleX(.18);filter:brightness(14)}}@keyframes spProjectorFlicker{0%,100%{opacity:.72;filter:blur(.2px) drop-shadow(0 0 7px #56efff)}18%{opacity:.42}20%{opacity:.9}52%{opacity:.68}54%{opacity:.28}57%{opacity:.78}82%{opacity:.58}}@keyframes spHoloScan{0%{background-position:0 0}100%{background-position:0 90px}}@keyframes spHoloSweep{0%,65%{transform:translateX(-75%);opacity:.15}78%{opacity:.8}100%{transform:translateX(75%);opacity:.1}}@media (prefers-reduced-motion:reduce){body.sp-skin-test #ml3d-radial-menu,body.sp-skin-test #menu .menu-card,body.sp-skin-test #ml3d-radial-menu::before,body.sp-skin-test #menu .menu-card::before,body.sp-skin-test #menu .menu-card::after,body.sp-skin-test #menu button::after{animation:none!important}}
