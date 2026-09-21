@@ -14,9 +14,18 @@ function GameBoyAdvanceIO(SKIPBoot, coreExposed, BIOS, ROM) {
     this.cyclesToIterate = 0;
     this.cyclesOveriteratedPreviously = 0;
     this.accumulatedClocks = 0;
+    // Monotonic virtual-time counter used by the local dual-core Link
+    // coordinator. It advances only with emulated GBA clocks.
+    this.linkCycleCounter = 0;
+    this.linkIterationCut = false;
     this.graphicsClocks = 0;
     this.timerClocks = 0;
     this.serialClocks = 0;
+    // Link network rendezvous state. This is diagnostic only: GBA virtual time
+    // keeps running while WebRTC carries the remote word. The SIO peripheral
+    // itself stays BUSY until the response arrives and hardware timing elapses.
+    this.linkCableWait = false;
+    this.linkCableWaitStartedAt = 0;
     this.nextEventClocks = 0;
     this.BIOSFound = false;
     //Do we skip the BIOS Boot Intro?
@@ -90,8 +99,30 @@ GameBoyAdvanceIO.prototype.enter = function (CPUCyclesTotal) {
         //Ensure audio buffers at least once per iteration:
         this.sound.audioJIT();
     }
-    //If we clocked just a little too much, subtract the extra from the next run:
-    this.cyclesOveriteratedPreviously = this.cyclesToIterate | 0;
+    // A Link-local early cut leaves positive cyclesToIterate by design. That
+    // remainder belongs to the abandoned scheduler slice and must not be fed
+    // back into the next enter() call as "overiteration".
+    if (this.linkIterationCut) {
+        this.cyclesOveriteratedPreviously = 0;
+        this.linkIterationCut = false;
+    }
+    else {
+        //If we clocked just a little too much, subtract the extra from the next run:
+        this.cyclesOveriteratedPreviously = this.cyclesToIterate | 0;
+    }
+}
+GameBoyAdvanceIO.prototype.beginLinkCableWait = function () {
+    if (!this.linkCableWait) {
+        this.linkCableWait = true;
+        this.linkCableWaitStartedAt =
+            (typeof performance != "undefined" && performance.now)
+                ? performance.now()
+                : Date.now();
+    }
+}
+GameBoyAdvanceIO.prototype.endLinkCableWait = function () {
+    this.linkCableWait = false;
+    this.linkCableWaitStartedAt = 0;
 }
 GameBoyAdvanceIO.prototype.run = function () {
     //Clock through the state machine:
@@ -119,6 +150,26 @@ GameBoyAdvanceIO.prototype.runARM = function () {
         //Handle the current system state selected:
         switch (this.systemStatus | 0) {
             case 0: //CPU Handle State (Normal ARM)
+                if (typeof this.linkInstructionObserver == "function") {
+                    try {
+                        var traceRawPCARM = this.cpu && this.cpu.registers
+                            ? (this.cpu.registers[15] >>> 0)
+                            : 0;
+                        // ARM uses a 3-stage pipeline; r15 is two words ahead.
+                        var traceLogicalPCARM = (traceRawPCARM - 0x8) >>> 0;
+                        // Keep the existing Mario ROM watches and also trace the
+                        // downloaded Single-Pak client while it executes in EWRAM.
+                        if (
+                            (traceLogicalPCARM >= 0x02000000 && traceLogicalPCARM < 0x02010000) ||
+                            (traceLogicalPCARM >= 0x080C9948 && traceLogicalPCARM <= 0x080C9D34) ||
+                            (traceLogicalPCARM >= 0x080C9E6C && traceLogicalPCARM <= 0x080C9F68) ||
+                            (traceLogicalPCARM >= 0x080C98D0 && traceLogicalPCARM <= 0x080C9934)
+                        ) {
+                            this.linkInstructionObserver(traceLogicalPCARM, traceRawPCARM);
+                        }
+                    }
+                    catch (error) {}
+                }
                 this.ARM.executeIteration();
                 break;
             case 1:
@@ -163,6 +214,25 @@ GameBoyAdvanceIO.prototype.runTHUMB = function () {
         //Handle the current system state selected:
         switch (this.systemStatus | 0) {
             case 4: //CPU Handle State (Normal THUMB)
+                if (typeof this.linkInstructionObserver == "function") {
+                    try {
+                        var traceRawPC = this.cpu && this.cpu.registers
+                            ? (this.cpu.registers[15] >>> 0)
+                            : 0;
+                        // THUMB uses a 3-stage fetch/decode/execute pipeline here.
+                        // At the start of executeIteration(), r15 is the fetch address;
+                        // the opcode about to execute is two halfwords behind it.
+                        var traceLogicalPC = (traceRawPC - 0x4) >>> 0;
+                        if (
+                            (traceLogicalPC >= 0x080C9948 && traceLogicalPC <= 0x080C9D34) ||
+                            (traceLogicalPC >= 0x080C9E6C && traceLogicalPC <= 0x080C9F68) ||
+                            (traceLogicalPC >= 0x080C98D0 && traceLogicalPC <= 0x080C9934)
+                        ) {
+                            this.linkInstructionObserver(traceLogicalPC, traceRawPC);
+                        }
+                    }
+                    catch (error) {}
+                }
                 this.THUMB.executeIteration();
                 break;
             case 5:
@@ -244,6 +314,7 @@ GameBoyAdvanceIO.prototype.updateCoreClocking = function () {
     var clocks = this.accumulatedClocks | 0;
     //Decrement the clocks per iteration counter:
     this.cyclesToIterate = ((this.cyclesToIterate | 0) - (clocks | 0)) | 0;
+    this.linkCycleCounter += clocks | 0;
     //Clock all components:
     this.gfxState.addClocks(((clocks | 0) - (this.graphicsClocks | 0)) | 0);
     this.timer.addClocks(((clocks | 0) - (this.timerClocks | 0)) | 0);
@@ -332,16 +403,20 @@ GameBoyAdvanceIO.prototype.handleStop = function () {
     //Exits when user presses joypad or from an external irq outside of GBA internal.
 }
 GameBoyAdvanceIO.prototype.cyclesUntilNextHALTEvent = function () {
-    //Find the clocks to the next HALT leave or DMA event:
+    //Find the clocks to the next HALT leave, DMA, or Link hardware event:
     var haltClocks = this.irq.nextEventTime() | 0;
     var dmaClocks = this.dma.nextEventTime() | 0;
-    return this.solveClosestTime(haltClocks | 0, dmaClocks | 0) | 0;
+    var serialClocks = this.serial.nextLinkEventTime() | 0;
+    var closest = this.solveClosestTime(haltClocks | 0, dmaClocks | 0) | 0;
+    return Math.min(closest | 0, serialClocks | 0) | 0;
 }
 GameBoyAdvanceIO.prototype.cyclesUntilNextEvent = function () {
-    //Find the clocks to the next IRQ or DMA event:
+    //Find the clocks to the next IRQ, DMA, or Link hardware event:
     var irqClocks = this.irq.nextIRQEventTime() | 0;
     var dmaClocks = this.dma.nextEventTime() | 0;
-    return this.solveClosestTime(irqClocks | 0, dmaClocks | 0) | 0;
+    var serialClocks = this.serial.nextLinkEventTime() | 0;
+    var closest = this.solveClosestTime(irqClocks | 0, dmaClocks | 0) | 0;
+    return Math.min(closest | 0, serialClocks | 0) | 0;
 }
 GameBoyAdvanceIO.prototype.solveClosestTime = function (clocks1, clocks2) {
     clocks1 = clocks1 | 0;
@@ -402,6 +477,10 @@ GameBoyAdvanceIO.prototype.deflagStop = function () {
 GameBoyAdvanceIO.prototype.flagIterationEnd = function () {
     //Flag a run loop kill event to step through:
     this.systemStatus = this.systemStatus | 0x80;
+}
+GameBoyAdvanceIO.prototype.flagLinkIterationEnd = function () {
+    this.linkIterationCut = true;
+    this.flagIterationEnd();
 }
 GameBoyAdvanceIO.prototype.deflagIterationEnd = function () {
     //Deflag a run loop kill event to step through:
