@@ -1328,6 +1328,23 @@
     setState("idle", "Sala cerrada");
   }
 
+  const ROOM_CODE_RE = /^[A-Z0-9_-]{4,16}$/;
+
+  function normalizeRoomCode(value) {
+    return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
+  }
+
+  function selectRoomByCode() {
+    const code = normalizeRoomCode($("#roomCode").value);
+    if (!ROOM_CODE_RE.test(code)) {
+      fail(new Error("El código son 4-16 caracteres (letras, números, - o _)."), "Código de sala no válido");
+      return;
+    }
+    $("#roomCode").value = code;
+    selectRoom({ id: code, name: `Sala ${code}`, game: "", locked: false, maxPlayers: 2, players: 1, byCode: true });
+    setState("idle", `Código ${code} listo`);
+  }
+
   async function searchRooms() {
     try {
       setState("working", "Buscando cerca…");
@@ -1361,7 +1378,9 @@
   function selectRoom(room) {
     selectedRoom = room;
     $("#joinCard").hidden = false;
-    $("#joinRoomInfo").textContent = `${room.name}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
+    $("#joinRoomInfo").textContent = room.byCode
+      ? `Código ${room.id} · la sala se comprueba al pulsar ENTRAR AL LOBBY`
+      : `${room.name}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
     $("#joinPasswordWrap").hidden = !room.locked;
     $("#joinPassword").value = "";
     $("#playerName").value = profile.name;
@@ -1400,6 +1419,12 @@
       }, 20000);
       await pollJoinState();
     } catch (e) {
+      if (selectedRoom && /contrase/i.test(e.message || "")) {
+        selectedRoom.locked = true;
+        $("#joinPasswordWrap").hidden = false;
+        $("#joinPassword").value = "";
+        $("#joinPassword").focus();
+      }
       fail(e, "No se pudo entrar en la sala");
     }
   }
@@ -1893,6 +1918,18 @@
   $("#checkApi").addEventListener("click", checkApi);
   $("#createRoom").addEventListener("click", createRoom);
   $("#searchRooms").addEventListener("click", searchRooms);
+  $("#joinByCode").addEventListener("click", selectRoomByCode);
+  $("#roomCode").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); selectRoomByCode(); }
+  });
+  $("#lobbyRoomCode").addEventListener("click", () => {
+    const code = normalizeRoomCode($("#lobbyRoomCode").textContent.replace(/^Código\s*/i, ""));
+    if (!code) return;
+    navigator.clipboard?.writeText(code).then(
+      () => log(`Código ${code} copiado.`),
+      () => log(`Código de sala: ${code}`)
+    );
+  });
   $("#joinRoom").addEventListener("click", joinSelectedRoom);
   $("#avatarButton").addEventListener("click", openAvatarEditor);
   $("#chatButton").addEventListener("click", openChat);

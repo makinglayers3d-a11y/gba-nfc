@@ -1,7 +1,7 @@
 # Preview desplegable — test/final-link-lobby-2026-09-21
 
 Copia publicable de la rama `test/final-link-lobby-2026-09-21`
-(commit fuente `3cbce7feb26815af3a4738b604ae373d7ac21b47`) para poder
+(commit fuente `6f225de`) para poder
 probar el lobby Link desde cualquier dispositivo sin tocar el sitio
 publicado desde `main`.
 
