@@ -53,11 +53,16 @@
     </section>
 
     <section class="card">
-      <h2>Buscar salas cercanas</h2>
+      <h2>Buscar salas</h2>
       <div class="grid">
         <div><label for="radius">Radio de búsqueda</label><select id="radius"><option value="0.5">500 m</option><option value="1" selected>1 km</option><option value="5">5 km</option><option value="10">10 km</option></select></div>
-        <div class="bottom-align"><button id="searchRooms" class="primary">BUSCAR SALAS</button></div>
+        <div class="bottom-align"><button id="searchRooms" class="primary">BUSCAR CERCA DE MÍ</button></div>
       </div>
+      <div class="grid top-gap">
+        <div><label for="roomCode">Código de sala</label><input id="roomCode" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Ej. A1B2C3D4"></div>
+        <div class="bottom-align"><button id="joinByCode" class="primary">ENTRAR POR CÓDIGO</button></div>
+      </div>
+      <p class="hint">Con código no hace falta estar cerca ni dar ubicación.</p>
       <div id="roomsList" class="top-gap"><p class="hint">Todavía no has buscado.</p></div>
     </section>
 
@@ -218,7 +223,7 @@
 <script src="avatar-final.js?v=2"></script>
 <script src="avatar-approved.js?v=3"></script>
 <script src="walkable-final.js?v=1"></script>
-<script src="rooms-runtime-loader.js?v=18"></script>
+<script src="rooms-runtime-loader.js?v=19"></script>
 <script src="rooms-touch-fix.js?v=4"></script>
 <script src="avatar-renderer-v5.js?v=1"></script>
 <script src="avatar-motion-smoothing.js?v=3"></script>
