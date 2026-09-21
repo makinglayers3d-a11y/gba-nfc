@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "revision": "2026-09-14.1",
+  "cartridgeTypes": [{
+    "id":"gba","name":"Game Boy Advance",
+    "baseAsset":"assets/cartridges/gba-base-dynamic.png",
+    "baseCrop":[0,120,1536,930],
+    "canvasSize":[1536,930]
+  }],
+  "colors": [
+    {"id":"black","name":"Negro","hex":"#202226","cartridgeTypes":["gba"]},
+    {"id":"gray","name":"Gris","hex":"#666a70","cartridgeTypes":["gba"]},
+    {"id":"blue","name":"Azul","hex":"#24569a","cartridgeTypes":["gba"]},
+    {"id":"red","name":"Rojo","hex":"#8e2732","cartridgeTypes":["gba"]},
+    {"id":"purple","name":"Morado","hex":"#603b86","cartridgeTypes":["gba"]},
+    {"id":"green","name":"Verde","hex":"#326448","cartridgeTypes":["gba"]},
+    {"id":"gold","name":"Dorado","hex":"#b58a2a","cartridgeTypes":["gba"]}
+  ],
+  "labels": [
+    {"id":"ml3d","name":"ML3D","asset":"assets/cartridges/gba-fallback.png","crop":[185,280,1168,490],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"gold","name":"ML3D dorada","asset":"assets/cartridges/labels/ml3d-gold.png","crop":[0,0,1536,604],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"blue","name":"ML3D azul","asset":"assets/cartridges/labels/ml3d-blue.png","crop":[0,0,1536,604],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"ml3dholo","name":"ML3D holográfica","asset":"assets/cartridges/labels/ml3dholo.png?v=20260913-cache-4","crop":[0,0,1536,631],"destination":[188,238,1162,484],"preserveAspect":true,"cartridgeTypes":["gba"]},
+    {"id":"zafiro","name":"Pokémon Zafiro","asset":"assets/cartridges/labels/pokemon-zafiro-es.png","crop":[0,0,1536,787],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"rojo-fuego","name":"Pokémon Rojo Fuego","asset":"assets/cartridges/labels/pokemon-rojo-fuego-es.png","crop":[0,0,1536,775],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"esmeralda","name":"Pokémon Esmeralda","asset":"assets/cartridges/labels/pokemon-esmeralda-es.png","crop":[0,0,1536,775],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"rubi","name":"Pokémon Rubí","asset":"assets/cartridges/labels/pokemon-rubi-es.png","crop":[0,0,1536,604],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"verde-hoja","name":"Pokémon Verde Hoja","asset":"assets/cartridges/labels/pokemon-verde-hoja-es.png","crop":[0,0,1536,604],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]},
+    {"id":"minish-cap","name":"Zelda: The Minish Cap","asset":"assets/cartridges/labels/zelda-minish-cap-eur.png","crop":[0,0,1536,604],"destination":[185,235,1168,490],"cartridgeTypes":["gba"]}
+  ],
+  "destinations": [
+    {"id":"menu","name":"Menú de juegos"},
+    {"id":"game","name":"Juego determinado"}
+  ],
+  "games": [
+    {"id":"pokemon","name":"Pokémon FireRed","system":"gba"},
+    {"id":"mario3","name":"Super Mario Bros. 3","system":"gba"},
+    {"id":"minishcap","name":"The Legend of Zelda: The Minish Cap","system":"gba"}
+  ]
+}
