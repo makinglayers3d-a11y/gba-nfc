@@ -1,5 +1,0 @@
-/* ML3D Link Lobby visual loader final.
-   Conserva el acabado general v4 y aplica al final la arena aprobada sin
-   heredar geometrías de las versiones experimentales v5/v7. */
-@import url("./rooms-theme-ml3d-v4.css?v=1");
-@import url("./rooms-theme-final-clean.css?v=1");
