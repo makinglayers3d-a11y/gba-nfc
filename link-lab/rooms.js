@@ -1105,7 +1105,7 @@
           name: $("#roomName").value,
           game: $("#gameName").value,
           password: $("#roomPassword").value,
-          maxPlayers: Number($("#maxPlayers").value),
+          maxPlayers: 2,
           lat: loc.lat,
           lon: loc.lon
         }
@@ -1334,8 +1334,9 @@
       const loc = await getLocation();
       const radiusKm = Number($("#radius").value);
       const data = await api(`/v1/rooms/nearby?lat=${encodeURIComponent(loc.lat)}&lon=${encodeURIComponent(loc.lon)}&radiusKm=${encodeURIComponent(radiusKm)}`);
-      renderRooms(data.rooms);
-      setState("idle", data.rooms.length ? `${data.rooms.length} sala(s) encontrada(s)` : "No hay salas cercanas");
+      const compatibleRooms = (data.rooms || []).filter((room) => Number(room.maxPlayers) === 2);
+      renderRooms(compatibleRooms);
+      setState("idle", compatibleRooms.length ? `${compatibleRooms.length} sala(s) Link P1/P2 encontrada(s)` : "No hay salas Link P1/P2 cercanas");
     } catch (e) {
       fail(e, "No se pudieron buscar salas");
     }
@@ -1711,7 +1712,7 @@
     if (!hostSession) return;
     const body = {
       name: $("#hostRoomNameInput").value,
-      maxPlayers: Number($("#hostMaxPlayers").value)
+      maxPlayers: 2
     };
     if (removePassword) body.clearPassword = true;
     else if ($("#hostPasswordInput").value) body.password = $("#hostPasswordInput").value;
@@ -1743,6 +1744,10 @@
     const playerNumber = hostSession ? 0 : Number(joinSession?.linkSlot);
     if (!hostSession && !Number.isFinite(playerNumber)) {
       showSessionBanner("ESPERANDO ASIGNACIÓN LINK", 1800);
+      return;
+    }
+    if (!hostSession && playerNumber !== 1) {
+      showSessionBanner("LINK GBA ACTUAL: SOLO P1/P2", 2200);
       return;
     }
 
@@ -1788,6 +1793,12 @@
 
   function startSessionCountdown() {
     if (!hostSession) return;
+    const connectedPeers = [...hostSession.peers.values()]
+      .filter((peer) => peer.channel?.readyState === "open");
+    if (connectedPeers.length !== 1 || Number(connectedPeers[0]?.linkSlot) !== 1) {
+      showSessionBanner("SE NECESITAN EXACTAMENTE 2 JUGADORES", 2400);
+      return;
+    }
     rememberLocalLinkSession(hostSession.room.id, 0, "host");
     for (const peer of hostSession.peers.values()) {
       if (peer.channel?.readyState !== "open") continue;
