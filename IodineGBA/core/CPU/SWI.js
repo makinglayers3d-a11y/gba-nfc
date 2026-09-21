@@ -118,7 +118,11 @@ GameBoyAdvanceSWI.prototype.execute = function (opcode) {
             break;                      
         case SWI_OP_CODE.GBA_SWI_INTR_WAIT:
             //console.info("Calling GBA_SWI_INTR_WAIT...");
-            assertIRQ();
+            // Halt until an enabled IRQ matches, same HLE used by
+            // GBA_SWI_VBLANK_INTR_WAIT. The previous bare assertIRQ() call did
+            // not resolve to anything and threw a ReferenceError, which killed
+            // the caller mid-frame.
+            this.IOCore.handleHalt();
             break;                 
         case SWI_OP_CODE.GBA_SWI_VBLANK_INTR_WAIT:
             //console.info("Calling GBA_SWI_VBLANK_INTR_WAIT...");
