@@ -16,13 +16,6 @@
       transition-delay: 0ms !important;
       will-change: left, top;
     }
-
-    /* v5 ya no necesita compensar por píxeles una posición que rooms.js
-       expresa en porcentajes. El desplazamiento suave lo hace el player. */
-    #playersLayer .avatar-v5-canvas {
-      margin-left: 0 !important;
-      bottom: 0 !important;
-    }
   `;
   document.head.appendChild(style);
 })();

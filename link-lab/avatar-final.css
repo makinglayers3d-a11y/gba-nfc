@@ -1,12 +1,155 @@
-/* ML3D Link — avatar final pixel-art */
-.avatar-wrap.ml3d-final-mounted{width:52px!important;height:62px!important;filter:drop-shadow(0 5px 4px rgba(0,0,0,.35))!important}
-.avatar-wrap.ml3d-final-mounted>.avatar-head,.avatar-wrap.ml3d-final-mounted>.avatar-body,.avatar-wrap.ml3d-final-mounted>.avatar-accessory,.avatar-wrap.ml3d-final-mounted>.ml3d-avatar-v2,.avatar-wrap.ml3d-final-mounted>.avatar-pro-layer{display:none!important}
-.ml3d-avatar-final{position:absolute;inset:0;display:grid;place-items:end center;pointer-events:none}
-.ml3d-avatar-final canvas{width:52px;height:65px;image-rendering:pixelated;image-rendering:crisp-edges;display:block}
-.player.local .ml3d-avatar-final canvas{filter:drop-shadow(0 0 4px rgba(88,190,255,.85))}
-#avatarPreview{display:none!important}
-.avatar-final-editor{margin-top:12px}.avatar-final-main-preview{display:grid;place-items:center;min-height:156px;border:1px solid #334b61;border-radius:14px;background:radial-gradient(circle at 50% 60%,rgba(54,112,158,.22),rgba(5,12,19,.88) 64%);margin-bottom:12px}
-.avatar-final-main-preview canvas{width:96px;height:120px;image-rendering:pixelated;filter:drop-shadow(0 9px 8px rgba(0,0,0,.4))}
-.avatar-final-base-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px}.avatar-final-base-row button{display:flex;align-items:center;justify-content:center;gap:8px}.avatar-final-base-row button.selected,.avatar-final-option.selected{outline:2px solid #61c7ff;background:#153551}
-.avatar-final-section{margin:13px 0}.avatar-final-section>strong{display:block;color:#8fd8ff;text-transform:uppercase;letter-spacing:.08em;font-size:11px;margin-bottom:7px}.avatar-final-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.avatar-final-option{min-height:70px;padding:5px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;background:#0b151f}.avatar-final-option canvas{width:38px;height:48px;image-rendering:pixelated}.avatar-final-option small{font-size:9px;color:#b8c9d8}.avatar-final-swatches{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}.avatar-final-swatch{min-height:34px;padding:0;border-radius:8px}.avatar-final-swatch.selected{outline:2px solid #fff;outline-offset:1px}.avatar-final-save{margin-top:14px}.avatar-final-note{font-size:11px;color:#91a5b6;text-align:center;margin:8px 0 0}
-@media(max-width:560px){.avatar-final-options{grid-template-columns:repeat(4,1fr)}.avatar-final-option{min-height:62px;padding:3px}.avatar-final-option canvas{width:32px;height:40px}.avatar-final-swatches{grid-template-columns:repeat(6,1fr)}}
+/* ML3D Link — avatar por capas (avatar-layers.js) */
+
+/* rooms.js sigue rellenando .avatar-wrap con la maqueta CSS anterior y la
+   reconstruye en cada render, así que el canvas cuelga del .player. El wrap se
+   queda como hueco invisible para que el nombre no se solape con el sprite;
+   visibility oculta también lo que rooms.js vuelva a meter dentro. */
+#playersLayer .player > .avatar-wrap {
+  visibility: hidden;
+  width: 56px;
+  height: 84px;
+}
+
+.avatar-layers-host {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.avatar-layers-canvas {
+  display: block;
+  width: 56px;
+  height: 84px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 4px 3px rgba(0, 0, 0, .38));
+}
+.player.local .avatar-layers-canvas {
+  filter: drop-shadow(0 0 4px rgba(88, 190, 255, .88));
+}
+
+/* ---- editor ---- */
+
+.avatar-layers-editor { margin-top: 12px; }
+
+.avatar-layers-main-preview {
+  display: grid;
+  place-items: center;
+  min-height: 156px;
+  margin-bottom: 12px;
+  border: 1px solid #334b61;
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 60%, rgba(54, 112, 158, .22), rgba(5, 12, 19, .88) 64%);
+}
+.avatar-layers-preview-canvas {
+  display: block;
+  width: 112px;
+  height: 168px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 9px 8px rgba(0, 0, 0, .4));
+}
+
+.avatar-layers-base-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.avatar-layers-base-row button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.avatar-layers-base-row canvas {
+  width: 40px;
+  height: 60px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.avatar-layers-base-row button.selected,
+.avatar-layers-option.selected {
+  outline: 2px solid #61c7ff;
+  background: #153551;
+}
+
+.avatar-layers-section { margin: 13px 0; }
+.avatar-layers-section > strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #8fd8ff;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.avatar-layers-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.avatar-layers-option {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-height: 86px;
+  padding: 5px;
+  background: #0b151f;
+}
+/* El lienzo ya llega recortado a la cara o a la cabeza (CROP en
+   avatar-final.js); aquí solo se amplía. */
+.avatar-layers-option canvas {
+  width: 100%;
+  max-width: 56px;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.avatar-layers-option small {
+  font-size: 9px;
+  line-height: 1.15;
+  color: #b8c9d8;
+  text-align: center;
+}
+
+.avatar-layers-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+.avatar-layers-swatch {
+  min-height: 34px;
+  padding: 0;
+  border-radius: 8px;
+}
+.avatar-layers-swatch.selected {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+.avatar-layers-picker {
+  min-height: 34px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #0b151f;
+}
+
+.avatar-layers-save { margin-top: 14px; }
+.avatar-layers-note {
+  margin: 8px 0 0;
+  color: #91a5b6;
+  font-size: 11px;
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  #playersLayer .player > .avatar-wrap { width: 48px; height: 72px; }
+  .avatar-layers-canvas { width: 48px; height: 72px; }
+  .avatar-layers-preview-canvas { width: 96px; height: 144px; }
+  .avatar-layers-option { min-height: 76px; padding: 3px; }
+  .avatar-layers-option canvas { max-width: 46px; }
+  .avatar-layers-swatches { grid-template-columns: repeat(5, 1fr); }
+}

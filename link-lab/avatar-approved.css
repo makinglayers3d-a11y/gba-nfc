@@ -1,4 +1,0 @@
-@import url("./avatar-base.css?v=4");
-
-/* Puente temporal: el lobby conserva el include histórico avatar-approved.css,
-   pero la prueba visual usa exclusivamente las bases modulares nuevas. */

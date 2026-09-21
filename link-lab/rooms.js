@@ -1858,13 +1858,16 @@
     showSessionBanner.timer = setTimeout(() => { banner.hidden = true; }, duration);
   }
 
+  /* Todas las llamadas pasan el id pelado ("avatarModal"), igual que
+     data-close-modal, así que aquí no vale querySelector. */
   function openModal(id) {
     $("#chatComposer").hidden = true;
-    $(id).hidden = false;
+    const modal = document.getElementById(id);
+    if (modal) modal.hidden = false;
   }
 
   function closeModal(id) {
-    const modal = $(id);
+    const modal = document.getElementById(id);
     if (modal) modal.hidden = true;
     if (!lobbyShell.hidden) $("#lobbyStage").focus({ preventScroll: true });
   }
