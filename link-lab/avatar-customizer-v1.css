@@ -1,0 +1,19 @@
+@import url('./avatar-customizer-v3.css?v=7');
+
+html.ml3d-avatar-base-only #avatarCustomizerV2,
+html.ml3d-avatar-base-only #avatarCustomizerV3,
+html.ml3d-avatar-base-only .avatar-custom-skin-canvas,
+html.ml3d-avatar-base-only .avatar-custom-layer-canvas,
+html.ml3d-avatar-base-only .avatar-custom-skin-preview,
+html.ml3d-avatar-base-only .avatar-custom-layer-preview,
+html.ml3d-avatar-base-only .avatar-v3-skin-canvas,
+html.ml3d-avatar-base-only .avatar-v3-layer-canvas,
+html.ml3d-avatar-base-only .avatar-v3-skin-preview,
+html.ml3d-avatar-base-only .avatar-v3-layer-preview{display:none!important}
+
+#avatarModal .modal-card{
+  max-height:calc(100dvh - 24px)!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
