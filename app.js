@@ -2,6 +2,9 @@
   "use strict";
 
   const params = new URLSearchParams(window.location.search);
+  const linkRoomActive = Boolean(params.get("linkRoom"));
+  let currentGbaRomBytes = null;
+  let currentGbaRomFilename = "";
 
 const requestedRom = params.get("rom");
 
@@ -249,6 +252,11 @@ function loadGameType(name, callback) {
 
   if (value === undefined) return;
 
+  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+    const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, true);
+    if (consumed) return;
+  }
+
   emulator.keyDown(value);
 }
 
@@ -271,6 +279,11 @@ function loadGameType(name, callback) {
   const value = keyMap[keyName];
 
   if (value === undefined) return;
+
+  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+    const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, false);
+    if (consumed) return;
+  }
 
   emulator.keyUp(value);
 } 
@@ -425,6 +438,25 @@ function startGbaTimers() {
   }, 10000);
 }
   
+window.ML3DLinkRuntime = {
+  get emulator() {
+    return emulator;
+  },
+  get romBytes() {
+    return currentGbaRomBytes ? currentGbaRomBytes.slice() : null;
+  },
+  get romFilename() {
+    return currentGbaRomFilename;
+  },
+  stopTimers: stopGbaTimers,
+  startTimers: startGbaTimers,
+  flushAudio() {
+    try {
+      emulator?.submitAudioBuffer?.();
+    } catch {}
+  }
+};
+
 document.querySelectorAll("[data-key]").forEach((button) => {
   const keyName = button.dataset.key;
   let pressed = false;
@@ -584,6 +616,7 @@ window.addEventListener(
 
     if (emulator) {
       try {
+        window.ML3DLinkCable?.detachEmulator?.(emulator);
         emulator.exportSave();
         emulator.pause();
       } catch (error) {
@@ -666,6 +699,8 @@ window.addEventListener(
       const blitter = new GfxGlueCode(240, 160);
       blitter.attachCanvas(canvas);
       emulator.attachGraphicsFrameHandler(blitter);
+      currentGbaRomBytes = rom.slice();
+      currentGbaRomFilename = filename;
       emulator.attachROM(rom);
       if (audioInput) {
         emulator.attachAudioHandler(audioInput);
@@ -673,26 +708,31 @@ window.addEventListener(
       }
       emulator.play();
 
-      try {
-        const gameName = emulator.getGameName();
-        if (gameName) {
-          loadGameSave(gameName, (save) => {
-            if (!save || !emulator) return;
-            loadGameType(gameName, (saveType) => {
-              if (!saveType || !emulator) return;
-              try {
-                emulator.IOCore.saves.importSave(new Uint8Array(save), saveType[0] | 0);
-              } catch (error) {
-                console.error("Error restaurando partida:", error);
-              }
+      if (!linkRoomActive) {
+        try {
+          const gameName = emulator.getGameName();
+          if (gameName) {
+            loadGameSave(gameName, (save) => {
+              if (!save || !emulator) return;
+              loadGameType(gameName, (saveType) => {
+                if (!saveType || !emulator) return;
+                try {
+                  emulator.IOCore.saves.importSave(new Uint8Array(save), saveType[0] | 0);
+                } catch (error) {
+                  console.error("Error restaurando partida:", error);
+                }
+              });
             });
-          });
+          }
+        } catch (error) {
+          console.error("Error cargando partida guardada:", error);
         }
-      } catch (error) {
-        console.error("Error cargando partida guardada:", error);
       }
       window.__gba = emulator;
-      startGbaTimers();
+      if (!linkRoomActive) {
+        window.ML3DLinkCable?.attachEmulator?.(emulator);
+        startGbaTimers();
+      }
     }
 
     updateEmulatorAudioOutput();
@@ -948,18 +988,27 @@ if (reloadButton) {
 
     backgroundSuspended = false;
 
+    const dualLinkRunning =
+      linkRoomActive &&
+      Boolean(window.ML3DLocalLinkSession?.active);
+
     const gbaNeedsRecovery =
       emulator &&
       (
         resumeGbaAfterBackground ||
-        timer === null ||
+        (!linkRoomActive && timer === null) ||
         emulator.emulatorStatus >= 0x10
       );
 
     if (gbaNeedsRecovery) {
       try {
         emulator.play();
-        startGbaTimers();
+        if (!linkRoomActive) {
+          startGbaTimers();
+        } else if (!dualLinkRunning) {
+          // The dual Link coordinator owns emulated time.
+          stopGbaTimers();
+        }
         unlockAudio();
       } catch (error) {
         console.error("Reanudación GBA:", error);
