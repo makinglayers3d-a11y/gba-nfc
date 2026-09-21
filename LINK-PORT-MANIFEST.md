@@ -65,3 +65,22 @@ Con Super Mario Advance 4 / Mario Bros:
 - el coordinador queda `wedged=false` y sin stalls permanentes.
 
 Esta rama está deliberadamente separada de `main` para poder portar primero el lobby y después hacer un único merge controlado.
+
+
+## Rama conjunta de pruebas
+
+La integración Cable Link + lobby está montada en:
+
+`test/final-link-lobby-2026-09-21`
+
+Incluye además:
+- `link-lab/rooms.html` y runtime final del lobby.
+- estilos, avatares, arena final 6K y zona caminable.
+- transporte WebRTC/lockstep de `link-lab/rooms.js`.
+- fuente del backend `cloudflare-link-worker/`.
+- lobby limitado a 2 jugadores, que es el alcance validado del runtime actual.
+
+Entrada de prueba del lobby:
+`/link-lab/rooms.html`
+
+El lobby abre el emulador integrado con `linkTransport=dual`, por lo que usa directamente el runtime Link incluido en esta misma rama.
