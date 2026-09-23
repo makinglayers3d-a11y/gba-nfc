@@ -30,14 +30,15 @@ que cualquier botón nuevo en pantalla estorbaría sí o sí.
 | Botón | En el menú | En la sala |
 | --- | --- | --- |
 | Cruceta | mueve el cursor; ←/→ cambian desplegables | anda |
-| A | elige | abre el menú de sala |
+| A | elige | interactúa (descargar el juego que alguien comparte) |
 | B | atrás; en el menú raíz vuelve al juego | cierra lo abierto, si no vuelve al juego |
 | L | — | personaje |
 | R | — | chat |
 | SELECT | atrás | menú de sala |
-| START | elige | menú de sala |
+| START | elige | — |
 
-El botón **VOLVER ✕** está en la esquina superior derecha del lobby.
+El botón **VOLVER ✕** está en la esquina superior derecha del lobby. La leyenda
+de botones va abajo a la izquierda, sin fondo, para no tapar la sala.
 
 Escribir (nombre de sala, código, chat) sigue siendo táctil: se toca el campo y
 sale el teclado del móvil. Un teclado en pantalla manejado con la cruceta queda
@@ -52,6 +53,49 @@ métricas y los botones «ABRIR EMULADOR LINK» desaparecen: ahora sobran.
 
 Nada de esto duplica lógica: `embed.js` mueve los controles originales de
 `rooms.html` dentro de sus paneles, así que `rooms.js` sigue mandando.
+
+## Menú de sala (SELECT)
+
+`INICIAR CONEXIÓN` y `COMPARTIR JUEGO` están en el nivel principal del menú, no
+dentro de un desplegable. El resto (juego, jugadores, sala, conexión) sigue
+plegado debajo. Al iniciar, el menú se cierra y arranca la cuenta atrás que ya
+existía.
+
+## Juego de la sala
+
+El desplegable de la esquina inferior derecha elige el juego entre lo que hay:
+el juego cargado en el emulador, la biblioteca (`games-catalog.json`) y lo que
+alguien comparta en la sala. Escribe en el mismo ajuste de sala que ya existía
+(`#hostGameInput` + `APLICAR JUEGO`), así que se propaga por la API y por los
+paquetes `lobby:room`. Los invitados solo ven, en esa esquina, el juego que ha
+elegido el host.
+
+`INICIAR CONEXIÓN` no arranca y avisa cuando:
+
+- no hay juego elegido;
+- falta el estado de algún jugador de la sala;
+- alguien, tú incluido, no tiene ese juego **cargado** en su emulador.
+
+La comprobación mira el juego cargado, no la biblioteca: el cable Link arranca
+desde la ROM que cada emulador tiene puesta.
+
+## Compartir juego
+
+`link-lab/embed-games.js` habla por los mismos `RTCDataChannel` del lobby con
+paquetes `ml3d:game:*`, como hace `avatar-final.js` con el avatar, así que
+`rooms.js` no se toca.
+
+1. `COMPARTIR JUEGO` en el menú SELECT abre el selector de archivos del
+   dispositivo (`.gba`, `.gb`, `.gbc`).
+2. Quien comparte luce un bocadillo holográfico **COMPARTIENDO JUEGO** sobre su
+   avatar, con el nombre del juego.
+3. Cuando otro avatar se acerca (14% del ancho, 13% del alto de la sala), junto
+   al bocadillo aparece el botón **A** animado pulsándose.
+4. Al pulsar A dentro de ese rango sale el diálogo del juego: `DESCARGAR JUEGO`
+   manda la ROM por el canal en trozos de 12 KB, con porcentaje.
+5. Al terminar, el archivo se guarda en el dispositivo y el diálogo pregunta
+   `¿CARGAR AHORA?`. Si sí, el emulador lo arranca como ROM local y el lobby se
+   cierra.
 
 ## Partida Link
 
@@ -114,6 +158,14 @@ Con un servidor estático local y Chrome headless:
 - `gba:link:configure` por BroadcastChannel reinicia la ROM y arranca el
   lockstep: `gba:lockstep:ready` sale con el `roomId` correcto.
 - El juego corre, se congela con el lobby abierto y sigue al volver.
+- Menú SELECT con `INICIAR CONEXIÓN` y `COMPARTIR JUEGO` arriba; A ya no abre el
+  menú.
+- El desplegable de juego se llena con la biblioteca (56 juegos) y el cargado.
+- Los tres avisos que bloquean `INICIAR CONEXIÓN`, y que con todo en orden la
+  pulsación sí llega al lobby.
+- Bocadillo holográfico, botón A al acercarse y desaparición al alejarse.
+- Transferencia real entre dos lobbies conectados por WebRTC: 2 MB en 1,1 s,
+  bytes idénticos en destino.
 
 ## Pendiente
 

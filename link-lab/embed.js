@@ -7,6 +7,8 @@
      - Reduce el lobby a un menú de cuatro entradas navegable con la cruceta.
      - Traduce los botones del emulador a lo que ya entiende rooms.js
        (flechas para moverse, "l" personaje, "r" chat, click en SELECT).
+     - Añade el selector de juego de la sala, el aviso cuando alguien no lo
+       tiene cargado y el reparto de una ROM entre jugadores.
      El resto de la lógica del lobby no se toca. */
 
   if (new URLSearchParams(location.search).get("embed") !== "1") return;
@@ -15,6 +17,9 @@
   const PARENT = "ml3d-emulator";
   const byId = (id) => document.getElementById(id);
   const DIRECTIONS = { UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight" };
+  /* Rango, en porcentaje del escenario, para que salga el botón A. */
+  const REACH_X = 14;
+  const REACH_Y = 13;
 
   const MENU = [
     { id: "create", label: "CREAR SALA", nodes: ["#createCard"] },
@@ -26,10 +31,17 @@
 
   let cursorIndex = 0;
   let activePanel = null;
+  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [] };
+  let promptTarget = null;
+  let pendingRom = null;
 
-  function post(message) {
+  const games = () => window.ML3DRoomGames;
+  const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
+  const gameKey = (value) => String(value || "").replace(/\.(gba|gbc|gb)$/i, "").trim().toLowerCase();
+
+  function post(message, transfer) {
     try {
-      window.parent?.postMessage({ source: CHILD, ...message }, location.origin);
+      window.parent?.postMessage({ source: CHILD, ...message }, location.origin, transfer);
     } catch {}
   }
 
@@ -46,7 +58,22 @@
       <nav class="embed-menu" id="embedMenu"></nav>
       <div class="embed-panels" id="embedPanels"></div>
     </div>
-    <footer class="embed-help" id="embedHelp"></footer>`;
+    <footer class="embed-help" id="embedHelp"></footer>
+    <div class="embed-game" id="embedGame" hidden>
+      <span class="embed-game-tag">JUEGO</span>
+      <select class="embed-game-select" id="embedGameSelect" aria-label="Juego de la sala"></select>
+      <span class="embed-game-value" id="embedGameValue"></span>
+    </div>
+    <p class="embed-toast" id="embedToast" hidden></p>
+    <input type="file" id="embedShareInput" accept=".gba,.gbc,.gb" hidden>
+    <div class="modal embed-modal" id="embedShareModal" hidden>
+      <div class="modal-card">
+        <div class="modal-head"><h2 id="embedShareTitle">JUEGO COMPARTIDO</h2></div>
+        <p class="embed-share-name" id="embedShareName"></p>
+        <p class="hint" id="embedShareHint"></p>
+        <div class="embed-share-actions" id="embedShareActions"></div>
+      </div>
+    </div>`;
 
   function panelFor(id) {
     return id ? byId(`embedPanel-${id}`) : null;
@@ -68,8 +95,6 @@
       }
       panels.append(panel);
     }
-    /* La tarjeta del servidor y el registro son <details>: en el menú sobra
-       el plegado, ya están detrás de una entrada. */
     document.querySelectorAll(".embed-panel details").forEach((details) => {
       details.open = true;
     });
@@ -101,11 +126,16 @@
   }
 
   function openModalEl() {
-    return [byId("avatarModal"), byId("selectModal")].find((modal) => modal && !modal.hidden) || null;
+    return [byId("embedShareModal"), byId("avatarModal"), byId("selectModal")]
+      .find((modal) => modal && !modal.hidden) || null;
   }
 
   function chatOpen() {
     return !byId("chatComposer")?.hidden;
+  }
+
+  function isHost() {
+    return Boolean(document.querySelector(".player.local .player-name-text")?.textContent?.includes("★"));
   }
 
   function openPanel(id) {
@@ -138,6 +168,7 @@
     }
     refreshTitle();
     refreshHelp();
+    refreshGameCorner();
   }
 
   function refreshTitle() {
@@ -152,8 +183,17 @@
     if (!help) return;
     if (chatOpen()) help.textContent = "ESCRIBE · B CERRAR";
     else if (openModalEl()) help.textContent = "✛ MOVER · A ELEGIR · B CERRAR";
-    else if (inRoom()) help.textContent = "✛ ANDAR · A MENÚ · L PERSONAJE · R CHAT · B JUEGO";
+    else if (inRoom()) help.textContent = "✛ ANDAR · SELECT MENÚ · L PERSONAJE · R CHAT · B JUEGO";
     else help.textContent = "✛ MOVER · A ELEGIR · B ATRÁS";
+  }
+
+  function toast(text, ms = 2600) {
+    const box = byId("embedToast");
+    if (!box) return;
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => { box.hidden = true; }, ms);
   }
 
   /* ---------- cursor ---------- */
@@ -198,7 +238,6 @@
     paintCursor();
   }
 
-  /* Izquierda/derecha cambian el valor de un desplegable sin abrirlo. */
   function adjustValue(step) {
     const el = cursorItems()[cursorIndex];
     if (!(el instanceof HTMLSelectElement)) return;
@@ -217,6 +256,327 @@
       return;
     }
     el.click();
+  }
+
+  /* ---------- juego de la sala ---------- */
+
+  function roomGame() {
+    const fromToolbar = byId("lobbyGameName")?.textContent?.trim() || "";
+    if (fromToolbar && !/^sin juego/i.test(fromToolbar)) return fromToolbar;
+    return "";
+  }
+
+  function gameOptions() {
+    const list = new Set();
+    if (context.game) list.add(context.game);
+    for (const name of context.library || []) list.add(String(name).replace(/\.(gba|gbc|gb)$/i, ""));
+    for (const peer of games()?.peers() || []) {
+      if (peer.sharing?.name) list.add(peer.sharing.name);
+      if (peer.game) list.add(peer.game);
+    }
+    const shared = games()?.local?.sharing?.name;
+    if (shared) list.add(shared);
+    return [...list].filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
+  }
+
+  function refreshGameCorner() {
+    const box = byId("embedGame");
+    if (!box) return;
+    box.hidden = !inRoom();
+    if (box.hidden) return;
+
+    const select = byId("embedGameSelect");
+    const value = byId("embedGameValue");
+    const host = isHost();
+    select.hidden = !host;
+    value.hidden = host;
+
+    const current = roomGame();
+    if (!host) {
+      value.textContent = current || "SIN JUEGO";
+      return;
+    }
+
+    const options = gameOptions();
+    const wanted = current || "";
+    const signature = options.join("|") + "::" + wanted;
+    if (select.dataset.signature !== signature) {
+      select.dataset.signature = signature;
+      select.textContent = "";
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "SIN JUEGO";
+      select.append(empty);
+      for (const name of options) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.append(option);
+      }
+      select.value = wanted;
+    }
+  }
+
+  function applyGameChoice(name) {
+    const input = byId("hostGameInput");
+    const apply = byId("applyGame");
+    if (!input || !apply) return;
+    input.value = name;
+    apply.click();
+    toast(name ? `JUEGO: ${name.toUpperCase()}` : "SALA SIN JUEGO");
+  }
+
+  /* Quién no puede jugar todavía: sin juego elegido, o alguien que no lo tiene
+     cargado en su emulador. */
+  function startProblem() {
+    const wanted = gameKey(roomGame());
+    if (!wanted) return "ELIGE UN JUEGO EN LA ESQUINA INFERIOR DERECHA";
+
+    const others = [...document.querySelectorAll("#playersLayer .player")].filter((el) => !el.classList.contains("local"));
+    const known = games()?.peers() || [];
+    if (known.length < others.length) return "ESPERANDO LOS DATOS DE LOS DEMÁS JUGADORES";
+
+    const missing = [];
+    if (gameKey(context.game) !== wanted) missing.push("TÚ");
+    for (const peer of known) {
+      if (gameKey(peer.game) !== wanted) missing.push(peer.name.toUpperCase());
+    }
+    if (missing.length) return `SIN EL JUEGO CARGADO: ${missing.join(", ")}`;
+    return "";
+  }
+
+  /* ---------- menú SELECT ---------- */
+
+  function setupSelectMenu() {
+    const card = document.querySelector("#selectModal .select-menu-card");
+    if (!card || card.dataset.embedMenu) return;
+    card.dataset.embedMenu = "1";
+
+    const hostMenu = byId("hostMenu");
+    const start = byId("startSession");
+    if (hostMenu && start) {
+      const main = document.createElement("div");
+      main.className = "embed-select-main";
+      main.append(start);
+      hostMenu.prepend(main);
+    }
+
+    for (const menu of [byId("hostMenu"), byId("guestMenu")]) {
+      if (!menu) continue;
+      const share = document.createElement("button");
+      share.type = "button";
+      share.className = "embed-share-button";
+      share.textContent = "COMPARTIR JUEGO";
+      share.addEventListener("click", () => byId("embedShareInput").click());
+      const main = menu.querySelector(".embed-select-main");
+      if (main) main.append(share);
+      else menu.prepend(share);
+    }
+
+    /* La validación va antes que el handler de rooms.js: este listener se
+       registra primero porque rooms.js se evalúa después del loader. */
+    start?.addEventListener("click", (event) => {
+      const problem = startProblem();
+      if (!problem) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      toast(problem, 3200);
+    }, true);
+  }
+
+  /* ---------- compartir juego ---------- */
+
+  function playerElements() {
+    return [...document.querySelectorAll("#playersLayer .player")];
+  }
+
+  function playerPosition(el) {
+    return {
+      x: Number.parseFloat(el.style.left) || 0,
+      y: Number.parseFloat(el.style.top) || 0
+    };
+  }
+
+  function sharingFor(el) {
+    if (el.classList.contains("local")) return games()?.local?.sharing || null;
+    const name = cleanName(el.querySelector(".player-name-text")?.textContent);
+    return games()?.peers().find((peer) => peer.name === name)?.sharing || null;
+  }
+
+  function syncShareBubbles() {
+    if (!inRoom()) return;
+    const localEl = document.querySelector("#playersLayer .player.local");
+    let target = null;
+
+    for (const el of playerElements()) {
+      const sharing = sharingFor(el);
+      let bubble = el.querySelector(":scope > .embed-share-bubble");
+      if (!sharing) {
+        bubble?.remove();
+        el.querySelector(":scope > .embed-prompt")?.remove();
+        continue;
+      }
+      if (!bubble) {
+        bubble = document.createElement("div");
+        bubble.className = "embed-share-bubble";
+        bubble.innerHTML = '<strong>COMPARTIENDO JUEGO</strong><span></span>';
+        el.append(bubble);
+      }
+      bubble.querySelector("span").textContent = sharing.name || "";
+
+      const near = localEl && el !== localEl &&
+        Math.abs(playerPosition(el).x - playerPosition(localEl).x) < REACH_X &&
+        Math.abs(playerPosition(el).y - playerPosition(localEl).y) < REACH_Y;
+
+      let prompt = el.querySelector(":scope > .embed-prompt");
+      if (near) {
+        if (!prompt) {
+          prompt = document.createElement("div");
+          prompt.className = "embed-prompt";
+          prompt.innerHTML = '<span class="embed-prompt-key">A</span><span class="embed-prompt-text">DESCARGAR</span>';
+          el.append(prompt);
+        }
+        target = {
+          name: cleanName(el.querySelector(".player-name-text")?.textContent),
+          sharing
+        };
+      } else {
+        prompt?.remove();
+      }
+    }
+
+    promptTarget = target;
+  }
+
+  function shareModal() {
+    return byId("embedShareModal");
+  }
+
+  function openShareDialog(target) {
+    const modal = shareModal();
+    if (!modal || !target) return;
+    byId("embedShareTitle").textContent = "JUEGO COMPARTIDO";
+    byId("embedShareName").textContent = target.sharing.name || "Juego";
+    byId("embedShareHint").textContent = `${target.name} comparte este juego · ${Math.round((target.sharing.size || 0) / 1048576)} MB`;
+    const actions = byId("embedShareActions");
+    actions.textContent = "";
+
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "primary";
+    download.textContent = "DESCARGAR JUEGO";
+    download.addEventListener("click", () => {
+      byId("embedShareHint").textContent = "Pidiendo el juego…";
+      actions.textContent = "";
+      if (!games()?.request(target.name)) {
+        byId("embedShareHint").textContent = "No hay conexión con quien comparte.";
+      }
+    });
+    actions.append(download);
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "CERRAR";
+    cancel.addEventListener("click", () => closeShareDialog());
+    actions.append(cancel);
+
+    modal.hidden = false;
+    resetCursor();
+    refreshHelp();
+  }
+
+  function closeShareDialog() {
+    const modal = shareModal();
+    if (modal) modal.hidden = true;
+    refreshHelp();
+  }
+
+  function offerLoad(name, system, bytes) {
+    pendingRom = { name, system, bytes };
+    const modal = shareModal();
+    if (!modal) return;
+    byId("embedShareTitle").textContent = "JUEGO DESCARGADO";
+    byId("embedShareName").textContent = name;
+    byId("embedShareHint").textContent = "¿Lo cargo ahora en el emulador?";
+    const actions = byId("embedShareActions");
+    actions.textContent = "";
+
+    const yes = document.createElement("button");
+    yes.type = "button";
+    yes.className = "primary";
+    yes.textContent = "CARGAR AHORA";
+    yes.addEventListener("click", () => {
+      const rom = pendingRom;
+      pendingRom = null;
+      closeShareDialog();
+      if (!rom) return;
+      toast("CARGANDO EL JUEGO…");
+      post({ type: "load-rom", filename: rom.name, system: rom.system, bytes: rom.bytes });
+    });
+
+    const no = document.createElement("button");
+    no.type = "button";
+    no.textContent = "AHORA NO";
+    no.addEventListener("click", () => {
+      pendingRom = null;
+      closeShareDialog();
+    });
+
+    actions.append(yes, no);
+    modal.hidden = false;
+    resetCursor();
+  }
+
+  function saveToDevice(name, bytes) {
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  function setupSharing() {
+    byId("embedShareInput").addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      if (!/\.(gba|gbc|gb)$/i.test(file.name)) {
+        toast("SOLO .GBA, .GB O .GBC", 3000);
+        return;
+      }
+      toast("PREPARANDO EL JUEGO…");
+      try {
+        const info = await games().share(file);
+        byId("selectModal").hidden = true;
+        toast(`COMPARTIENDO ${String(info.name).toUpperCase()}`, 3200);
+        syncShareBubbles();
+      } catch (error) {
+        console.error(error);
+        toast("NO SE PUDO LEER EL ARCHIVO", 3200);
+      }
+    });
+
+    games()?.onTransfer((event) => {
+      if (event.state === "start") {
+        byId("embedShareHint").textContent = "Descargando 0%";
+      } else if (event.state === "progress") {
+        byId("embedShareHint").textContent = `Descargando ${Math.round(event.progress * 100)}%`;
+      } else if (event.state === "done") {
+        saveToDevice(event.name, event.bytes);
+        offerLoad(event.name, event.system, event.bytes);
+      } else if (event.state === "sending") {
+        if (event.progress >= 1) toast("JUEGO ENVIADO");
+      }
+    });
+
+    games()?.onChange(() => {
+      syncShareBubbles();
+      refreshGameCorner();
+    });
   }
 
   /* ---------- entrada desde el emulador ---------- */
@@ -244,6 +604,7 @@
     const modal = openModalEl();
     if (modal) {
       modal.hidden = true;
+      pendingRom = null;
       resetCursor();
       refreshHelp();
       return;
@@ -270,7 +631,8 @@
       if (!down) return;
       if (key === "L") tapLobbyKey("l");
       else if (key === "R") tapLobbyKey("r");
-      else if (key === "A" || key === "SELECT" || key === "START") byId("selectButton")?.click();
+      else if (key === "SELECT") byId("selectButton")?.click();
+      else if (key === "A") { if (promptTarget) openShareDialog(promptTarget); }
       else if (key === "B") goBack();
       return;
     }
@@ -285,18 +647,33 @@
   }
 
   function applyContext(data) {
+    context = {
+      ...context,
+      game: String(data.game || "").trim(),
+      romFilename: String(data.romFilename || ""),
+      romLoaded: Boolean(data.romLoaded),
+      romHash: String(data.romHash || ""),
+      system: String(data.system || "gba"),
+      library: Array.isArray(data.library) ? data.library.map(String) : context.library
+    };
+
     const note = byId("embedNote");
-    const game = String(data.game || "").trim();
     if (note) {
-      note.textContent = data.romLoaded
-        ? `Juego cargado: ${game || data.romFilename}`
+      note.textContent = context.romLoaded
+        ? `Juego cargado: ${context.game || context.romFilename}`
         : "Sin juego cargado: carga una ROM antes de iniciar la conexión.";
-      note.classList.toggle("embed-note-warn", !data.romLoaded);
+      note.classList.toggle("embed-note-warn", !context.romLoaded);
     }
     const gameInput = byId("gameName");
-    if (gameInput && !gameInput.value && game) gameInput.value = game;
-    const hostGame = byId("hostGameInput");
-    if (hostGame && !hostGame.value && game) hostGame.value = game;
+    if (gameInput && !gameInput.value && context.game) gameInput.value = context.game;
+
+    games()?.setLocal({
+      game: context.game,
+      hash: context.romHash,
+      system: context.system,
+      library: context.library
+    });
+    refreshGameCorner();
   }
 
   window.addEventListener("message", (event) => {
@@ -320,8 +697,6 @@
     buildPanels();
     buildMenu();
 
-    /* El estado de conexión y los errores viven en la barra y al pie; sus
-       tarjetas originales se quedan vacías y ocultas por CSS. */
     const bar = byId("embedBar");
     const status = document.querySelector(".status-card .status");
     if (status && bar) bar.prepend(status);
@@ -329,6 +704,8 @@
     if (errorBox) root.append(errorBox);
 
     byId("embedBack").addEventListener("click", () => post({ type: "close" }));
+    byId("embedGameSelect").addEventListener("change", (event) => applyGameChoice(event.target.value));
+    setupSharing();
 
     const watch = (el, onChange) => {
       if (!el) return;
@@ -341,7 +718,7 @@
     watch(byId("lobbyShell"));
     watch(byId("joinCard"), (el) => { if (!el.hidden) openPanel("join"); });
     watch(byId("avatarModal"));
-    watch(byId("selectModal"));
+    watch(byId("selectModal"), () => setupSelectMenu());
     watch(byId("chatComposer"));
 
     const roomName = byId("lobbyRoomName");
@@ -350,7 +727,15 @@
         childList: true, characterData: true, subtree: true
       });
     }
+    const gameName = byId("lobbyGameName");
+    if (gameName) {
+      new MutationObserver(refreshGameCorner).observe(gameName, {
+        childList: true, characterData: true, subtree: true
+      });
+    }
 
+    setupSelectMenu();
+    setInterval(syncShareBubbles, 180);
     refreshView();
     resetCursor();
     post({ type: "ready" });

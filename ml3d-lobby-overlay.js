@@ -49,15 +49,61 @@
     } catch {}
   }
 
+  let library = null;
+  let romHash = "";
+  let hashedFor = "";
+
+  /* La biblioteca del emulador para el desplegable de juego de la sala. */
+  async function loadLibrary() {
+    if (library) return library;
+    try {
+      const response = await fetch("games-catalog.json", { cache: "no-store" });
+      const files = await response.json();
+      library = (Array.isArray(files) ? files : [])
+        .map((entry) => String(entry?.name || entry || ""))
+        .filter((name) => /\.(gba|gbc|gb)$/i.test(name))
+        .map((name) => name.replace(/\.(gba|gbc|gb)$/i, ""));
+    } catch {
+      library = [];
+    }
+    return library;
+  }
+
+  /* Misma huella que usa LocalLinkSession para comparar ROMs. */
+  async function currentRomHash() {
+    const runtime = window.ML3DLinkRuntime;
+    const filename = runtime?.romFilename || "";
+    if (!filename) return "";
+    if (hashedFor === filename && romHash) return romHash;
+    const bytes = runtime?.romBytes;
+    if (!bytes?.byteLength) return "";
+    const digest = await crypto.subtle.digest("SHA-256", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    romHash = [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    hashedFor = filename;
+    return romHash;
+  }
+
   function context() {
     const runtime = window.ML3DLinkRuntime;
     const title = document.getElementById("game-title")?.textContent || "";
+    const filename = runtime?.romFilename || "";
     return {
       type: "context",
       game: title.trim(),
-      romFilename: runtime?.romFilename || "",
-      romLoaded: Boolean(runtime?.romFilename)
+      romFilename: filename,
+      romLoaded: Boolean(filename),
+      romHash: hashedFor === filename ? romHash : "",
+      system: /\.(gbc|gb)$/i.test(filename) ? filename.toLowerCase().endsWith(".gbc") ? "gbc" : "gb" : "gba",
+      library: library || []
     };
+  }
+
+  /* El hash y la biblioteca llegan tarde: se reenvía el contexto al tenerlos. */
+  function sendContext() {
+    post(context());
+    Promise.all([loadLibrary(), currentRomHash()])
+      .then(() => post(context()))
+      .catch(() => {});
   }
 
   function releaseHeld() {
@@ -80,7 +126,7 @@
     host.hidden = false;
     document.body.classList.add("ml3d-lobby-open");
     if (!linkRunning()) window.ML3DLinkRuntime?.stopTimers?.();
-    post(context());
+    sendContext();
     post({ type: "visible", visible: true });
   }
 
@@ -109,8 +155,12 @@
     if (!data || data.source !== CHILD) return;
 
     if (data.type === "ready") {
-      post(context());
+      sendContext();
       post({ type: "visible", visible: isOpen });
+      return;
+    }
+    if (data.type === "load-rom") {
+      loadSharedRom(data);
       return;
     }
     if (data.type === "close" || data.type === "link-start") close();
@@ -122,6 +172,34 @@
       close();
     }
   }, true);
+
+  /* Juego recibido de otro jugador en el lobby: se carga como una ROM local. */
+  async function loadSharedRom(data) {
+    const bytes = data.bytes instanceof Uint8Array ? data.bytes : new Uint8Array(data.bytes || 0);
+    const filename = String(data.filename || "juego.gba");
+    if (!bytes.byteLength || typeof window.gbaStartLocalRom !== "function") return;
+
+    const system = /\.gbc$/i.test(filename) ? "gbc" : /\.gb$/i.test(filename) ? "gb" : "gba";
+    close();
+    try {
+      await window.gbaStartLocalRom({
+        bytes,
+        filename,
+        system,
+        saveId: "compartido-" + filename.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        displayName: filename.replace(/\.(gba|gbc|gb)$/i, "")
+      });
+    } catch (error) {
+      console.error("ML3D Link: no se pudo cargar el juego compartido.", error);
+    }
+  }
+
+  /* Cambiar de juego cambia lo que el lobby debe mostrar y comprobar. */
+  window.addEventListener("ml3d-rom-started", () => {
+    romHash = "";
+    hashedFor = "";
+    if (frame) sendContext();
+  });
 
   function wireLauncher() {
     const button = document.getElementById("open-lobby-button");

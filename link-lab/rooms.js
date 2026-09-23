@@ -87,12 +87,19 @@
     const headers = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      cache: "no-store"
-    });
+    let res;
+    try {
+      res = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        cache: "no-store"
+      });
+    } catch (error) {
+      /* "Failed to fetch" a secas no dice nada: casi siempre es el servidor
+         caído o un origen que la API no admite. */
+      throw new Error(`No se pudo contactar con ${base} (${error.message}).`);
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
@@ -2001,7 +2008,13 @@
     }
   });
 
-  $("#apiBase").value = localStorage.getItem(API_KEY) || DEFAULT_API_BASE;
+  /* En local, una API guardada que apunte fuera del proxio no puede funcionar
+     (CORS), así que no se hereda: manda el proxy del servidor de pruebas. */
+  const storedApi = localStorage.getItem(API_KEY) || "";
+  const usableApi = LOCAL_HOSTS.includes(location.hostname)
+    ? (storedApi.startsWith(location.origin) ? storedApi : DEFAULT_API_BASE)
+    : (storedApi || DEFAULT_API_BASE);
+  $("#apiBase").value = usableApi;
   $("#playerName").value = profile.name;
   buildEditorChoices();
   bindControls();

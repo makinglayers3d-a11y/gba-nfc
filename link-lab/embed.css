@@ -122,13 +122,19 @@ body.embed-in-room .embed-bar {
   border-bottom: 0;
 }
 
+/* Ayuda de botones: abajo a la izquierda y sin fondo, para no tapar la sala. */
 .embed-help {
-  padding: 0.25em 0.5em calc(0.25em + env(safe-area-inset-bottom));
-  background: #070d14dd;
-  color: #9eabb9;
-  font-size: 0.72em;
+  position: absolute;
+  left: 0.5em;
+  bottom: calc(0.35em + env(safe-area-inset-bottom));
+  max-width: 62%;
+  margin: 0;
+  color: #b9cbdb;
+  font-size: 0.7em;
+  line-height: 1.3;
   letter-spacing: 0.04em;
-  text-align: center;
+  text-align: left;
+  text-shadow: 0 1px 3px #000, 0 0 8px #0009;
 }
 
 .embed-root #errorBox {
@@ -318,4 +324,191 @@ body.ml3d-embed .select-menu-card details {
 
 body.ml3d-embed .avatar-layers-main-preview canvas {
   max-height: 22dvh;
+}
+
+/* ---------- juego de la sala, esquina inferior derecha ---------- */
+
+.embed-game {
+  position: absolute;
+  right: 0.5em;
+  bottom: calc(0.35em + env(safe-area-inset-bottom));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  max-width: 52%;
+  padding: 0.25em 0.4em;
+  border: 1px solid rgba(120, 195, 240, 0.45);
+  border-radius: 0.5em;
+  background: linear-gradient(180deg, rgba(14, 32, 46, 0.82), rgba(6, 14, 22, 0.78));
+  box-shadow: 0 0 10px rgba(105, 186, 233, 0.25), inset 0 0 8px rgba(105, 186, 233, 0.12);
+  pointer-events: auto;
+}
+
+.embed-game-tag {
+  flex: 0 0 auto;
+  color: #7fc2ff;
+  font-size: 0.6em;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.embed-game-select,
+.embed-game-value {
+  max-width: 100%;
+  min-height: 0;
+  padding: 0.15em 0.3em;
+  border: 0;
+  border-radius: 0.35em;
+  background: transparent;
+  color: #eaf4ff;
+  font-size: 0.72em;
+  font-weight: 700;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.embed-game-select {
+  width: auto;
+  max-width: 11em;
+}
+
+/* ---------- aviso ---------- */
+
+.embed-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  z-index: 4;
+  max-width: 84%;
+  margin: 0;
+  padding: 0.45em 0.7em;
+  transform: translateX(-50%);
+  border: 1px solid rgba(120, 195, 240, 0.5);
+  border-radius: 0.5em;
+  background: linear-gradient(180deg, rgba(16, 36, 52, 0.94), rgba(6, 14, 22, 0.94));
+  box-shadow: 0 0 14px rgba(105, 186, 233, 0.3);
+  color: #eaf4ff;
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ---------- compartir juego ---------- */
+
+.embed-select-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  margin-bottom: 0.5em;
+}
+
+.embed-select-main button {
+  width: 100%;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.embed-share-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 4px);
+  z-index: 26;
+  min-width: 82px;
+  padding: 3px 6px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(126, 205, 247, 0.65);
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(0deg, rgba(126, 205, 247, 0.1) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, rgba(18, 48, 68, 0.92), rgba(8, 22, 34, 0.88));
+  box-shadow: 0 0 10px rgba(105, 186, 233, 0.45), inset 0 0 8px rgba(126, 205, 247, 0.18);
+  color: #dff0ff;
+  text-align: center;
+  animation: embedHologram 2.6s ease-in-out infinite;
+}
+
+.embed-share-bubble strong {
+  display: block;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #9fe0ff;
+}
+
+.embed-share-bubble span {
+  display: block;
+  font-size: 8px;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 96px;
+}
+
+@keyframes embedHologram {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 1; box-shadow: 0 0 14px rgba(105, 186, 233, 0.6), inset 0 0 10px rgba(126, 205, 247, 0.24); }
+}
+
+.embed-prompt {
+  position: absolute;
+  left: calc(50% + 48px);
+  bottom: calc(100% + 2px);
+  z-index: 27;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transform: translateX(-50%);
+}
+
+.embed-prompt-key {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(126, 205, 247, 0.8);
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #2f6c93, #10222f);
+  color: #eaf7ff;
+  font-size: 9px;
+  font-weight: 900;
+  box-shadow: 0 0 8px rgba(105, 186, 233, 0.6);
+  animation: embedPressA 1.1s ease-in-out infinite;
+}
+
+.embed-prompt-text {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #cfe9ff;
+  text-shadow: 0 1px 3px #000;
+}
+
+@keyframes embedPressA {
+  0%, 62%, 100% { transform: translateY(0) scale(1); }
+  72% { transform: translateY(1px) scale(0.9); box-shadow: 0 0 4px rgba(105, 186, 233, 0.5); }
+  84% { transform: translateY(0) scale(1.04); }
+}
+
+.embed-share-name {
+  margin: 0.3em 0;
+  font-size: 0.95em;
+  font-weight: 800;
+  color: #eaf4ff;
+}
+
+.embed-share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  margin-top: 0.5em;
+}
+
+body.ml3d-embed .embed-share-button {
+  width: 100%;
+  letter-spacing: 0.06em;
 }
