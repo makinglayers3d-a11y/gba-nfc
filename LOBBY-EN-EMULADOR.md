@@ -105,15 +105,34 @@ cuando **cada jugador tiene su cartucho**:
 
 | Modo | Estado |
 | --- | --- |
-| Multi-Player (SIOCNT modo 2) | Completo: IDs, baudios, tiempos, COMMERROR, SIOMULTI0-3, bits SI/SD y pines RCNT. Es el que usan casi todos los juegos. |
+| Multi-Player (SIOCNT modo 2) | Completo para 2, 3 y 4 consolas: IDs, baudios, tiempos por número de secundarias, COMMERROR, SIOMULTI0-3, bits SI/SD y pines RCNT. Es el que usan casi todos los juegos. |
 | Normal 8 y 32 bits (modos 0 y 1) | El maestro clocka y el esclavo desplaza su registro tenga o no transferencia pedida, como el hardware. Sin pareja en ese modo, el maestro recibe la línea en reposo (todo unos) en vez de colgarse. |
 | General Purpose (RCNT modo 2) | SC y SD son bus común con pull-up; el SI de cada consola cuelga del SO de la otra; IRQ por flanco de bajada de SI. Lo usan los juegos que sondean las patillas para detectar al compañero. |
 | UART (SIOCNT modo 3) | Los bytes escritos en SIODATA8 llegan a la cola del otro lado, con el bit de "cola vacía" en SIOCNT. Apenas lo usa software comercial. |
 | JOY Bus (RCNT modo 3) | Solo registros. Es el enlace con GameCube, no cartucho contra cartucho. |
 | Multiboot (un solo cartucho) | Fuera de alcance por decisión propia. |
 
-Las salas son de dos jugadores, así que Multi-Player se ejerce con dos consolas;
-tres y cuatro quedan sin probar.
+## Salas de 2 a 4 jugadores
+
+La sala se crea eligiendo jugadores (2, 3 o 4) y el host puede cambiarlo después
+desde `GESTIÓN DE SALA`. Los invitados ocupan los asientos 1, 2 y 3 por orden de
+llegada; el host siempre es el 0.
+
+Cada navegador emula su consola **más una copia oculta por compañero**: cuatro
+núcleos GBA deterministas en una sala llena. El coordinador
+(`user_scripts/LocalLinkSession.js`) reparte el reloj entre todos, nunca deja que
+una secundaria adelante al padre, y solo completa una transferencia cuando todas
+han llegado al instante del START. El paquete `gba:link:configure` lleva cuántos
+son, así que todos montan el mismo número de asientos.
+
+Con tres o cuatro, el host reenvía además las teclas de cada invitado a los
+demás: es el único que habla con todos.
+
+`INICIAR CONEXIÓN` exige exactamente los jugadores de la sala, con sus asientos
+seguidos, antes de arrancar la cuenta atrás.
+
+General Purpose y UART son enlaces de dos consolas; con tres o cuatro quedan
+inertes, como el cable real en cadena.
 
 ## Partida Link
 

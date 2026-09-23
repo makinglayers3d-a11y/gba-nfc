@@ -6,8 +6,11 @@
      así que estos tres valores ya no son fijos: la URL solo da el arranque
      directo que sigue usando el lobby en ventana aparte. */
   let roomId = String(params.get("linkRoom") || "");
-  let mySeat = Math.max(0, Math.min(1, Number(params.get("linkPlayer")) | 0));
+  let mySeat = Math.max(0, Math.min(3, Number(params.get("linkPlayer")) | 0));
   let role = params.get("linkRole") === "host" ? "host" : "guest";
+  /* Jugadores de la sala: 2 a 4, como el cable Link real. Cada navegador
+     emula su consola y una copia oculta de cada compañero. */
+  let seatCount = Math.max(2, Math.min(4, Number(params.get("linkPlayers")) | 0 || 2));
   const selfTest = params.get("linkSelfTest") === "1";
   const requestedTransferCycles = Math.max(0, Number(params.get("linkTransferCycles")) | 0);
   const progressiveTransfer = params.get("linkProgressive") === "1";
@@ -19,7 +22,7 @@
   const UNKNOWN = -1;
 
   let localMask = 0;
-  const selfTestMasks = [0, 0];
+  const selfTestMasks = [0, 0, 0, 0];
   let controller = null;
   let pendingStart = null;
 
@@ -44,27 +47,26 @@
     test: selfTest ? {
       setSeatMask(seat, mask) {
         seat = Number(seat) | 0;
-        if (seat < 0 || seat > 1) return false;
+        if (seat < 0 || seat > 3) return false;
         selfTestMasks[seat] = Number(mask) & 0x3ff;
         return true;
       },
       press(seat, key) {
         seat = Number(seat) | 0;
         key = Number(key) | 0;
-        if (seat < 0 || seat > 1 || key < 0 || key > 9) return false;
+        if (seat < 0 || seat > 3 || key < 0 || key > 9) return false;
         selfTestMasks[seat] |= (1 << key);
         return true;
       },
       release(seat, key) {
         seat = Number(seat) | 0;
         key = Number(key) | 0;
-        if (seat < 0 || seat > 1 || key < 0 || key > 9) return false;
+        if (seat < 0 || seat > 3 || key < 0 || key > 9) return false;
         selfTestMasks[seat] &= ~(1 << key);
         return true;
       },
       releaseAll() {
-        selfTestMasks[0] = 0;
-        selfTestMasks[1] = 0;
+        selfTestMasks.fill(0);
       },
       get masks() {
         return selfTestMasks.slice();
@@ -115,11 +117,19 @@
   }
 
   class LocalDualLink {
-    constructor(visible, hidden, hash) {
+    constructor(visible, hiddens, hash) {
       this.visible = visible;
-      this.hidden = hidden;
+      this.hiddens = Array.isArray(hiddens) ? hiddens : [hiddens];
+      this.hidden = this.hiddens[0];
       this.romHash = hash;
-      this.cores = mySeat === 0 ? [visible, hidden] : [hidden, visible];
+      this.seats = seatCount;
+      /* Cada asiento del cable tiene su núcleo: el propio es el visible y los
+         de los compañeros son copias ocultas de la misma ROM. */
+      const spare = this.hiddens.slice();
+      this.cores = [];
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.cores.push(seat === mySeat ? visible : spare.shift());
+      }
       this.serials = this.cores.map((core) => core.IOCore.serial);
       // The cycle counter is coordinator-only metadata. Normalize both cores
       // at the moment the deterministic session is created so pre-session UI
@@ -134,13 +144,14 @@
       this.frame = 0;
       this.sessionId = "";
       this.started = false;
-      this.remoteReady = false;
+      this.readySeats = new Set();
       this.remoteHash = "";
       this.pendingTransfer = null;
       this.transferCount = 0;
       this.finishSyncCount = 0;
       this.localTransferArmed = false;
-      this.normalPrepared = [null, null];
+      this.pendingChildren = new Set();
+      this.normalPrepared = new Array(this.seats).fill(null);
       this.normalTransferCount = 0;
       this.normalTrace = [];
       this.normalAttemptTrace = [];
@@ -151,39 +162,39 @@
       this.startSkewTotal = 0;
       this.startSkewCount = 0;
       this.recentTransfers = [];
-      this.sendWordHistory = [[], []];
-      this.siocntWrites = [[], []];
-      this.siocntReads = [[], []];
-      this.rcntWrites = [[], []];
-      this.siomultiReads = [[], []];
-      this.criticalSiomultiReads = [[], []];
-      this.comparisonTrace = [[], []];
-      this.mainReturnTrace = [[], []];
-      this.instructionRing = [[], []];
-      this.error60Trace = [[], []];
-      this.resetTrace = [[], []];
+      const perSeat = () => Array.from({ length: this.seats }, () => []);
+      this.sendWordHistory = perSeat();
+      this.siocntWrites = perSeat();
+      this.siocntReads = perSeat();
+      this.rcntWrites = perSeat();
+      this.siomultiReads = perSeat();
+      this.criticalSiomultiReads = perSeat();
+      this.comparisonTrace = perSeat();
+      this.mainReturnTrace = perSeat();
+      this.instructionRing = perSeat();
+      this.error60Trace = perSeat();
+      this.resetTrace = perSeat();
       this.protocolTransition = null;
       this.protocolTransitionRemaining = 0;
       this.wedged = false;
       this.inputTimer = null;
       this.readyTimer = null;
       this.tickTimer = null;
-      this.lastApplied = [0, 0];
-      this.inputs = new Int16Array(RING * 2).fill(UNKNOWN);
+      this.lastApplied = new Array(this.seats).fill(0);
+      this.inputs = new Int16Array(RING * this.seats).fill(UNKNOWN);
       this.sentFrames = new Set();
       this.lastTickAt = performance.now();
       this.stallCount = 0;
       this.debug = null;
 
       for (let frame = 0; frame < INPUT_DELAY; frame++) {
-        this.setInput(frame, 0, 0);
-        this.setInput(frame, 1, 0);
+        for (let seat = 0; seat < this.seats; seat++) this.setInput(frame, seat, 0);
       }
 
       this.installLocalCable();
       this.buildDebug();
       if (selfTest) {
-        this.remoteReady = true;
+        for (let seat = 1; seat < this.seats; seat++) this.readySeats.add(seat);
         this.remoteHash = this.romHash;
         setTimeout(() => this.start("ci-selftest", INPUT_DELAY), 0);
       } else {
@@ -195,7 +206,7 @@
     }
 
     slot(frame, seat) {
-      return (frame % RING) * 2 + seat;
+      return (frame % RING) * this.seats + seat;
     }
 
     setInput(frame, seat, mask) {
@@ -220,7 +231,9 @@
     }
 
     maybeHostStart() {
-      if (role !== "host" || this.started || !this.remoteReady) return;
+      /* El host arranca cuando todos los compañeros están listos. */
+      if (role !== "host" || this.started) return;
+      if (this.readySeats.size < this.seats - 1) return;
       if (!this.remoteHash || this.remoteHash !== this.romHash) {
         this.setDebugError("ROM DISTINTA");
         return;
@@ -237,7 +250,9 @@
     }
 
     acceptRemoteReady(packet) {
-      this.remoteReady = Boolean(packet.ready !== false);
+      const seat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
+      if (packet.ready === false) this.readySeats.delete(seat);
+      else if (seat !== mySeat) this.readySeats.add(seat);
       this.remoteHash = String(packet.romHash || "");
       this.renderDebug();
       this.maybeHostStart();
@@ -256,10 +271,9 @@
       this.readyTimer = null;
       this.frame = 0;
       this.lastTickAt = performance.now();
-      try {
-        this.visible.audioPushNewState?.();
-        this.hidden.audioPushNewState?.();
-      } catch {}
+      for (const core of this.cores) {
+        try { core.audioPushNewState?.(); } catch {}
+      }
       this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
       this.renderDebug();
     }
@@ -274,12 +288,10 @@
         playerNumber: seat,
         localDeterministic: true,
         isConnected: () => true,
-        isReady: () =>
-          (this.serials[0]?.SIOCNT_MODE | 0) === 2 &&
-          (this.serials[1]?.SIOCNT_MODE | 0) === 2,
+        isReady: () => this.serials.every((serial) => (serial?.SIOCNT_MODE | 0) === 2),
         canTransfer: () => {
           if (seat !== 0) return true;
-          return (this.serials[1]?.SIOCNT_MODE | 0) === 2;
+          return this.childSeats().every((child) => (this.serials[child]?.SIOCNT_MODE | 0) === 2);
         },
         onSerialModeChange: (mode) => {
           mode = Number(mode) | 0;
@@ -309,18 +321,19 @@
         },
         onHardwareTransferComplete: () => {
           if (!this.localTransferArmed) return;
-          if (seat === 1) {
+          if (seat !== 0) {
             // Match mGBA's finish hard-sync: the clock owner must not expose
-            // completion/IRQ until the secondary has finished the same transfer.
-            this.finishSyncCount += 1;
-            this.serials[0]?.releaseExternalMultiplayerTransfer?.(false);
+            // completion/IRQ until every secondary has finished the transfer.
+            this.pendingChildren.delete(seat);
+            if (this.pendingChildren.size === 0) {
+              this.finishSyncCount += 1;
+              this.serials[0]?.releaseExternalMultiplayerTransfer?.(false);
+            }
             return;
           }
-          if (seat === 0) {
-            this.transferCount += 1;
-            this.localTransferArmed = false;
-            this.renderDebug();
-          }
+          this.transferCount += 1;
+          this.localTransferArmed = false;
+          this.renderDebug();
         },
         startNormalTransfer: (info = {}) => {
           const mode = Number(info.mode) | 0;
@@ -349,8 +362,10 @@
           // el maestro arranca, haya pedido transferencia o no.
           if (!prepared.internalClock) return true;
 
-          const other = seat ^ 1;
-          const peerSerial = this.serials[other];
+          /* Normal es un enlace de dos consolas; con tres o cuatro no hay
+             cadena que emular y el maestro habla solo. */
+          const other = this.seats === 2 ? (seat ^ 1) : -1;
+          const peerSerial = other >= 0 ? this.serials[other] : null;
           const peerMode = Number(peerSerial?.SIOCNT_MODE) | 0;
           const peerListening = Boolean(peerSerial) &&
             peerMode === mode &&
@@ -362,7 +377,7 @@
           const peerWord = peerListening ? (peerSerial.getNormalLinkData() >>> 0) : idle;
 
           this.normalPrepared[seat] = null;
-          this.normalPrepared[other] = null;
+          if (other >= 0) this.normalPrepared[other] = null;
 
           this.normalTrace.push({
             frame: this.frame,
@@ -388,22 +403,24 @@
         /* Modo General Purpose: las patillas SC/SD/SI/SO de las dos consolas
            cuelgan del mismo cable, así que cada lado necesita ver lo que
            conduce el otro. */
-        getPeerGeneralPurpose: () => this.serials[seat ^ 1]?.getGeneralPurposeOutputs?.() || null,
+        /* General Purpose y UART son enlaces de dos consolas: con la sala a
+           tres o cuatro no hay cadena que emular, así que quedan inertes. */
+        getPeerGeneralPurpose: () =>
+          this.seats === 2 ? (this.serials[seat ^ 1]?.getGeneralPurposeOutputs?.() || null) : null,
         onGeneralPurposeChange: () => {
-          this.serials[seat ^ 1]?.notifyGeneralPurposePeerChange?.();
+          if (this.seats === 2) this.serials[seat ^ 1]?.notifyGeneralPurposePeerChange?.();
         },
-        /* UART: byte escrito aquí, byte recibido allí. */
         sendUARTByte: (data) => {
-          this.serials[seat ^ 1]?.receiveUARTByte?.(Number(data) & 0xff);
+          if (this.seats === 2) this.serials[seat ^ 1]?.receiveUARTByte?.(Number(data) & 0xff);
         },
         onNormalTransferComplete: () => {},
                 startMultiplayerTransfer: (info = {}) => {
           if (seat !== 0 || this.pendingTransfer || this.localTransferArmed) return false;
-          // The secondary has its own copy of the cartridge and reaches MULTI
-          // on its own schedule. Until it does there is nobody to clock, so
-          // leave BUSY clear and let the parent retry, exactly as a cable with
-          // an unready peer behaves.
-          if ((this.serials[1]?.SIOCNT_MODE | 0) !== 2) return false;
+          // Cada secundaria tiene su copia del cartucho y llega a MULTI cuando
+          // le toca. Hasta que todas estén, no hay a quién clockear: se deja
+          // BUSY a cero y el padre reintenta, como un cable con alguien que
+          // todavía no ha entrado.
+          if (this.childSeats().some((child) => (this.serials[child]?.SIOCNT_MODE | 0) !== 2)) return false;
           this.pendingTransfer = {
             sequence: Number(info.sequence) | 0,
             word: Number(info.word) & 0xffff,
@@ -718,17 +735,30 @@
       }
     }
 
+    childSeats() {
+      const list = [];
+      for (let seat = 1; seat < this.seats; seat++) list.push(seat);
+      return list;
+    }
+
     carryTransfer() {
       const pending = this.pendingTransfer;
       if (!pending) return false;
-      const childCycles = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
-      if (childCycles < pending.parentCycle) return false;
-      if ((this.serials[1].SIOCNT_MODE | 0) !== 2) {
+      const children = this.childSeats();
+
+      // Nadie transfiere hasta que todas las secundarias han llegado al
+      // instante en que el padre dio el START.
+      for (const child of children) {
+        const cycles = Number(this.cores[child].IOCore.linkCycleCounter) || 0;
+        if (cycles < pending.parentCycle) return false;
+      }
+      if (children.some((child) => (this.serials[child].SIOCNT_MODE | 0) !== 2)) {
         this.pendingTransfer = null;
         this.serials[0].SIOTransferStarted = false;
         return false;
       }
 
+      const childCycles = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
       const startSkew = childCycles - pending.parentCycle;
       this.startSkewLast = startSkew;
       this.startSkewMin = Math.min(this.startSkewMin, startSkew);
@@ -807,25 +837,34 @@
         this.protocolTransitionRemaining -= 1;
       }
 
-      const childWord = effectiveChildWord;
-      const words = [pending.word, childWord, 0xffff, 0xffff];
+      const words = [pending.word & 0xffff, 0xffff, 0xffff, 0xffff];
+      for (const child of children) {
+        words[child] = this.serials[child].getLinkSendData() & 0xffff;
+      }
+      const connectedCount = children.length;
 
-      this.serials[1].beginExternalMultiplayerTransfer(1);
+      for (const child of children) {
+        this.serials[child].beginExternalMultiplayerTransfer(child);
+      }
       this.localTransferArmed = true;
+      this.pendingChildren = new Set(children);
 
-      // Host timing starts now but completion remains held until P1 actually
-      // reaches its own hardware-complete event.
+      // El padre empieza a contar ya, pero no expone la finalización hasta que
+      // todas las secundarias han terminado su propia transferencia.
       this.serials[0].completeExternalMultiplayerTransfer(
-        words, 0, false, 1, true, pending.baud, 0,
+        words, 0, false, connectedCount, true, pending.baud, 0,
         requestedTransferCycles || undefined,
         progressiveTransfer ? [2840, 5461] : undefined
       );
-      this.serials[1].completeExternalMultiplayerTransfer(
-        words, 1, false, 1, false, pending.baud,
-        Math.max(0, childCycles - pending.parentCycle),
-        requestedTransferCycles || undefined,
-        progressiveTransfer ? [2840, 5461] : undefined
-      );
+      for (const child of children) {
+        const cycles = Number(this.cores[child].IOCore.linkCycleCounter) || 0;
+        this.serials[child].completeExternalMultiplayerTransfer(
+          words, child, false, connectedCount, false, pending.baud,
+          Math.max(0, cycles - pending.parentCycle),
+          requestedTransferCycles || undefined,
+          progressiveTransfer ? [2840, 5461] : undefined
+        );
+      }
 
       this.pendingTransfer = null;
       return true;
@@ -851,8 +890,9 @@
       this.sentFrames.add(target);
 
       if (selfTest) {
-        this.setInput(target, 0, selfTestMasks[0]);
-        this.setInput(target, 1, selfTestMasks[1]);
+        for (let seat = 0; seat < this.seats; seat++) {
+          this.setInput(target, seat, selfTestMasks[seat] | 0);
+        }
       } else {
         this.setInput(target, mySeat, localMask);
         sendLocal({
@@ -873,13 +913,15 @@
     acceptRemoteInput(packet) {
       if (!this.started || String(packet.sessionId || "") !== this.sessionId) return;
       const seat = Number(packet.playerNumber) | 0;
-      if (seat === mySeat || seat < 0 || seat > 1) return;
+      if (seat === mySeat || seat < 0 || seat >= this.seats) return;
       this.setInput(Number(packet.frame), seat, Number(packet.mask));
     }
 
     frameReady() {
-      return this.getInput(this.frame, 0) !== UNKNOWN &&
-        this.getInput(this.frame, 1) !== UNKNOWN;
+      for (let seat = 0; seat < this.seats; seat++) {
+        if (this.getInput(this.frame, seat) === UNKNOWN) return false;
+      }
+      return true;
     }
 
     stepCore(seat, cycles) {
@@ -901,9 +943,9 @@
     }
 
     runFrame() {
-      const masks = [this.getInput(this.frame, 0), this.getInput(this.frame, 1)];
-      this.applyMask(0, masks[0]);
-      this.applyMask(1, masks[1]);
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.applyMask(seat, this.getInput(this.frame, seat));
+      }
 
       // Preserve the emulator shell lifecycle even though the coordinator owns
       // the clock. Direct IOCore stepping alone skips start/end callbacks used
@@ -913,56 +955,56 @@
       }
 
       const frameTarget = (this.frame + 1) * FRAME_CYCLES;
-      const targets = [frameTarget, frameTarget];
+      const cyclesOf = (seat) => Number(this.cores[seat].IOCore.linkCycleCounter) || 0;
+      const behindest = (seats) => seats.reduce((a, b) => (cyclesOf(a) <= cyclesOf(b) ? a : b));
 
       let rounds = 0;
       let noProgressRounds = 0;
-      const MAX_ROUNDS = 12000;
+      const MAX_ROUNDS = 12000 * (this.seats - 1);
       while (rounds++ < MAX_ROUNDS) {
         if (this.pendingTransfer && this.carryTransfer()) continue;
 
-        const c0 = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
-        const c1 = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
-        const done0 = c0 >= targets[0];
-        const done1 = c1 >= targets[1];
-        if (done0 && done1 && !this.pendingTransfer) break;
+        const running = [];
+        for (let seat = 0; seat < this.seats; seat++) {
+          if (cyclesOf(seat) < frameTarget) running.push(seat);
+        }
+        if (!running.length && !this.pendingTransfer) break;
+
+        const multi = this.serials.some((serial) => (serial.SIOCNT_MODE | 0) === 2);
+        // Before MULTI there is no cable edge to catch, so use coarse slices.
+        // In MULTI keep the local GBAs within roughly 1K cycles so no child can
+        // drift most of a transfer ahead of the parent.
+        const slice = multi ? 1024 : 65536;
+        const parentNow = cyclesOf(0);
 
         let seat;
         if (this.pendingTransfer) {
-          seat = 1;
-        } else if (done0) {
-          seat = 1;
-        } else if (done1) {
-          seat = 0;
+          // Solo corren las secundarias que aún no han llegado al START.
+          const behind = this.childSeats().filter(
+            (child) => cyclesOf(child) < this.pendingTransfer.parentCycle
+          );
+          if (!behind.length) continue;
+          seat = behindest(behind);
         } else {
-          seat = c0 <= c1 ? 0 : 1;
+          seat = behindest(running);
         }
 
-        const current = Number(this.cores[seat].IOCore.linkCycleCounter) || 0;
-        let remaining = Math.max(1, targets[seat] - current);
-        const multi =
-          (this.serials[0].SIOCNT_MODE | 0) === 2 ||
-          (this.serials[1].SIOCNT_MODE | 0) === 2;
-        // Before MULTI there is no cable edge to catch, so use coarse slices.
-        // In MULTI keep the two local GBAs within roughly 1K cycles so the
-        // child cannot drift most of a transfer ahead of the parent.
-        const slice = multi ? 1024 : 65536;
+        const current = cyclesOf(seat);
+        let remaining = Math.max(1, frameTarget - current);
 
-        if (this.pendingTransfer && seat === 1) {
+        if (this.pendingTransfer && seat !== 0) {
           remaining = Math.max(
             1,
             Math.min(remaining, Math.max(1, this.pendingTransfer.parentCycle - current))
           );
-        } else if (multi && seat === 1) {
-          // P0 owns the serial clock. Never let P1 execute beyond P0's current
-          // virtual timestamp, otherwise P1 can run game logic for hundreds of
-          // cycles before seeing a START that should already have made it BUSY.
-          const parentNow = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
+        } else if (multi && seat !== 0) {
+          // P0 owns the serial clock. Never let a child execute beyond P0's
+          // current virtual timestamp, otherwise it can run game logic for
+          // hundreds of cycles before seeing a START that should have made it
+          // BUSY already.
           const childGap = parentNow - current;
           if (childGap <= 0) {
-            // Give P0 the next slice instead of allowing P1 into the future.
-            const parentCurrent = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
-            const parentRemaining = Math.max(1, targets[0] - parentCurrent);
+            const parentRemaining = Math.max(1, frameTarget - parentNow);
             const progressed = this.stepCore(0, Math.min(slice, parentRemaining));
             if (progressed) {
               noProgressRounds = 0;
@@ -992,17 +1034,17 @@
 
       if (rounds >= MAX_ROUNDS) this.wedged = true;
 
-      try {
-        this.visible.submitAudioBuffer?.();
-        this.hidden.submitAudioBuffer?.();
-      } catch {}
+      for (const core of this.cores) {
+        try { core.submitAudioBuffer?.(); } catch {}
+      }
 
       for (const core of this.cores) {
         try { core.runEndJobs?.(); } catch {}
       }
 
-      this.inputs[this.slot(this.frame, 0)] = UNKNOWN;
-      this.inputs[this.slot(this.frame, 1)] = UNKNOWN;
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.inputs[this.slot(this.frame, seat)] = UNKNOWN;
+      }
       this.frame += 1;
       return !this.wedged;
     }
@@ -1063,7 +1105,7 @@
       const hx = (value) => (Number(value) & 0xff).toString(16).padStart(2, "0");
       this.debug.textContent =
         `LOCAL LINK ${role === "host" ? "H" : "G"} P${mySeat} ${this.started ? "RUN" : "SYNC"}\n` +
-        (!this.started ? `ESPERANDO PEER:${this.remoteReady ? "OK" : "..."} ROM:${this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "..."}\n` : "") +
+        (!this.started ? `ESPERANDO PEERS:${this.readySeats.size}/${this.seats - 1} ROM:${this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "..."}\n` : "") +
         `F:${this.frame} IN:${current0 === UNKNOWN ? "-" : current0.toString(16)}/${current1 === UNKNOWN ? "-" : current1.toString(16)} D:${INPUT_DELAY}\n` +
         `M:${s0?.SIOCNT_MODE ?? "-"}/${s1?.SIOCNT_MODE ?? "-"} BUSY:${s0?.SIOTransferStarted ? 1 : 0}/${s1?.SIOTransferStarted ? 1 : 0} S:${hx(s0v)}/${hx(s1v)} R:${hx(r0v)}/${hx(r1v)}\n` +
         `XFER:${this.transferCount} HS:${this.finishSyncCount} PEND:${this.pendingTransfer ? 1 : 0}/${this.localTransferArmed ? 1 : 0} Δ:${Math.round(c0 - c1)} SK:${this.startSkewCount ? `${this.startSkewLast}/${this.startSkewMin}..${this.startSkewMax}` : "-"} T:${Math.round((this.frame + 1) * FRAME_CYCLES - Math.min(c0, c1))} STALL:${this.stallCount}` +
@@ -1085,13 +1127,14 @@
         normalTrace: this.normalTrace.slice(),
         normalAttemptTrace: this.normalAttemptTrace.slice(),
         normalPrepared: this.normalPrepared.map((entry) => entry ? { ...entry } : null),
+        seats: this.seats,
         pendingTransfer: Boolean(
           this.pendingTransfer ||
           this.localTransferArmed ||
-          this.normalPrepared[0] ||
-          this.normalPrepared[1]
+          this.normalPrepared.some(Boolean)
         ),
-        remoteReady: this.remoteReady,
+        readySeats: [...this.readySeats],
+        remoteReady: this.readySeats.size >= this.seats - 1,
         romHash: this.romHash,
         remoteHash: this.remoteHash,
         wedged: this.wedged,
@@ -1160,12 +1203,11 @@
       this.readyTimer = null;
       this.tickTimer = null;
       try {
-        this.serials[0]?.detachLinkCable?.();
-        this.serials[1]?.detachLinkCable?.();
+        for (const serial of this.serials) serial?.detachLinkCable?.();
       } catch {}
-      try {
-        this.hidden?.stop?.();
-      } catch {}
+      for (const core of this.hiddens) {
+        try { core?.stop?.(); } catch {}
+      }
       this.debug?.remove();
       this.started = false;
     }
@@ -1184,9 +1226,10 @@
     } catch {}
 
     const hash = await fingerprint(rom);
-    const hidden = makeHiddenCore(rom);
+    const hiddens = [];
+    for (let seat = 1; seat < seatCount; seat++) hiddens.push(makeHiddenCore(rom));
     controller?.destroy?.();
-    controller = new LocalDualLink(visible, hidden, hash);
+    controller = new LocalDualLink(visible, hiddens, hash);
 
     if (pendingStart) {
       const start = pendingStart;
@@ -1205,15 +1248,17 @@
   function configureSession(packet) {
     const nextRoom = String(packet.roomId || "");
     if (!nextRoom || configuring) return;
-    const nextSeat = Math.max(0, Math.min(1, Number(packet.playerNumber) | 0));
+    const nextSeat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
     const nextRole = packet.role === "host" ? "host" : "guest";
-    const key = `${nextRoom}:${nextSeat}:${nextRole}`;
+    const nextSeats = Math.max(2, Math.min(4, Number(packet.players) | 0 || 2));
+    const key = `${nextRoom}:${nextSeat}:${nextRole}:${nextSeats}`;
     if (key === configuredKey) return;
     configuredKey = key;
 
     roomId = nextRoom;
     mySeat = nextSeat;
     role = nextRole;
+    seatCount = nextSeats;
     enabled = true;
     controller?.destroy?.();
     controller = null;
