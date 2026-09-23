@@ -186,6 +186,49 @@ Para una sala de verdad hacen falta dos contextos aislados: ventana normal más
 ventana de incógnito, o dos dispositivos. Dos pestañas de la misma ventana no
 valen: comparten el `BroadcastChannel` del cable Link y se cruzan las partidas.
 
+## Barrido por juegos de la biblioteca
+
+Cada juego se arranca con el selftest de doble núcleo (dos o cuatro consolas
+locales), se le dan 30-40 s pulsando el mismo patrón de botones en todas las
+consolas (START, A, cruceta) y se mide qué hace el cable. Pulsar a ciegas no
+entra en menús de Link que exigen navegación concreta, así que un cero en
+transferencias no significa que el juego falle: significa que la prueba
+automática no llegó a su menú.
+
+**Dos jugadores**
+
+| Juego | Modos SIO | Transferencias | COMMERROR |
+| --- | --- | --- | --- |
+| Mario Kart Super Circuit | Normal + MULTI | 10.174 | 0 |
+| Super Mario Bros. 3 (SMA4) | Normal + MULTI | 6.605 | 0 |
+| DragonBall Z Taiketsu | MULTI | 2.739 | 0 |
+| Zelda ALTTP & Four Swords | MULTI | 640 | 0 |
+| Sonic Advance 2 | MULTI | 1 | 0 |
+| DBZ Supersonic Warriors | MULTI | 0 | 0 |
+| Pokémon Esmeralda | Normal 32 + MULTI + RCNT general | 0 | 0 |
+| Pokémon Rojo Fuego | MULTI | 0 | 0 |
+| Pokémon Rubí | Normal + RCNT general | 0 | 0 |
+| Donkey Kong King of Swing | Normal | 0 | 0 |
+
+Ninguno se atascó ni dio error de comunicación. Top Gear Rally y V-Rally 3
+quedaron sin correr.
+
+**Cuatro jugadores**
+
+| Juego | Transferencias | COMMERROR |
+| --- | --- | --- |
+| Mario Kart Super Circuit | 8.183 | 0 |
+| Super Mario Bros. 3 (SMA4) | 4.491 | 0 |
+
+Los Pokémon tocan el modo General Purpose (RCNT 2) que antes no cruzaba patillas
+entre consolas; ahora sí, pero su menú de intercambio solo se alcanza jugando.
+
+El barrido a cuatro destapó dos fallos que ya están corregidos: el cable solo se
+enganchaba a los asientos 0 y 1, y el padre exigía que todas las secundarias
+estuvieran en MULTI en el mismo instante. Con las dos correcciones, Mario Kart a
+dos jugadores repitió 6.738 transferencias sin errores, así que el camino de dos
+sigue igual de sano.
+
 ## Probado
 
 Con un servidor estático local y Chrome headless:
