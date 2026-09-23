@@ -1778,6 +1778,18 @@
 
     rememberLocalLinkSession(room.id, playerNumber, role);
 
+    /* Integrado en el emulador: el emulador es la página y el lobby vive en su
+       pantalla, así que aquí solo hay que devolver el mando al juego. La
+       configuración del cable ya ha viajado por BroadcastChannel. */
+    if (new URLSearchParams(location.search).get("embed") === "1") {
+      closeModal("selectModal");
+      window.parent?.postMessage(
+        { source: "ml3d-lobby", type: "link-start", roomId: room.id, playerNumber, role },
+        location.origin
+      );
+      return;
+    }
+
     const url = new URL("../", location.href);
     url.searchParams.set("menu", "1");
     url.searchParams.set("linkRoom", room.id);

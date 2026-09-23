@@ -2,13 +2,16 @@
   "use strict";
 
   const params = new URLSearchParams(location.search);
-  const roomId = String(params.get("linkRoom") || "");
-  const mySeat = Math.max(0, Math.min(1, Number(params.get("linkPlayer")) | 0));
-  const role = params.get("linkRole") === "host" ? "host" : "guest";
+  /* El lobby integrado configura la sesión en caliente (gba:link:configure),
+     así que estos tres valores ya no son fijos: la URL solo da el arranque
+     directo que sigue usando el lobby en ventana aparte. */
+  let roomId = String(params.get("linkRoom") || "");
+  let mySeat = Math.max(0, Math.min(1, Number(params.get("linkPlayer")) | 0));
+  let role = params.get("linkRole") === "host" ? "host" : "guest";
   const selfTest = params.get("linkSelfTest") === "1";
   const requestedTransferCycles = Math.max(0, Number(params.get("linkTransferCycles")) | 0);
   const progressiveTransfer = params.get("linkProgressive") === "1";
-  const enabled = Boolean(roomId) || selfTest;
+  let enabled = Boolean(roomId) || selfTest;
   const BUS_NAME = "ml3d-gba-link-v1";
   const FRAME_CYCLES = 280896;
   const INPUT_DELAY = 4;
@@ -72,7 +75,9 @@
     } : null
   };
 
-  if (!enabled || typeof BroadcastChannel !== "function") return;
+  /* El bus queda siempre escuchando: sin sala configurada nada casa con el
+     filtro de roomId, y asi el lobby integrado puede configurarla despues. */
+  if (typeof BroadcastChannel !== "function") return;
 
   const bus = new BroadcastChannel(BUS_NAME);
 
@@ -1150,6 +1155,7 @@
   }
 
   async function bootLocalDual() {
+    if (!roomId && !selfTest) return;
     const runtime = window.ML3DLinkRuntime;
     const visible = runtime?.emulator;
     const rom = runtime?.romBytes;
@@ -1172,9 +1178,61 @@
     }
   }
 
+  /* Configuración en caliente desde el lobby integrado. La sesión Link exige
+     que los dos núcleos de cada jugador arranquen desde la ROM limpia, así que
+     al entrar en una sala se reinicia la ROM actual sin partida guardada; el
+     evento ml3d-rom-started encadena después con bootLocalDual(). */
+  let configuring = false;
+  let configuredKey = roomId ? `${roomId}:${mySeat}:${role}` : "";
+
+  function configureSession(packet) {
+    const nextRoom = String(packet.roomId || "");
+    if (!nextRoom || configuring) return;
+    const nextSeat = Math.max(0, Math.min(1, Number(packet.playerNumber) | 0));
+    const nextRole = packet.role === "host" ? "host" : "guest";
+    const key = `${nextRoom}:${nextSeat}:${nextRole}`;
+    if (key === configuredKey) return;
+    configuredKey = key;
+
+    roomId = nextRoom;
+    mySeat = nextSeat;
+    role = nextRole;
+    enabled = true;
+    controller?.destroy?.();
+    controller = null;
+    pendingStart = null;
+
+    const runtime = window.ML3DLinkRuntime;
+    configuring = true;
+    Promise.resolve(runtime?.restartForLink?.())
+      .catch((error) => console.error("ML3D Local Link (reinicio):", error))
+      .finally(() => { configuring = false; });
+  }
+
+  function disconnectSession(packet) {
+    if (packet.roomId && packet.roomId !== roomId) return;
+    controller?.destroy?.();
+    controller = null;
+    pendingStart = null;
+    roomId = "";
+    configuredKey = "";
+    enabled = selfTest;
+    try { window.ML3DLinkRuntime?.startTimers?.(); } catch {}
+  }
+
   bus.addEventListener("message", (event) => {
     const packet = event.data;
-    if (!packet || packet.source !== "lobby" || packet.roomId !== roomId) return;
+    if (!packet || packet.source !== "lobby") return;
+
+    if (packet.type === "gba:link:configure") {
+      configureSession(packet);
+      return;
+    }
+    if (packet.type === "gba:link:disconnect") {
+      disconnectSession(packet);
+      return;
+    }
+    if (packet.roomId !== roomId) return;
 
     if (packet.type === "gba:lockstep:remote-ready") {
       controller?.acceptRemoteReady(packet);

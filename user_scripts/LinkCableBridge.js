@@ -4,7 +4,7 @@
   if (window.ML3DLinkCable) return;
 
   const params = new URLSearchParams(location.search);
-  if (params.get("linkTransport") === "dual") {
+  if (params.get("linkTransport") === "dual" || window.ML3D_LINK_TRANSPORT === "dual") {
     window.ML3DLinkCable = {
       attachEmulator() { return false; },
       detachEmulator() {},

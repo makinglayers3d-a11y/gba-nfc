@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="style.css?v=boot-sync-1">
   <link rel="stylesheet" href="EnhancedFeatures.css?v=boot-sync-1">
   <link rel="stylesheet" href="save-capture-v2.css?v=final-port-1">
+  <link rel="stylesheet" href="ml3d-lobby-overlay.css?v=lobby-embed-1">
 </head>
 
 <body>
@@ -163,6 +164,9 @@
         </h2>
         <button id="select-game-button" type="button">
   Seleccionar juego
+</button>
+<button id="open-lobby-button" type="button">
+  ML3D Link · Lobby
 </button>
 <div class="speed-control">
   <label for="speed-select">Velocidad</label>
@@ -508,11 +512,20 @@
 <script src="save-capture-v2.js?v=final-port-1"></script>
 <script src="user_scripts/GameSelector.js?v=game-list-fix-2"></script>
 <script src="GB/GBSave.js?v=final-port-1"></script>
+<!--
+  El lobby integrado siempre usa el transporte "dual" (LocalLinkSession).
+  Sin parámetros en la URL, LinkCableBridge se activaría como transporte
+  antiguo y pelearía por el puerto serie, así que se desactiva aquí.
+-->
+<script>
+  window.ML3D_LINK_TRANSPORT = "dual";
+</script>
 <script src="user_scripts/LinkCableBridge.js?v=link-final-1"></script>
 <script src="user_scripts/LocalLinkSession.js?v=link-final-1"></script>
 <script src="dev-access.js?v=dev-access-2"></script>
 <script src="emulator-tools.js?v=ml3demu-tools-13"></script>
 <script src="app.js?v=link-final-1"></script>
+<script src="ml3d-lobby-overlay.js?v=lobby-embed-1"></script>
   
 </body>
 </html>

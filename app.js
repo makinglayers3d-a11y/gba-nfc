@@ -233,6 +233,9 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
+  /* Con el lobby abierto sobre la pantalla, los botones son suyos. */
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, true)) return;
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -252,7 +255,9 @@ function loadGameType(name, callback) {
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby integrado
+     la configura en caliente, así que se consulta siempre. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, true);
     if (consumed) return;
   }
@@ -261,6 +266,8 @@ function loadGameType(name, callback) {
 }
 
  function releaseKey(keyName) {
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, false)) return;
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -280,7 +287,9 @@ function loadGameType(name, callback) {
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby integrado
+     la configura en caliente, así que se consulta siempre. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, false);
     if (consumed) return;
   }
@@ -450,6 +459,19 @@ window.ML3DLinkRuntime = {
   },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
+  /* Reinicia la ROM actual sin partida guardada, que es como debe empezar una
+     sesión Link: LocalLinkSession lo llama al configurarse desde el lobby. */
+  async restartForLink() {
+    if (currentSystem !== "gba" || !currentGbaRomBytes || !currentGbaRomFilename) return false;
+    return startRomFromBytes(currentGbaRomBytes.slice(), currentGbaRomFilename, {
+      system: "gba",
+      saveId: currentSaveId,
+      displayName: selected.name,
+      source: currentSource,
+      romPath: selected.rom,
+      skipSaveRestore: true
+    });
+  },
   flushAudio() {
     try {
       emulator?.submitAudioBuffer?.();
@@ -708,7 +730,9 @@ window.addEventListener(
       }
       emulator.play();
 
-      if (!linkRoomActive) {
+      /* En una partida Link los dos núcleos de cada jugador arrancan desde la
+         ROM limpia: restaurar la partida guardada los desincronizaría. */
+      if (!linkRoomActive && options.skipSaveRestore !== true) {
         try {
           const gameName = emulator.getGameName();
           if (gameName) {
