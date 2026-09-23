@@ -416,11 +416,10 @@
         onNormalTransferComplete: () => {},
                 startMultiplayerTransfer: (info = {}) => {
           if (seat !== 0 || this.pendingTransfer || this.localTransferArmed) return false;
-          // Cada secundaria tiene su copia del cartucho y llega a MULTI cuando
-          // le toca. Hasta que todas estén, no hay a quién clockear: se deja
-          // BUSY a cero y el padre reintenta, como un cable con alguien que
-          // todavía no ha entrado.
-          if (this.childSeats().some((child) => (this.serials[child]?.SIOCNT_MODE | 0) !== 2)) return false;
+          // En hardware el padre clocka y contesta quien esté escuchando. Basta
+          // con que haya una secundaria en MULTI: si no hay ninguna no hay a
+          // quién clockear, se deja BUSY a cero y el padre reintenta.
+          if (!this.listeningChildren().length) return false;
           this.pendingTransfer = {
             sequence: Number(info.sequence) | 0,
             word: Number(info.word) & 0xffff,
@@ -436,12 +435,13 @@
         }
       });
 
-      this.serials[0].attachLinkCable(makeAdapter(0));
-      this.serials[0].setLinkPlayerNumber(0);
-      this.serials[1].attachLinkCable(makeAdapter(1));
-      this.serials[1].setLinkPlayerNumber(1);
+      /* Todas las consolas de la sala cuelgan del mismo cable, no solo dos. */
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.serials[seat].attachLinkCable(makeAdapter(seat));
+        this.serials[seat].setLinkPlayerNumber(seat);
+      }
 
-      for (let seat = 0; seat < 2; seat++) {
+      for (let seat = 0; seat < this.seats; seat++) {
         const io = this.cores[seat]?.IOCore;
         if (io) {
           io.linkInstructionObserver = (logicalPc, rawPc) => {
@@ -741,21 +741,28 @@
       return list;
     }
 
+    /* Secundarias que están en MULTI ahora mismo: son las que contestan. Las
+       demás dejan su palabra a 0xFFFF, igual que una consola que no escucha. */
+    listeningChildren() {
+      return this.childSeats().filter((seat) => (this.serials[seat]?.SIOCNT_MODE | 0) === 2);
+    }
+
     carryTransfer() {
       const pending = this.pendingTransfer;
       if (!pending) return false;
-      const children = this.childSeats();
-
-      // Nadie transfiere hasta que todas las secundarias han llegado al
-      // instante en que el padre dio el START.
-      for (const child of children) {
-        const cycles = Number(this.cores[child].IOCore.linkCycleCounter) || 0;
-        if (cycles < pending.parentCycle) return false;
-      }
-      if (children.some((child) => (this.serials[child].SIOCNT_MODE | 0) !== 2)) {
+      const children = this.listeningChildren();
+      if (!children.length) {
+        // Se fueron todas de MULTI antes de contestar: no hay transferencia.
         this.pendingTransfer = null;
         this.serials[0].SIOTransferStarted = false;
         return false;
+      }
+
+      // La transferencia espera a que las que contestan lleguen al instante en
+      // que el padre dio el START.
+      for (const child of children) {
+        const cycles = Number(this.cores[child].IOCore.linkCycleCounter) || 0;
+        if (cycles < pending.parentCycle) return false;
       }
 
       const childCycles = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
