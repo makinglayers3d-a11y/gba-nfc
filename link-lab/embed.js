@@ -37,7 +37,18 @@
 
   const games = () => window.ML3DRoomGames;
   const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
-  const gameKey = (value) => String(value || "").replace(/\.(gba|gbc|gb)$/i, "").trim().toLowerCase();
+  /* Misma normalización que app.js para comparar títulos con nombres de
+     archivo: sin extensión, sin tildes y sin signos. */
+  const gameKey = (value) => String(value || "")
+    .replace(/\.(gba|gbc|gb)$/i, "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+
+  const hasGame = (who, wanted) =>
+    gameKey(who.game) === wanted || (who.library || []).some((name) => gameKey(name) === wanted);
 
   function post(message, transfer) {
     try {
@@ -336,12 +347,14 @@
     const known = games()?.peers() || [];
     if (known.length < others.length) return "ESPERANDO LOS DATOS DE LOS DEMÁS JUGADORES";
 
+    /* Vale con tenerlo: el emulador lo abre solo al acabar la cuenta atrás.
+       Lo que no vale es no tenerlo ni cargado ni en la biblioteca. */
     const missing = [];
-    if (gameKey(context.game) !== wanted) missing.push("TÚ");
+    if (!hasGame(context, wanted)) missing.push("TÚ");
     for (const peer of known) {
-      if (gameKey(peer.game) !== wanted) missing.push(peer.name.toUpperCase());
+      if (!hasGame(peer, wanted)) missing.push(peer.name.toUpperCase());
     }
-    if (missing.length) return `SIN EL JUEGO CARGADO: ${missing.join(", ")}`;
+    if (missing.length) return `SIN ESE JUEGO: ${missing.join(", ")} · COMPÁRTELO DESDE EL MENÚ`;
     return "";
   }
 

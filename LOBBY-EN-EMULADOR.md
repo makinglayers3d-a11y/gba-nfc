@@ -97,14 +97,34 @@ paquetes `ml3d:game:*`, como hace `avatar-final.js` con el avatar, así que
    `¿CARGAR AHORA?`. Si sí, el emulador lo arranca como ROM local y el lobby se
    cierra.
 
+## Modos del cable Link
+
+El cable emulado (`IodineGBA/core/Serial.js` + el coordinador dual de
+`user_scripts/LocalLinkSession.js`) cubre ahora los modos que usan los juegos
+cuando **cada jugador tiene su cartucho**:
+
+| Modo | Estado |
+| --- | --- |
+| Multi-Player (SIOCNT modo 2) | Completo: IDs, baudios, tiempos, COMMERROR, SIOMULTI0-3, bits SI/SD y pines RCNT. Es el que usan casi todos los juegos. |
+| Normal 8 y 32 bits (modos 0 y 1) | El maestro clocka y el esclavo desplaza su registro tenga o no transferencia pedida, como el hardware. Sin pareja en ese modo, el maestro recibe la línea en reposo (todo unos) en vez de colgarse. |
+| General Purpose (RCNT modo 2) | SC y SD son bus común con pull-up; el SI de cada consola cuelga del SO de la otra; IRQ por flanco de bajada de SI. Lo usan los juegos que sondean las patillas para detectar al compañero. |
+| UART (SIOCNT modo 3) | Los bytes escritos en SIODATA8 llegan a la cola del otro lado, con el bit de "cola vacía" en SIOCNT. Apenas lo usa software comercial. |
+| JOY Bus (RCNT modo 3) | Solo registros. Es el enlace con GameCube, no cartucho contra cartucho. |
+| Multiboot (un solo cartucho) | Fuera de alcance por decisión propia. |
+
+Las salas son de dos jugadores, así que Multi-Player se ejerce con dos consolas;
+tres y cuatro quedan sin probar.
+
 ## Partida Link
 
 1. El lobby avisa por `BroadcastChannel("ml3d-gba-link-v1")` con
-   `gba:link:configure` (host al iniciar, invitado al recibir su asiento).
+   `gba:link:configure` (host al iniciar, invitado al recibir su asiento),
+   incluyendo el juego elegido en la sala.
 2. `LocalLinkSession` se configura en caliente y llama a
-   `ML3DLinkRuntime.restartForLink()`: la ROM actual se reinicia **sin partida
-   guardada**, que es como deben arrancar los cuatro núcleos para que el
-   lockstep sea determinista.
+   `ML3DLinkRuntime.prepareForLink(juego)`: si ese juego no es el que está
+   puesto, lo busca en la biblioteca y lo abre; si ya lo está, lo reinicia.
+   En ambos casos **sin partida guardada**, que es como deben arrancar los
+   cuatro núcleos para que el lockstep sea determinista.
 3. `ml3d-rom-started` encadena con `bootLocalDual()` y el emulador publica
    `gba:lockstep:ready`.
 4. `openLinkEmulator()` en modo embebido ya no abre ningún iframe: avisa al
@@ -166,6 +186,12 @@ Con un servidor estático local y Chrome headless:
 - Bocadillo holográfico, botón A al acercarse y desaparición al alejarse.
 - Transferencia real entre dos lobbies conectados por WebRTC: 2 MB en 1,1 s,
   bytes idénticos en destino.
+- Configurar la sala con otro juego cambia la ROM del emulador sola y el
+  lockstep arranca con la nueva (Pokémon → Mario Kart, hash nuevo).
+- Los modos del cable, sobre los dos núcleos del selftest: SI cruzado y SC
+  compartido en General Purpose con su IRQ de bajada; UART en los dos sentidos;
+  Normal 8 (0x37 ↔ 0x42) y Normal 32 (0xDEADBEEF ↔ 0x56781234); y Normal sin
+  pareja devolviendo 0xFF sin dejar BUSY colgado.
 
 ## Pendiente
 

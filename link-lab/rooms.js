@@ -200,6 +200,8 @@
       gbaLinkBus.postMessage({
         type: "gba:link:configure",
         source: "lobby",
+        /* El emulador abre este juego si no lo tiene ya puesto. */
+        game: String(hostSession?.room?.game || joinSession?.room?.game || ""),
         ...next
       });
     }

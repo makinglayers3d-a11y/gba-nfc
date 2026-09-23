@@ -72,7 +72,110 @@ GameBoyAdvanceSerial.prototype.initialize = function () {
     this.linkSIOCNTWriteObserver = null;
     this.linkSIOMULTIReadObserver = null;
     this.linkRCNTWriteObserver = null;
+    // General Purpose (RCNT mode 2) y UART (SIOCNT mode 3) sobre el cable.
+    this.generalPurposeSI = 1;
+    this.uartReceiveQueue = [];
 }
+// ---- General Purpose (RCNT mode 2) ----
+// Bits 0-3 = SC, SD, SI, SO; bits 4-7 = dirección (1 = salida).
+// SC y SD son buses compartidos (AND de quien los conduce, 1 en reposo por el
+// pull-up); SI de cada consola cuelga del SO de la otra.
+GameBoyAdvanceSerial.prototype.getGeneralPurposeOutputs = function () {
+    return {
+        data: this.RCNTDataBits & 0xF,
+        direction: this.RCNTDataBitFlow & 0xF
+    };
+};
+GameBoyAdvanceSerial.prototype.peerGeneralPurpose = function () {
+    if (!this.linkCable || typeof this.linkCable.getPeerGeneralPurpose != "function") {
+        return null;
+    }
+    try {
+        return this.linkCable.getPeerGeneralPurpose() || null;
+    }
+    catch (error) {
+        return null;
+    }
+};
+GameBoyAdvanceSerial.prototype.generalPurposeInputs = function () {
+    var mine = this.RCNTDataBits & 0xF;
+    var direction = this.RCNTDataBitFlow & 0xF;
+    var peer = this.peerGeneralPurpose();
+    var peerData = peer ? (peer.data & 0xF) : 0;
+    var peerDirection = peer ? (peer.direction & 0xF) : 0;
+    var pins = 0;
+
+    // SC (bit 0) y SD (bit 1): línea común con pull-up.
+    for (var pin = 0; pin < 2; pin++) {
+        var bit = 1 << pin;
+        var value = 1;
+        if ((direction & bit) != 0 && (mine & bit) == 0) {
+            value = 0;
+        }
+        if ((peerDirection & bit) != 0 && (peerData & bit) == 0) {
+            value = 0;
+        }
+        pins |= value << pin;
+    }
+
+    // SI (bit 2): lo conduce el SO (bit 3) de la otra consola.
+    var si = 1;
+    if ((direction & 0x4) != 0) {
+        si = (mine >> 2) & 0x1;
+    }
+    else if (peer && (peerDirection & 0x8) != 0) {
+        si = (peerData >> 3) & 0x1;
+    }
+    pins |= si << 2;
+
+    // SO (bit 3): se relee lo que uno mismo conduce.
+    var so = ((direction & 0x8) != 0) ? ((mine >> 3) & 0x1) : 1;
+    pins |= so << 3;
+
+    return pins & 0xF;
+};
+GameBoyAdvanceSerial.prototype.notifyGeneralPurposePeerChange = function () {
+    if ((this.RCNTMode | 0) != 0x2) {
+        return;
+    }
+    var si = (this.generalPurposeInputs() >> 2) & 0x1;
+    var fell = (this.generalPurposeSI | 0) == 1 && si == 0;
+    this.generalPurposeSI = si;
+    if (fell && this.RCNTIRQ && this.IOCore && this.IOCore.irq) {
+        this.IOCore.irq.requestIRQ(0x80);
+    }
+};
+// ---- UART (SIOCNT mode 3) ----
+GameBoyAdvanceSerial.prototype.receiveUARTByte = function (data) {
+    if (!this.SIOCNT_UART_RECV_ENABLE) {
+        return false;
+    }
+    this.uartReceiveQueue.push(data & 0xFF);
+    if (this.uartReceiveQueue.length > 32) {
+        this.uartReceiveQueue.shift();
+    }
+    if ((this.SIOCNT_IRQ | 0) != 0 && this.IOCore && this.IOCore.irq) {
+        this.IOCore.irq.requestIRQ(0x80);
+    }
+    return true;
+};
+GameBoyAdvanceSerial.prototype.sendUARTByte = function (data) {
+    if (
+        !this.SIOCNT_UART_SEND_ENABLE ||
+        !this.linkCableConnected() ||
+        !this.linkCable ||
+        typeof this.linkCable.sendUARTByte != "function"
+    ) {
+        return false;
+    }
+    try {
+        this.linkCable.sendUARTByte(data & 0xFF);
+    }
+    catch (error) {
+        return false;
+    }
+    return true;
+};
 GameBoyAdvanceSerial.prototype.SIOMultiplayerBaudRate = [
       9600,
      38400,
@@ -98,6 +201,8 @@ GameBoyAdvanceSerial.prototype.attachLinkCable = function (adapter) {
 };
 GameBoyAdvanceSerial.prototype.detachLinkCable = function () {
     this.linkCable = null;
+    this.uartReceiveQueue.length = 0;
+    this.generalPurposeSI = 1;
     this.linkPlayerNumber = 0;
     this.linkPlayerIdValid = false;
     this.SIOMULT_PLAYER_NUMBER = 0;
@@ -762,7 +867,10 @@ GameBoyAdvanceSerial.prototype.readSIOCNT0 = function () {
                     this.SIOBaudRate;
             //UART:
             case 3:
-                return (this.SIOCNT_UART_MISC << 2) | ((this.SIOCNT_UART_FIFO == 4) ? 0x30 : 0x20) | this.SIOBaudRate;
+                // bit 4 = cola de envío llena, bit 5 = cola de recepción vacía.
+                var sendFull = (this.SIOCNT_UART_FIFO_ENABLE && (this.SIOCNT_UART_FIFO | 0) >= 4) ? 0x10 : 0;
+                var receiveEmpty = (this.uartReceiveQueue.length > 0) ? 0 : 0x20;
+                return (this.SIOCNT_UART_MISC << 2) | sendFull | receiveEmpty | this.SIOBaudRate;
         }
     }
     return 0xFF;
@@ -809,11 +917,20 @@ GameBoyAdvanceSerial.prototype.readSIOCNT1 = function () {
 GameBoyAdvanceSerial.prototype.writeSIODATA8_0 = function (data) {
     data = data | 0;
     this.SIODATA8 = (this.SIODATA8 & 0xFF00) | data;
-    if ((this.RCNTMode | 0) < 0x2 && (this.SIOCNT_MODE | 0) == 3 && this.SIOCNT_UART_FIFO_ENABLE) {
-        this.SIOCNT_UART_FIFO = Math.min(((this.SIOCNT_UART_FIFO | 0) + 1) | 0, 4) | 0;
+    if ((this.RCNTMode | 0) < 0x2 && (this.SIOCNT_MODE | 0) == 3) {
+        if (this.SIOCNT_UART_FIFO_ENABLE) {
+            this.SIOCNT_UART_FIFO = Math.min(((this.SIOCNT_UART_FIFO | 0) + 1) | 0, 4) | 0;
+        }
+        // Con cable, un byte escrito en UART sale hacia la otra consola.
+        if (this.sendUARTByte(data & 0xFF) && this.SIOCNT_UART_FIFO_ENABLE) {
+            this.SIOCNT_UART_FIFO = Math.max(((this.SIOCNT_UART_FIFO | 0) - 1) | 0, 0) | 0;
+        }
     }
 }
 GameBoyAdvanceSerial.prototype.readSIODATA8_0 = function () {
+    if ((this.RCNTMode | 0) < 0x2 && (this.SIOCNT_MODE | 0) == 3 && this.uartReceiveQueue.length > 0) {
+        return this.uartReceiveQueue.shift() & 0xFF;
+    }
     return this.SIODATA8 & 0xFF;
 }
 GameBoyAdvanceSerial.prototype.writeSIODATA8_1 = function (data) {
@@ -834,13 +951,14 @@ GameBoyAdvanceSerial.prototype.writeRCNT0 = function (data) {
     }
     if ((this.RCNTMode | 0) == 0x2) {
         //General Comm:
-        var oldDataBits = this.RCNTDataBits | 0;
         this.RCNTDataBits = data & 0xF;    //Device manually controls SI/SO/SC/SD here.
         this.RCNTDataBitFlow = data >> 4;
-        if (this.RCNTIRQ && ((oldDataBits ^ this.RCNTDataBits) & oldDataBits & 0x4) != 0) {
-            //SI fell low, trigger IRQ:
-            //this.IOCore.irq.requestIRQ(0x80);
+        // Lo que uno conduce cambia la línea de la otra consola: que reevalúe
+        // su SI y dispare su IRQ si toca.
+        if (this.linkCable && typeof this.linkCable.onGeneralPurposeChange == "function") {
+            try { this.linkCable.onGeneralPurposeChange(); } catch (error) {}
         }
+        this.notifyGeneralPurposePeerChange();
     }
 }
 GameBoyAdvanceSerial.prototype.readRCNT0 = function () {
@@ -875,6 +993,11 @@ GameBoyAdvanceSerial.prototype.readRCNT0 = function () {
             pins |= 0x2;
         }
         return (this.RCNTDataBitFlow << 4) | pins;
+    }
+    if ((this.RCNTMode | 0) == 0x2 && this.linkCableConnected()) {
+        // Modo General Purpose con cable: las cuatro patillas salen del estado
+        // combinado de las dos consolas, no solo de lo que uno escribió.
+        return (this.RCNTDataBitFlow << 4) | this.generalPurposeInputs();
     }
     return (this.RCNTDataBitFlow << 4) | this.RCNTDataBits;
 }

@@ -344,40 +344,57 @@
           });
           if (this.normalAttemptTrace.length > 256) this.normalAttemptTrace.shift();
 
-          const peer = this.normalPrepared[seat ^ 1];
-          if (!peer || peer.mode !== mode) return true;
+          // Quien clockea es el maestro (reloj interno). El esclavo solo deja
+          // su palabra preparada: en hardware su registro se desplaza cuando
+          // el maestro arranca, haya pedido transferencia o no.
+          if (!prepared.internalClock) return true;
 
-          // Normal serial requires exactly one clock source. Do not fabricate
-          // a transfer if both ends claim master or both wait for external clock.
-          if (prepared.internalClock === peer.internalClock) return true;
+          const other = seat ^ 1;
+          const peerSerial = this.serials[other];
+          const peerMode = Number(peerSerial?.SIOCNT_MODE) | 0;
+          const peerListening = Boolean(peerSerial) &&
+            peerMode === mode &&
+            (Number(peerSerial.RCNTMode) | 0) < 2;
 
-          const p0 = this.normalPrepared[0];
-          const p1 = this.normalPrepared[1];
-          if (!p0 || !p1) return true;
+          // Sin pareja en el mismo modo, el maestro recibe la línea en reposo
+          // (todo unos) en vez de quedarse colgado esperando.
+          const idle = mode === 1 ? 0xFFFFFFFF : 0xFF;
+          const peerWord = peerListening ? (peerSerial.getNormalLinkData() >>> 0) : idle;
 
-          // Consume before completing because IRQ handlers can immediately
-          // configure the next transfer.
-          this.normalPrepared[0] = null;
-          this.normalPrepared[1] = null;
+          this.normalPrepared[seat] = null;
+          this.normalPrepared[other] = null;
 
-          const masterSeat = p0.internalClock ? 0 : 1;
           this.normalTrace.push({
             frame: this.frame,
             mode,
-            masterSeat,
-            p0: p0.data >>> 0,
-            p1: p1.data >>> 0,
-            p0Cycle: p0.cycle,
-            p1Cycle: p1.cycle,
-            fastClock: !!(p0.fastClock || p1.fastClock)
+            masterSeat: seat,
+            p0: seat === 0 ? prepared.data >>> 0 : peerWord >>> 0,
+            p1: seat === 0 ? peerWord >>> 0 : prepared.data >>> 0,
+            p0Cycle: seat === 0 ? prepared.cycle : 0,
+            p1Cycle: seat === 0 ? 0 : prepared.cycle,
+            peerListening,
+            fastClock: !!prepared.fastClock
           });
           if (this.normalTrace.length > 256) this.normalTrace.shift();
 
-          this.serials[0]?.completeExternalNormalTransfer?.(p1.data >>> 0);
-          this.serials[1]?.completeExternalNormalTransfer?.(p0.data >>> 0);
+          this.serials[seat]?.completeExternalNormalTransfer?.(peerWord >>> 0);
+          if (peerListening) {
+            peerSerial.completeExternalNormalTransfer(prepared.data >>> 0);
+          }
           this.normalTransferCount += 1;
           this.renderDebug();
           return true;
+        },
+        /* Modo General Purpose: las patillas SC/SD/SI/SO de las dos consolas
+           cuelgan del mismo cable, así que cada lado necesita ver lo que
+           conduce el otro. */
+        getPeerGeneralPurpose: () => this.serials[seat ^ 1]?.getGeneralPurposeOutputs?.() || null,
+        onGeneralPurposeChange: () => {
+          this.serials[seat ^ 1]?.notifyGeneralPurposePeerChange?.();
+        },
+        /* UART: byte escrito aquí, byte recibido allí. */
+        sendUARTByte: (data) => {
+          this.serials[seat ^ 1]?.receiveUARTByte?.(Number(data) & 0xff);
         },
         onNormalTransferComplete: () => {},
                 startMultiplayerTransfer: (info = {}) => {
@@ -1204,7 +1221,12 @@
 
     const runtime = window.ML3DLinkRuntime;
     configuring = true;
-    Promise.resolve(runtime?.restartForLink?.())
+    /* El lobby dice qué juego toca: si no es el que está puesto, el emulador
+       lo abre antes de armar el enlace. */
+    const prepare = runtime?.prepareForLink
+      ? runtime.prepareForLink(packet.game)
+      : runtime?.restartForLink?.();
+    Promise.resolve(prepare)
       .catch((error) => console.error("ML3D Local Link (reinicio):", error))
       .finally(() => { configuring = false; });
   }
