@@ -69,6 +69,27 @@ Nada de esto duplica lógica: `embed.js` mueve los controles originales de
 El juego se congela mientras el lobby ocupa la pantalla, salvo si hay sala
 configurada: ahí el tiempo emulado lo lleva el coordinador del Link.
 
+## Probarlo en este PC
+
+Doble clic en `probar-lobby-local.cmd` (o `probar-lobby-local.cmd dos` para dos
+jugadores: abre además una ventana de incógnito). Sirve el repo en
+`http://localhost:8765/` y abre el navegador. Equivale a:
+
+```
+powershell -ExecutionPolicy Bypass -File dev-server.ps1
+```
+
+Hace falta servidor: con `file://` el lobby no arranca, porque `rooms.js` se
+pide por `fetch`. `localhost` es contexto seguro, así que geolocalización y
+WebRTC van como en el sitio publicado; por IP de red local (`192.168.…`) no.
+
+Con teclado: flechas = cruceta, `X` = A, `Z` = B, `A` = L, `S` = R,
+`Enter` = START, `Shift` = SELECT.
+
+Para una sala de verdad hacen falta dos contextos aislados: ventana normal más
+ventana de incógnito, o dos dispositivos. Dos pestañas de la misma ventana no
+valen: comparten el `BroadcastChannel` del cable Link y se cruzan las partidas.
+
 ## Probado
 
 Con un servidor estático local y Chrome headless:
