@@ -225,9 +225,9 @@ entre consolas; ahora sí, pero su menú de intercambio solo se alcanza jugando.
 
 El barrido a cuatro destapó dos fallos que ya están corregidos: el cable solo se
 enganchaba a los asientos 0 y 1, y el padre exigía que todas las secundarias
-estuvieran en MULTI en el mismo instante. Con las dos correcciones, Mario Kart a
-dos jugadores repitió 6.738 transferencias sin errores, así que el camino de dos
-sigue igual de sano.
+estuvieran en MULTI en el mismo instante. Con las dos correcciones, el barrido de
+dos jugadores se repitió sin regresión: Mario Kart 6.738 transferencias, SMA4
+3.566 y DBZ Taiketsu 2.741, ninguno con errores.
 
 ## Probado
 
