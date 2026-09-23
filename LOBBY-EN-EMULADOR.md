@@ -86,6 +86,19 @@ WebRTC van como en el sitio publicado; por IP de red local (`192.168.…`) no.
 Con teclado: flechas = cruceta, `X` = A, `Z` = B, `A` = L, `S` = R,
 `Enter` = START, `Shift` = SELECT.
 
+### Salas desde localhost
+
+El worker de salas solo admite el origen del sitio publicado
+(`ALLOWED_ORIGIN`), así que desde `localhost` el navegador cortaba las llamadas
+por CORS y salía **Failed to fetch** al crear sala. `dev-server.ps1` reenvía
+`/api/...` al worker: petición servidor a servidor, sin `Origin`, y el lobby la
+ve como mismo origen. `rooms.js` apunta ahí solo en `localhost`, así que no hay
+nada que configurar; en el sitio publicado sigue yendo directo al worker.
+
+Si en `AJUSTES` el campo no pone `http://localhost:8765/api`, corrígelo y pulsa
+`GUARDAR API`: un valor guardado antes en este navegador manda sobre el
+predeterminado.
+
 Para una sala de verdad hacen falta dos contextos aislados: ventana normal más
 ventana de incógnito, o dos dispositivos. Dos pestañas de la misma ventana no
 valen: comparten el `BroadcastChannel` del cable Link y se cruzan las partidas.

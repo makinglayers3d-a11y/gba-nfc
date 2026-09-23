@@ -20,6 +20,68 @@ param(
 $Root = $PSScriptRoot
 $url = "http://localhost:$Port/"
 
+# El worker de salas solo acepta el origen del sitio publicado, así que desde
+# localhost el navegador se comería un error de CORS ("Failed to fetch").
+# /api/... se reenvía desde aquí: petición servidor a servidor, sin Origin, y
+# el lobby la ve como mismo origen. rooms.js ya apunta ahí en localhost.
+$ApiTarget = "https://ml3d-link-lab.makinglayers3d.workers.dev"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+function Send-ToWorker($context, $target) {
+  $request = [System.Net.HttpWebRequest]::Create($target)
+  $request.Method = $context.Request.HttpMethod
+  $request.Accept = "application/json"
+  $request.Timeout = 20000
+
+  $auth = $context.Request.Headers["Authorization"]
+  if ($auth) { $request.Headers.Add("Authorization", $auth) }
+
+  if ($context.Request.HasEntityBody) {
+    $reader = New-Object System.IO.StreamReader($context.Request.InputStream, $context.Request.ContentEncoding)
+    $body = $reader.ReadToEnd()
+    $reader.Close()
+    $payload = [System.Text.Encoding]::UTF8.GetBytes($body)
+    $type = $context.Request.ContentType
+    if (-not $type) { $type = "application/json" }
+    $request.ContentType = $type
+    $request.ContentLength = $payload.Length
+    $out = $request.GetRequestStream()
+    $out.Write($payload, 0, $payload.Length)
+    $out.Close()
+  } elseif ($request.Method -eq "POST" -or $request.Method -eq "PUT" -or $request.Method -eq "PATCH") {
+    # Sin esto, un POST sin cuerpo (cerrar sala, heartbeat, expulsar) sale sin
+    # Content-Length y lo rechazan con 411.
+    $request.ContentLength = 0
+    $request.GetRequestStream().Close()
+  }
+
+  try {
+    $response = $request.GetResponse()
+  } catch [System.Net.WebException] {
+    $response = $_.Exception.Response
+    if (-not $response) {
+      $context.Response.StatusCode = 502
+      $msg = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"proxy: sin respuesta del worker"}')
+      $context.Response.ContentType = "application/json; charset=utf-8"
+      $context.Response.OutputStream.Write($msg, 0, $msg.Length)
+      return
+    }
+  }
+
+  $stream = $response.GetResponseStream()
+  $memory = New-Object System.IO.MemoryStream
+  $stream.CopyTo($memory)
+  $bytes = $memory.ToArray()
+  $memory.Close()
+  $stream.Close()
+
+  $context.Response.StatusCode = [int]$response.StatusCode
+  $context.Response.ContentType = $response.ContentType
+  $context.Response.Headers.Add("Cache-Control", "no-store")
+  $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+  $response.Close()
+}
+
 $types = @{
   ".html" = "text/html; charset=utf-8"
   ".js"   = "text/javascript; charset=utf-8"
@@ -79,6 +141,22 @@ try {
     }
 
     $path = [System.Uri]::UnescapeDataString($context.Request.Url.AbsolutePath)
+
+    if ($path -eq "/api" -or $path.StartsWith("/api/")) {
+      $rest = $path.Substring(4)
+      if (-not $rest) { $rest = "/" }
+      try {
+        Send-ToWorker $context ($ApiTarget + $rest + $context.Request.Url.Query)
+      } catch {
+        $context.Response.StatusCode = 502
+        $msg = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"proxy: ' + $_.Exception.Message.Replace('"', "'") + '"}')
+        $context.Response.ContentType = "application/json; charset=utf-8"
+        $context.Response.OutputStream.Write($msg, 0, $msg.Length)
+      }
+      $context.Response.OutputStream.Close()
+      continue
+    }
+
     if ($path -eq "/") { $path = "/index.html" }
     $file = Join-Path $Root ($path.TrimStart("/") -replace "/", "\")
 

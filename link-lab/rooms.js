@@ -1,7 +1,12 @@
 (() => {
   "use strict";
 
-  const DEFAULT_API_BASE = "https://ml3d-link-lab.makinglayers3d.workers.dev";
+  /* El worker solo admite el origen del sitio publicado, así que desde el
+     servidor local se pasa por su proxy /api: mismo origen, sin CORS. */
+  const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+  const DEFAULT_API_BASE = LOCAL_HOSTS.includes(location.hostname)
+    ? `${location.origin}/api`
+    : "https://ml3d-link-lab.makinglayers3d.workers.dev";
   const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
   const PROFILE_KEY = "ml3d-link-profile-v1";
   const API_KEY = "ml3d-link-api";
