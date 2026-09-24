@@ -1170,7 +1170,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 2 });
+      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 3 });
       if (request.method === "POST" && url.pathname === "/v1/access/request") return requestAccess(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/challenge") return challenge(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/verify") return verify(env, request);
