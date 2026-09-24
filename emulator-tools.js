@@ -357,6 +357,35 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions{display:flex;gap:8px;margin-top:8px}
       .ml3d-chat-actions button{flex:1;min-height:40px;border:1px solid #ffffff34;border-radius:11px;background:#ffffff10;color:inherit;font-weight:900}
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
+      .ml3d-startup-notice-card{
+        isolation:isolate;overflow:hidden!important;
+        background:linear-gradient(145deg,#063c4ce8,#04141ef0)!important;
+        border:1px solid #74f3ffcc!important;
+        box-shadow:0 0 16px #42eaffaa,0 0 48px #00bfff70,inset 0 0 30px #40eaff25,0 24px 70px #000d!important;
+        color:#e5fdff!important;text-shadow:0 0 4px #26dfff
+      }
+      .ml3d-startup-notice-card>*{position:relative;z-index:2}
+      .ml3d-startup-notice-card::before{
+        content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+        background:repeating-linear-gradient(0deg,transparent 0 3px,#b8f8ff12 4px,#00d9ff10 5px);
+        mix-blend-mode:screen;animation:ml3dNoticeScan 3.2s linear infinite
+      }
+      .ml3d-startup-notice-card::after{
+        content:"";position:absolute;inset:-20%;z-index:1;pointer-events:none;
+        background:linear-gradient(100deg,transparent 40%,#e8ffff34 47%,#58eaff16 51%,transparent 58%);
+        animation:ml3dNoticeSweep 4.8s ease-in-out infinite
+      }
+      .ml3d-rich-link{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;cursor:pointer}
+      .ml3d-rich-anim-pulse{display:inline-block;animation:ml3dRichPulse 1.35s ease-in-out infinite}
+      .ml3d-rich-anim-float{display:inline-block;animation:ml3dRichFloat 1.65s ease-in-out infinite}
+      .ml3d-rich-anim-glow{display:inline-block;animation:ml3dRichGlow 1.55s ease-in-out infinite}
+      .ml3d-rich-anim-shake{display:inline-block;animation:ml3dRichShake .72s ease-in-out infinite}
+      @keyframes ml3dNoticeScan{from{background-position:0 0}to{background-position:0 28px}}
+      @keyframes ml3dNoticeSweep{0%,58%{transform:translateX(-32%);opacity:.05}76%{opacity:.75}100%{transform:translateX(34%);opacity:.08}}
+      @keyframes ml3dRichPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:.72}}
+      @keyframes ml3dRichFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+      @keyframes ml3dRichGlow{0%,100%{filter:drop-shadow(0 0 0 currentColor)}50%{filter:drop-shadow(0 0 6px currentColor)}}
+      @keyframes ml3dRichShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
       @media(max-width:420px){.ml3d-tools-card{width:96vw;padding:20px 15px 16px}.ml3d-tools-overlay{padding-left:8px;padding-right:8px}}
     `;
     document.head.appendChild(style);
@@ -404,11 +433,95 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     return { overlay, card, close };
   }
 
+  function safeHttpLink(value) {
+    try {
+      const url = new URL(String(value || ""));
+      return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function styleForRichIndex(spans, index) {
+    const style = { color:null, bold:null, underline:null, animation:null, link:null };
+    (Array.isArray(spans) ? spans : []).forEach((span) => {
+      const start = Number(span?.start);
+      const end = Number(span?.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || index < start || index >= end) return;
+      if (span.color !== undefined && span.color !== null) style.color = String(span.color || "");
+      if (span.bold !== undefined && span.bold !== null) style.bold = Boolean(span.bold);
+      if (span.underline !== undefined && span.underline !== null) style.underline = Boolean(span.underline);
+      if (span.animation !== undefined && span.animation !== null) style.animation = String(span.animation || "");
+      if (span.link !== undefined && span.link !== null) style.link = safeHttpLink(span.link);
+    });
+    return style;
+  }
+
+  function richStyleKey(style) {
+    return JSON.stringify([style.color,style.bold,style.underline,style.animation,style.link]);
+  }
+
+  function appendLinkifiedText(parent, value, style) {
+    const text = String(value || "");
+    const explicit = safeHttpLink(style.link);
+    const applyStyle = (node) => {
+      if (style.color) node.style.color = style.color;
+      if (style.bold !== null) node.style.fontWeight = style.bold ? "800" : "400";
+      if (style.underline !== null) node.style.textDecoration = style.underline ? "underline" : "none";
+      const animation = ["pulse","float","glow","shake"].includes(style.animation) ? style.animation : "";
+      if (animation) node.classList.add("ml3d-rich-anim-" + animation);
+    };
+    const addNode = (chunk, link) => {
+      const node = link ? document.createElement("a") : document.createElement("span");
+      node.textContent = chunk;
+      if (link) {
+        node.href = link;
+        node.target = "_blank";
+        node.rel = "noopener noreferrer";
+        node.classList.add("ml3d-rich-link");
+      }
+      applyStyle(node);
+      parent.appendChild(node);
+    };
+    if (explicit) {
+      addNode(text, explicit);
+      return;
+    }
+    const regex = /https?:\/\/[^\s]+/gi;
+    let cursor = 0;
+    for (const match of text.matchAll(regex)) {
+      if (match.index > cursor) addNode(text.slice(cursor, match.index), "");
+      addNode(match[0], safeHttpLink(match[0]));
+      cursor = match.index + match[0].length;
+    }
+    if (cursor < text.length) addNode(text.slice(cursor), "");
+  }
+
+  function renderRichText(target, value, spans) {
+    const text = String(value || "");
+    target.textContent = "";
+    if (!text) return;
+    let start = 0;
+    let current = styleForRichIndex(spans, 0);
+    let currentKey = richStyleKey(current);
+    for (let index = 1; index <= text.length; index++) {
+      const next = index < text.length ? styleForRichIndex(spans, index) : null;
+      const nextKey = next ? richStyleKey(next) : "";
+      if (index === text.length || nextKey !== currentKey) {
+        appendLinkifiedText(target, text.slice(start, index), current);
+        start = index;
+        current = next;
+        currentKey = nextKey;
+      }
+    }
+  }
+
   function showNotice(item) {
     return new Promise((resolve) => {
       const title = String(item.title || "").trim() || MESSAGE_LABELS[item.kind] || "AVISO";
       const design = item.design && typeof item.design === "object" ? item.design : {};
       const ui = createOverlay(title);
+      ui.card.classList.add("ml3d-startup-notice-card");
       const widthPct = Math.max(45, Math.min(96, Number(design.cardWidthPct) || 88));
       const minHeightPct = Math.max(0, Math.min(78, Number(design.cardMinHeightPct) || 0));
       ui.card.style.width = `${widthPct}vw`;
@@ -423,17 +536,18 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         heading.style.textDecoration = design.titleUnderline ? "underline" : "none";
         heading.style.textAlign = ["left","center","right"].includes(design.titleAlign) ? design.titleAlign : "left";
         heading.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+        renderRichText(heading, title, design.titleSpans);
       }
 
       const text = document.createElement("div");
       text.className = "ml3d-tools-message";
-      text.textContent = item.body || "";
       text.style.fontSize = `${Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14))}px`;
       text.style.color = String(design.bodyColor || "#ffffff");
       text.style.fontWeight = design.bodyBold ? "800" : "400";
       text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
       text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
       text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+      renderRichText(text, item.body || "", design.bodySpans);
       ui.card.appendChild(text);
 
       if (item.mediaData) {
