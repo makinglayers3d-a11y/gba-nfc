@@ -1171,9 +1171,6 @@ async function publicChatStatus(env, request) {
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
   await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
-  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
-  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
-  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
   const unread = await env.DB.prepare(
     "SELECT COUNT(*) AS count FROM emulator_chat_messages WHERE client_id = ? AND sender = 'admin' AND read_user = 0"
   ).bind(client.clientId).first();
@@ -1199,6 +1196,7 @@ async function publicChatHistory(env, request) {
   const body = await bodyJson(request);
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
   const result = await env.DB.prepare(
     "SELECT id, sender, body, media_data AS mediaData, COALESCE(media_type, '') AS mediaType, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
   ).bind(client.clientId).all();
@@ -1213,6 +1211,7 @@ async function publicChatSend(env, request) {
   const body = await bodyJson(request);
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
   const message = cleanText(body.message, 3000);
   const media = emulatorMedia(body);
   if (media.error) return bad(env, request, media.error, 413);
@@ -1234,6 +1233,7 @@ async function publicChatRead(env, request) {
   const body = await bodyJson(request);
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
   await env.DB.prepare(
     "UPDATE emulator_chat_messages SET read_user = 1 WHERE client_id = ? AND sender = 'admin'"
   ).bind(client.clientId).run();
