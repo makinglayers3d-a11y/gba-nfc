@@ -645,7 +645,12 @@ async function verify(env, request) {
     ]);
   }
   device = await env.DB.prepare("SELECT * FROM devices WHERE id = ?").bind(deviceId).first();
-  return response(env, request, { approved: true, policy: policyForDevice(device) });
+  return response(env, request, {
+    approved: true,
+    policy: policyForDevice(device),
+    deviceId,
+    displayName: cleanText(device?.display_name, 120)
+  });
 }
 
 async function requestMoreUses(env, request) {
@@ -842,6 +847,66 @@ const EMULATOR_MESSAGE_TITLES = {
   announcement: "MENSAJE DE COMUNICADO"
 };
 
+const DEFAULT_MESSAGE_DESIGN = Object.freeze({
+  cardWidthPct: 88,
+  cardMinHeightPct: 0,
+  titleFontSize: 17,
+  titleColor: "#ffffff",
+  titleBold: true,
+  titleUnderline: false,
+  titleAlign: "left",
+  titleOffsetX: 0,
+  titleOffsetY: 0,
+  bodyFontSize: 14,
+  bodyColor: "#ffffff",
+  bodyBold: false,
+  bodyUnderline: false,
+  bodyAlign: "left",
+  bodyOffsetX: 0,
+  bodyOffsetY: 0,
+  mediaWidthPct: 100,
+  mediaAlign: "center"
+});
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+}
+function messageAlign(value, fallback = "left") {
+  return ["left", "center", "right"].includes(String(value)) ? String(value) : fallback;
+}
+function messageColor(value, fallback) {
+  const text = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
+}
+function sanitizeMessageDesign(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    cardWidthPct: clampNumber(raw.cardWidthPct, 45, 96, DEFAULT_MESSAGE_DESIGN.cardWidthPct),
+    cardMinHeightPct: clampNumber(raw.cardMinHeightPct, 0, 78, DEFAULT_MESSAGE_DESIGN.cardMinHeightPct),
+    titleFontSize: clampNumber(raw.titleFontSize, 11, 38, DEFAULT_MESSAGE_DESIGN.titleFontSize),
+    titleColor: messageColor(raw.titleColor, DEFAULT_MESSAGE_DESIGN.titleColor),
+    titleBold: raw.titleBold === undefined ? DEFAULT_MESSAGE_DESIGN.titleBold : Boolean(raw.titleBold),
+    titleUnderline: Boolean(raw.titleUnderline),
+    titleAlign: messageAlign(raw.titleAlign, DEFAULT_MESSAGE_DESIGN.titleAlign),
+    titleOffsetX: clampNumber(raw.titleOffsetX, -80, 80, 0),
+    titleOffsetY: clampNumber(raw.titleOffsetY, -60, 100, 0),
+    bodyFontSize: clampNumber(raw.bodyFontSize, 10, 34, DEFAULT_MESSAGE_DESIGN.bodyFontSize),
+    bodyColor: messageColor(raw.bodyColor, DEFAULT_MESSAGE_DESIGN.bodyColor),
+    bodyBold: Boolean(raw.bodyBold),
+    bodyUnderline: Boolean(raw.bodyUnderline),
+    bodyAlign: messageAlign(raw.bodyAlign, DEFAULT_MESSAGE_DESIGN.bodyAlign),
+    bodyOffsetX: clampNumber(raw.bodyOffsetX, -80, 80, 0),
+    bodyOffsetY: clampNumber(raw.bodyOffsetY, -60, 100, 0),
+    mediaWidthPct: clampNumber(raw.mediaWidthPct, 20, 100, DEFAULT_MESSAGE_DESIGN.mediaWidthPct),
+    mediaAlign: messageAlign(raw.mediaAlign, DEFAULT_MESSAGE_DESIGN.mediaAlign)
+  };
+}
+function parseMessageDesign(raw) {
+  try { return sanitizeMessageDesign(raw ? JSON.parse(raw) : null); }
+  catch { return { ...DEFAULT_MESSAGE_DESIGN }; }
+}
+
 async function ensureEmulatorToolsSchema(env) {
   await env.DB.batch([
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_messages (
@@ -849,6 +914,9 @@ async function ensureEmulatorToolsSchema(env) {
       title TEXT,
       enabled INTEGER NOT NULL DEFAULT 0,
       body TEXT NOT NULL DEFAULT '',
+      design_json TEXT,
+      media_data TEXT,
+      media_type TEXT,
       updated_at TEXT NOT NULL
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_reports (
@@ -864,6 +932,8 @@ async function ensureEmulatorToolsSchema(env) {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_clients (
       client_id TEXT PRIMARY KEY,
       access_token TEXT NOT NULL,
+      device_id TEXT,
+      display_name TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       chat_deleted_at TEXT
@@ -892,11 +962,26 @@ async function ensureEmulatorToolsSchema(env) {
   if (!messageNames.has("title")) {
     await env.DB.prepare("ALTER TABLE emulator_messages ADD COLUMN title TEXT").run();
   }
+  if (!messageNames.has("design_json")) {
+    await env.DB.prepare("ALTER TABLE emulator_messages ADD COLUMN design_json TEXT").run();
+  }
+  if (!messageNames.has("media_data")) {
+    await env.DB.prepare("ALTER TABLE emulator_messages ADD COLUMN media_data TEXT").run();
+  }
+  if (!messageNames.has("media_type")) {
+    await env.DB.prepare("ALTER TABLE emulator_messages ADD COLUMN media_type TEXT").run();
+  }
 
   const clientColumns = await env.DB.prepare("PRAGMA table_info(emulator_clients)").all();
   const clientNames = new Set((clientColumns.results || []).map((row) => row.name));
   if (!clientNames.has("chat_deleted_at")) {
     await env.DB.prepare("ALTER TABLE emulator_clients ADD COLUMN chat_deleted_at TEXT").run();
+  }
+  if (!clientNames.has("device_id")) {
+    await env.DB.prepare("ALTER TABLE emulator_clients ADD COLUMN device_id TEXT").run();
+  }
+  if (!clientNames.has("display_name")) {
+    await env.DB.prepare("ALTER TABLE emulator_clients ADD COLUMN display_name TEXT").run();
   }
 
   const reportColumns = await env.DB.prepare("PRAGMA table_info(emulator_reports)").all();
@@ -928,7 +1013,7 @@ function normalizeMessageKind(kind) {
 async function listEmulatorMessages(env, request) {
   await ensureEmulatorToolsSchema(env);
   const result = await env.DB.prepare(
-    "SELECT kind, title, enabled, body, updated_at AS updatedAt FROM emulator_messages"
+    "SELECT kind, title, enabled, body, design_json AS designJson, media_data AS mediaData, COALESCE(media_type, '') AS mediaType, updated_at AS updatedAt FROM emulator_messages"
   ).all();
   const rows = new Map((result.results || []).map((row) => [row.kind, row]));
   const messages = Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) => {
@@ -938,6 +1023,9 @@ async function listEmulatorMessages(env, request) {
       title: cleanText(row.title, 120) || EMULATOR_MESSAGE_TITLES[kind],
       enabled: Number(row.enabled || 0) !== 0,
       body: row.body || "",
+      design: parseMessageDesign(row.designJson),
+      mediaData: row.mediaData || null,
+      mediaType: row.mediaType || "",
       updatedAt: row.updatedAt || null
     };
   });
@@ -952,14 +1040,20 @@ async function updateEmulatorMessage(env, request, kindValue) {
   const enabled = Boolean(body.enabled);
   const title = cleanText(body.title, 120) || EMULATOR_MESSAGE_TITLES[kind];
   const message = cleanText(body.body, 6000);
+  const design = sanitizeMessageDesign(body.design);
+  const media = emulatorMedia(body);
+  if (media.error) return bad(env, request, media.error, 413);
   const now = nowIso();
   await env.DB.prepare(
-    "INSERT INTO emulator_messages (kind, title, enabled, body, updated_at) VALUES (?, ?, ?, ?, ?) " +
-    "ON CONFLICT(kind) DO UPDATE SET title = excluded.title, enabled = excluded.enabled, body = excluded.body, updated_at = excluded.updated_at"
-  ).bind(kind, title, enabled ? 1 : 0, message, now).run();
+    "INSERT INTO emulator_messages (kind, title, enabled, body, design_json, media_data, media_type, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(kind) DO UPDATE SET title = excluded.title, enabled = excluded.enabled, body = excluded.body, design_json = excluded.design_json, media_data = excluded.media_data, media_type = excluded.media_type, updated_at = excluded.updated_at"
+  ).bind(kind, title, enabled ? 1 : 0, message, JSON.stringify(design), media.data, media.type || null, now).run();
   return response(env, request, {
     ok: true,
-    message: { kind, title, enabled, body: message, updatedAt: now }
+    message: {
+      kind, title, enabled, body: message, design,
+      mediaData: media.data, mediaType: media.type, updatedAt: now
+    }
   });
 }
 
@@ -1002,6 +1096,24 @@ async function verifyEmulatorClient(env, clientIdValue, tokenValue, createIfMiss
   return { ok: true, clientId };
 }
 
+async function bindEmulatorClientToAccess(env, clientId, deviceIdValue, sessionIdValue) {
+  const deviceId = cleanText(deviceIdValue, 160);
+  const sessionId = cleanText(sessionIdValue, 160);
+  if (!deviceId || !sessionId) return;
+  const sessionKey = `${deviceId}:${sessionId}`;
+  const active = await env.DB.prepare(
+    "SELECT id FROM usage_sessions WHERE id = ? AND device_id = ? AND expires_at >= ?"
+  ).bind(sessionKey, deviceId, Date.now()).first();
+  if (!active) return;
+  const device = await env.DB.prepare(
+    "SELECT id FROM devices WHERE id = ? AND status = 'approved'"
+  ).bind(deviceId).first();
+  if (!device) return;
+  await env.DB.prepare(
+    "UPDATE emulator_clients SET device_id = ?, updated_at = ? WHERE client_id = ?"
+  ).bind(deviceId, nowIso(), clientId).run();
+}
+
 async function submitEmulatorReport(env, request) {
   await ensureEmulatorToolsSchema(env);
   const body = await bodyJson(request);
@@ -1012,6 +1124,7 @@ async function submitEmulatorReport(env, request) {
 
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, true);
   if (!client.ok) return bad(env, request, client.error, client.status);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
 
   const id = crypto.randomUUID();
   const now = nowIso();
@@ -1057,6 +1170,10 @@ async function publicChatStatus(env, request) {
   const body = await bodyJson(request);
   const client = await verifyEmulatorClient(env, body.clientId, body.clientToken, false);
   if (!client.ok) return bad(env, request, client.error, client.status);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
+  await bindEmulatorClientToAccess(env, client.clientId, body.deviceId, body.sessionId);
   const unread = await env.DB.prepare(
     "SELECT COUNT(*) AS count FROM emulator_chat_messages WHERE client_id = ? AND sender = 'admin' AND read_user = 0"
   ).bind(client.clientId).first();
@@ -1127,6 +1244,7 @@ async function listAdminChats(env, request) {
   await ensureEmulatorToolsSchema(env);
   const result = await env.DB.prepare(`SELECT
       c.client_id AS clientId,
+      COALESCE(NULLIF(c.display_name, ''), NULLIF(d.display_name, ''), 'Chat ' || substr(c.client_id,1,8)) AS displayName,
       (SELECT COUNT(*) FROM emulator_chat_messages m
         WHERE m.client_id = c.client_id AND m.sender = 'user' AND m.read_admin = 0) AS unreadCount,
       COALESCE((SELECT m.body FROM emulator_chat_messages m
@@ -1143,6 +1261,7 @@ async function listAdminChats(env, request) {
         WHERE rc.client_id = c.client_id
           AND (c.chat_deleted_at IS NULL OR r.created_at > c.chat_deleted_at)) AS reportCount
     FROM emulator_clients c
+    LEFT JOIN devices d ON d.id = c.device_id
     WHERE EXISTS (SELECT 1 FROM emulator_chat_messages m WHERE m.client_id = c.client_id)
        OR EXISTS (
          SELECT 1 FROM emulator_reports r
@@ -1158,7 +1277,10 @@ async function listAdminChats(env, request) {
 async function adminChatHistory(env, request, clientIdValue) {
   await ensureEmulatorToolsSchema(env);
   const clientId = cleanText(clientIdValue, 120);
-  const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
+  const client = await env.DB.prepare(`SELECT c.client_id AS clientId,
+      COALESCE(NULLIF(c.display_name, ''), NULLIF(d.display_name, ''), 'Chat ' || substr(c.client_id,1,8)) AS displayName
+      FROM emulator_clients c LEFT JOIN devices d ON d.id = c.device_id WHERE c.client_id = ?`)
+    .bind(clientId).first();
   if (!client) return bad(env, request, "Chat no encontrado", 404);
   const result = await env.DB.prepare(
     "SELECT id, sender, body, media_data AS mediaData, COALESCE(media_type, '') AS mediaType, created_at AS createdAt FROM emulator_chat_messages WHERE client_id = ? ORDER BY created_at ASC LIMIT 200"
@@ -1166,7 +1288,20 @@ async function adminChatHistory(env, request, clientIdValue) {
   await env.DB.prepare(
     "UPDATE emulator_chat_messages SET read_admin = 1 WHERE client_id = ? AND sender = 'user'"
   ).bind(clientId).run();
-  return response(env, request, { clientId, messages: result.results || [] });
+  return response(env, request, { clientId, displayName: client.displayName || "", messages: result.results || [] });
+}
+
+async function adminRenameChat(env, request, clientIdValue) {
+  await ensureEmulatorToolsSchema(env);
+  const clientId = cleanText(clientIdValue, 120);
+  const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
+  if (!client) return bad(env, request, "Chat no encontrado", 404);
+  const body = await bodyJson(request);
+  const displayName = cleanText(body.displayName, 120);
+  await env.DB.prepare(
+    "UPDATE emulator_clients SET display_name = ?, updated_at = ? WHERE client_id = ?"
+  ).bind(displayName || null, nowIso(), clientId).run();
+  return response(env, request, { ok: true, clientId, displayName });
 }
 
 async function adminDeleteChat(env, request, clientIdValue) {
@@ -1251,6 +1386,8 @@ export default {
         if (request.method === "DELETE" && chatMatch) return adminDeleteChat(env, request, chatMatch[1]);
         const chatMessageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)\/messages$/);
         if (request.method === "POST" && chatMessageMatch) return adminChatSend(env, request, chatMessageMatch[1]);
+        const chatNameMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)\/name$/);
+        if (request.method === "POST" && chatNameMatch) return adminRenameChat(env, request, chatNameMatch[1]);
 
         const requestMatch = url.pathname.match(/^\/v1\/admin\/requests\/([^/]+)\/(approve|reject)$/);
         if (request.method === "POST" && requestMatch) return decideRequest(env, request, requestMatch[1], requestMatch[2]);
