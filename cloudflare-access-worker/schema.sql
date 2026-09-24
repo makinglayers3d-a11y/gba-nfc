@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS devices (
   usage_limit INTEGER,
   usage_used INTEGER NOT NULL DEFAULT 0,
   usage_reset_at TEXT,
-  policy_updated_at TEXT
+  policy_updated_at TEXT,
+  total_active_seconds INTEGER NOT NULL DEFAULT 0,
+  session_count INTEGER NOT NULL DEFAULT 0,
+  last_active_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS access_requests (
@@ -125,3 +128,27 @@ CREATE TABLE IF NOT EXISTS emulator_chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_emulator_chat_client_created
   ON emulator_chat_messages(client_id, created_at);
+
+
+CREATE TABLE IF NOT EXISTS usage_heartbeats (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  game_key TEXT,
+  last_heartbeat_ms INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(device_id) REFERENCES devices(id)
+);
+
+CREATE TABLE IF NOT EXISTS device_game_usage (
+  device_id TEXT NOT NULL,
+  game_key TEXT NOT NULL,
+  active_seconds INTEGER NOT NULL DEFAULT 0,
+  launches INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  PRIMARY KEY(device_id, game_key),
+  FOREIGN KEY(device_id) REFERENCES devices(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_usage_device
+  ON device_game_usage(device_id, active_seconds DESC);

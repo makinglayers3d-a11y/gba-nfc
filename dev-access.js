@@ -7,6 +7,8 @@
   const KEY_ID = "device-key";
   const SESSION_KEY = "ml3d-dev-access-session";
   const encoder = new TextEncoder();
+  const USAGE_HEARTBEAT_MS = 30000;
+  let usageTrackerStarted = false;
 
   function bytesToBase64Url(bytes) {
     let binary = "";
@@ -128,6 +130,41 @@
     return bytesToBase64Url(new Uint8Array(signature));
   }
 
+  function currentGameKey() {
+    const current = new URLSearchParams(window.location.search);
+    return current.get("rom") || current.get("game") || "";
+  }
+
+  function startUsageTracking(config, identity) {
+    if (usageTrackerStarted || !config?.apiBase) return;
+    usageTrackerStarted = true;
+
+    const heartbeat = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        await api(config, "/v1/access/heartbeat", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceId: identity.deviceId,
+            sessionId: getSessionId(),
+            game: currentGameKey()
+          })
+        });
+      } catch (error) {
+        console.debug("ML3D usage heartbeat:", error?.message || error);
+      }
+    };
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, USAGE_HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") heartbeat();
+    });
+    window.addEventListener("pagehide", () => {
+      window.clearInterval(timer);
+    }, { once: true });
+  }
+
   function cartContext(params) {
     const names = ["rom", "menu", "cartType", "cartColor", "cartLabel"];
     const result = {};
@@ -162,6 +199,7 @@
       <div class="ml3d-access-card" role="dialog" aria-modal="true" aria-labelledby="ml3d-access-title">
         <h2 id="ml3d-access-title">Acceso ML3Demuler</h2>
         <p class="ml3d-access-message">Esto es un cartucho promocional y requiere una autorización para su uso. Introduzca nombre para solicitar autorización de uso.</p>
+        <p style="font-size:12px;color:#8fa5b8;line-height:1.4">Para la administración del acceso se registran tiempo activo, sesiones y juego utilizado mientras el emulador autorizado está visible.</p>
         <div class="ml3d-access-form">
           <input class="ml3d-access-name" maxlength="80" autocomplete="name" placeholder="Tu nombre" aria-label="Nombre">
           <div class="ml3d-access-actions"><button class="ml3d-access-primary" type="button">Solicitar acceso</button></div>
@@ -198,7 +236,10 @@
           sessionId: getSessionId()
         })
       });
-      if (result.approved === true) publishPolicy(result.policy || null);
+      if (result.approved === true) {
+        publishPolicy(result.policy || null);
+        startUsageTracking(config, identity);
+      }
       return {
         approved: result.approved === true,
         status: result.approved ? "approved" : (result.reason || "denied"),

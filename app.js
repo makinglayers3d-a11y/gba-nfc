@@ -762,12 +762,47 @@ window.addEventListener(
     return currentSystem;
   };
 
+  async function applyManagedRemoteGameState() {
+    const filename = String(selected.rom || "").replace(/^games\//, "");
+    if (!filename) return;
+
+    try {
+      const response = await fetch("game-management.json?t=" + Date.now(), {
+        cache: "no-store"
+      });
+      if (!response.ok) return;
+
+      const management = await response.json();
+      const meta =
+        management &&
+        management.games &&
+        typeof management.games === "object"
+          ? management.games[filename]
+          : null;
+
+      if (!meta || typeof meta !== "object") return;
+      if (meta.suspended) {
+        throw new Error("Este juego está suspendido temporalmente.");
+      }
+      if (String(meta.displayName || "").trim()) {
+        selected.name = String(meta.displayName).trim();
+      }
+    } catch (error) {
+      if (error && /suspendido temporalmente/i.test(String(error.message || ""))) {
+        throw error;
+      }
+      console.warn("No se pudo comprobar el estado administrado del juego:", error);
+    }
+  }
+
   /* Carga remota inicial, conservando las rutas actuales de /games. */
   async function loadGame() {
     try {
       status.hidden = false;
       status.style.display = "";
       status.textContent = "Cargando juego…";
+
+      await applyManagedRemoteGameState();
 
       const response = await fetch(selected.rom, {
         cache: "no-store"

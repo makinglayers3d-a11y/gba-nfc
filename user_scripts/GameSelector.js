@@ -3,6 +3,7 @@
 (function () {
   const REPO_API =
     "https://api.github.com/repos/makinglayers3d-a11y/gba-nfc/contents/games";
+  const GAME_MANAGEMENT_URL = "game-management.json";
 
   const selectGameButton =
     document.getElementById("select-game-button");
@@ -29,6 +30,22 @@
   const params =
     new URLSearchParams(window.location.search);
 
+  let gameManagement = {
+    schemaVersion: 1,
+    updatedAt: "",
+    games: {}
+  };
+
+  function managedGame(filename) {
+    const gamesMap =
+      gameManagement &&
+      gameManagement.games &&
+      typeof gameManagement.games === "object"
+        ? gameManagement.games
+        : {};
+    const item = gamesMap[filename];
+    return item && typeof item === "object" ? item : {};
+  }
 
   const knownNames = {
     "PokemonRF.gba": "Pokémon FireRed",
@@ -135,7 +152,9 @@ function setFilterViewportMode(active) {
 }
 
  function friendlyName(filename) {
+  const managed = managedGame(filename);
   return (
+    String(managed.displayName || "").trim() ||
     knownNames[filename] ||
     filename.replace(/\.(gba|gbc|gb)$/i, "")
   );
@@ -1176,112 +1195,63 @@ function updateCoverBackground() {
     return;
   }
 
-  const selectedGame =
-    games[selectedIndex];
-
+  const selectedGame = games[selectedIndex];
   if (!selectedGame) {
     return;
   }
 
-  const filename =
-    selectedGame.filename;
+  const filename = selectedGame.filename;
+  const baseName = filename.replace(/\.(gba|gb|gbc)$/i, "");
+  const managed = managedGame(filename);
+  const managedCover = String(managed.cover || selectedGame.cover || "").trim();
+  const revision = encodeURIComponent(gameManagement.updatedAt || "");
+  const withRevision = (path) => revision
+    ? path + (path.includes("?") ? "&" : "?") + "v=" + revision
+    : path;
 
-  const baseName =
-    filename.replace(
-       /\.(gba|gb|gbc)$/i,
-      ""
-    );
+  const jpgPath = "covers/" + encodeURIComponent(baseName + ".jpg");
+  const pngPath = "covers/" + encodeURIComponent(baseName + ".png");
+  const fallbackPath = "covers/coverml3d.png";
 
-  const jpgPath =
-    "covers/" +
-    encodeURIComponent(
-      baseName + ".jpg"
-    );
+  const oldImage = overlay.querySelector(".gba-cover-background");
+  if (oldImage) oldImage.remove();
 
-  const pngPath =
-    "covers/" +
-    encodeURIComponent(
-      baseName + ".png"
-    );
-
-  const fallbackPath =
-    "covers/coverml3d.png";
-
-  const oldImage =
-    overlay.querySelector(
-      ".gba-cover-background"
-    );
-
-  if (oldImage) {
-    oldImage.remove();
-  }
-
-  const image =
-    document.createElement("img");
-
-  image.className =
-    "gba-cover-background";
-
+  const image = document.createElement("img");
+  image.className = "gba-cover-background";
   image.alt = "";
+  Object.assign(image.style, {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center",
+    opacity: "0",
+    transition: "opacity 350ms ease",
+    pointerEvents: "none",
+    zIndex: "0"
+  });
+  overlay.insertBefore(image, overlay.firstChild);
 
-  Object.assign(
-    image.style,
-    {
-      position: "absolute",
-      inset: "0",
-      width: "100%",
-      height: "100%",
-      objectFit: "cover",
-      objectPosition: "center",
-      opacity: "0",
-      transition:
-        "opacity 350ms ease",
-      pointerEvents: "none",
-      zIndex: "0"
-    }
-  );
-
-  overlay.insertBefore(
-    image,
-    overlay.firstChild
-  );
-
-  /*
-   * Probamos JPG primero.
-   */
-  image.src =
-    jpgPath;
-
-  image.onerror = () => {
-
-    /*
-     * Probamos PNG.
-     */
-    image.onerror = () => {
-
-      /*
-       * Finalmente usamos la
-       * carátula ML3D.
-       */
+  const fallbacks = [];
+  if (managedCover) fallbacks.push(withRevision(managedCover));
+  fallbacks.push(withRevision(jpgPath), withRevision(pngPath), fallbackPath);
+  let index = 0;
+  const tryNext = () => {
+    if (index >= fallbacks.length) {
       image.onerror = null;
-
-      image.src =
-        fallbackPath;
-    };
-
-    image.src =
-      pngPath;
+      image.src = fallbackPath;
+      return;
+    }
+    image.src = fallbacks[index++];
   };
-
+  image.onerror = tryNext;
   image.onload = () => {
-
-    requestAnimationFrame(
-      () => {
-        image.style.opacity =
-          "1";
-      }
-    );
+    requestAnimationFrame(() => {
+      image.style.opacity = "1";
+    });
   };
+  tryNext();
 }
 function renderList() {
   if (listTrack) {
@@ -1989,79 +1959,73 @@ item.textContent =
       '<div class="game-list-status">Cargando juegos…</div>';
 
     try {
-      const response =
-        await fetch(
-          REPO_API,
-          {
-            cache: "no-store"
-          }
-        );
+      const [response, managementResponse] = await Promise.all([
+        fetch(REPO_API, { cache: "no-store" }),
+        fetch(GAME_MANAGEMENT_URL + "?t=" + Date.now(), { cache: "no-store" })
+          .catch(() => null)
+      ]);
 
       if (!response.ok) {
-        throw new Error(
-          "HTTP " + response.status
-        );
+        throw new Error("HTTP " + response.status);
       }
 
-      const files =
-        await response.json();
+      if (managementResponse && managementResponse.ok) {
+        const remoteManagement = await managementResponse.json().catch(() => null);
+        if (remoteManagement && typeof remoteManagement === "object") {
+          gameManagement = {
+            schemaVersion: Number(remoteManagement.schemaVersion || 1),
+            updatedAt: String(remoteManagement.updatedAt || ""),
+            games: remoteManagement.games && typeof remoteManagement.games === "object"
+              ? remoteManagement.games
+              : {}
+          };
+        }
+      }
 
-          allGames =
-        files
-          .filter(
-            (file) => {
-              const name =
-                file.name.toLowerCase();
+      const files = await response.json();
 
-              return (
-                file.type === "file" &&
-                (
-                  name.endsWith(".gba") ||
-                  name.endsWith(".gb") ||
-                  name.endsWith(".gbc")
-                )
-              );
-            }
-          )
-          .map(
-            (file) => ({
-              filename: file.name
-            })
-          )
-          .sort(
-            (a, b) =>
-              friendlyName(
-                a.filename
-              ).localeCompare(
-                friendlyName(
-                  b.filename
-                ),
-                undefined,
-                {
-                  sensitivity: "base"
-                }
-              )
+      allGames = files
+        .filter((file) => {
+          const name = String(file.name || "").toLowerCase();
+          const managed = managedGame(file.name);
+          return (
+            file.type === "file" &&
+            !Boolean(managed.suspended) &&
+            (
+              name.endsWith(".gba") ||
+              name.endsWith(".gb") ||
+              name.endsWith(".gbc")
+            )
           );
+        })
+        .map((file) => {
+          const managed = managedGame(file.name);
+          return {
+            filename: file.name,
+            displayName: String(managed.displayName || ""),
+            cover: String(managed.cover || "")
+          };
+        })
+        .sort((a, b) =>
+          friendlyName(a.filename).localeCompare(
+            friendlyName(b.filename),
+            undefined,
+            { sensitivity: "base" }
+          )
+        );
 
       games = allGames;
-
       findCurrentGame();
 
       if (!games.length) {
         gameList.innerHTML =
-          '<div class="game-list-status">No hay juegos GBA.</div>';
-
+          '<div class="game-list-status">No hay juegos disponibles.</div>';
         return;
       }
     } catch (error) {
-      console.error(
-        "No se pudo cargar la lista de juegos:",
-        error
-      );
-
+      console.error("No se pudo cargar la lista de juegos:", error);
       gameList.innerHTML =
         '<div class="game-list-status">No hay juegos compatibles.</div>';
-
       return;
     }
   }

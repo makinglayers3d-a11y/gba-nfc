@@ -2,6 +2,9 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const encoder = new TextEncoder();
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const MAX_EMULATOR_MEDIA_DATA = 1500000;
+const MAX_GAME_ROM_BASE64 = 60 * 1024 * 1024;
+const MAX_GAME_COVER_BASE64 = 8 * 1024 * 1024;
+const DEFAULT_GITHUB_REPO = "makinglayers3d-a11y/gba-nfc";
 
 function cors(env, request) {
   const origin = request.headers.get("Origin") || "";
@@ -71,6 +74,410 @@ function validatePublicJwk(jwk) {
 }
 function adminAuthorized(env, request) {
   return Boolean(env.ADMIN_TOKEN) && request.headers.get("Authorization") === `Bearer ${env.ADMIN_TOKEN}`;
+}
+
+
+async function ensureUsageAnalyticsSchema(env) {
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS usage_heartbeats (
+      id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      game_key TEXT,
+      last_heartbeat_ms INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS device_game_usage (
+      device_id TEXT NOT NULL,
+      game_key TEXT NOT NULL,
+      active_seconds INTEGER NOT NULL DEFAULT 0,
+      launches INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT,
+      PRIMARY KEY(device_id, game_key)
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_game_usage_device ON device_game_usage(device_id, active_seconds DESC)")
+  ]);
+
+  const columns = await env.DB.prepare("PRAGMA table_info(devices)").all();
+  const names = new Set((columns.results || []).map((row) => row.name));
+  if (!names.has("total_active_seconds")) {
+    await env.DB.prepare("ALTER TABLE devices ADD COLUMN total_active_seconds INTEGER NOT NULL DEFAULT 0").run();
+  }
+  if (!names.has("session_count")) {
+    await env.DB.prepare("ALTER TABLE devices ADD COLUMN session_count INTEGER NOT NULL DEFAULT 0").run();
+  }
+  if (!names.has("last_active_at")) {
+    await env.DB.prepare("ALTER TABLE devices ADD COLUMN last_active_at TEXT").run();
+  }
+}
+
+function githubConfig(env) {
+  const full = cleanText(env.GITHUB_REPO || DEFAULT_GITHUB_REPO, 220);
+  const parts = full.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("GITHUB_REPO no válido");
+  return {
+    owner: parts[0],
+    repo: parts[1],
+    branch: cleanText(env.GITHUB_BRANCH || "main", 120) || "main"
+  };
+}
+
+async function githubApi(env, apiPath, options = {}) {
+  if (!env.GITHUB_TOKEN) {
+    const error = new Error("Falta configurar GITHUB_TOKEN en el Worker");
+    error.status = 503;
+    throw error;
+  }
+  const response = await fetch("https://api.github.com" + apiPath, {
+    ...options,
+    headers: {
+      "Accept": "application/vnd.github+json",
+      "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "ML3Demu-tools-worker",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    const error = new Error(data.message || `GitHub HTTP ${response.status}`);
+    error.status = response.status;
+    error.github = data;
+    throw error;
+  }
+  return data;
+}
+
+function repoContentsPath(env, repoPath) {
+  const cfg = githubConfig(env);
+  const encoded = String(repoPath || "").split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${encoded}`;
+}
+
+async function repoContents(env, repoPath) {
+  const cfg = githubConfig(env);
+  return githubApi(env, repoContentsPath(env, repoPath) + `?ref=${encodeURIComponent(cfg.branch)}`);
+}
+
+function utf8ToBase64(value) {
+  const bytes = encoder.encode(String(value));
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function base64ToUtf8(value) {
+  const binary = atob(String(value || "").replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+async function readRepoJson(env, repoPath, fallback) {
+  try {
+    const file = await repoContents(env, repoPath);
+    return JSON.parse(base64ToUtf8(file.content || ""));
+  } catch (error) {
+    if (error.status === 404) return fallback;
+    throw error;
+  }
+}
+
+async function putRepoFile(env, repoPath, contentBase64, message) {
+  const cfg = githubConfig(env);
+  let sha = null;
+  try {
+    const current = await repoContents(env, repoPath);
+    sha = current.sha || null;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  const payload = {
+    message,
+    content: String(contentBase64 || "").replace(/\s/g, ""),
+    branch: cfg.branch
+  };
+  if (sha) payload.sha = sha;
+  return githubApi(env, repoContentsPath(env, repoPath), {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+async function deleteRepoFile(env, repoPath, message) {
+  const cfg = githubConfig(env);
+  let current;
+  try {
+    current = await repoContents(env, repoPath);
+  } catch (error) {
+    if (error.status === 404) return false;
+    throw error;
+  }
+  await githubApi(env, repoContentsPath(env, repoPath), {
+    method: "DELETE",
+    body: JSON.stringify({ message, sha: current.sha, branch: cfg.branch })
+  });
+  return true;
+}
+
+async function listRepoDir(env, repoPath) {
+  try {
+    const result = await repoContents(env, repoPath);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    if (error.status === 404) return [];
+    throw error;
+  }
+}
+
+function normalizedRomFilename(value) {
+  const filename = cleanText(value, 240).replace(/^.*[\\/]/, "");
+  if (!filename || !/\.(gba|gbc|gb)$/i.test(filename)) throw new Error("Nombre de ROM no válido");
+  if (filename === "." || filename === "..") throw new Error("Nombre de ROM no válido");
+  return filename;
+}
+
+function romBaseName(filename) {
+  return filename.replace(/\.(gba|gbc|gb)$/i, "");
+}
+
+function normalizedCoverExtension(value) {
+  const ext = cleanText(value, 12).toLowerCase().replace(/^\./, "");
+  if (ext === "jpeg") return "jpg";
+  if (!["jpg", "png", "webp"].includes(ext)) throw new Error("La carátula debe ser JPG, PNG o WebP");
+  return ext;
+}
+
+async function gameManagement(env) {
+  const root = await readRepoJson(env, "game-management.json", { schemaVersion: 1, updatedAt: "", games: {} });
+  if (!root.games || typeof root.games !== "object" || Array.isArray(root.games)) root.games = {};
+  root.schemaVersion = 1;
+  return root;
+}
+
+async function saveGameManagement(env, management, message) {
+  management.schemaVersion = 1;
+  management.updatedAt = nowIso();
+  await putRepoFile(env, "game-management.json", utf8ToBase64(JSON.stringify(management, null, 2) + "\n"), message);
+}
+
+async function syncGamesCatalog(env) {
+  const files = (await listRepoDir(env, "games"))
+    .filter((item) => item.type === "file" && /\.(gba|gbc|gb)$/i.test(item.name || ""))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    .map((item) => ({ name: item.name, type: "file" }));
+  await putRepoFile(
+    env,
+    "games-catalog.json",
+    utf8ToBase64(JSON.stringify(files, null, 2) + "\n"),
+    "Sync fallback games catalog"
+  );
+}
+
+async function listManagedGames(env, request) {
+  const [files, covers, management] = await Promise.all([
+    listRepoDir(env, "games"),
+    listRepoDir(env, "covers"),
+    gameManagement(env)
+  ]);
+  const coverNames = new Set(covers.filter((item) => item.type === "file").map((item) => item.name));
+  const games = files
+    .filter((item) => item.type === "file" && /\.(gba|gbc|gb)$/i.test(item.name || ""))
+    .map((item) => {
+      const meta = management.games[item.name] || {};
+      const base = romBaseName(item.name);
+      const conventional = ["jpg", "png", "webp"].map((ext) => `${base}.${ext}`).find((name) => coverNames.has(name));
+      const cover = cleanText(meta.cover, 500) || (conventional ? `covers/${conventional}` : "");
+      return {
+        id: item.name,
+        filename: item.name,
+        displayName: cleanText(meta.displayName, 160) || base,
+        system: item.name.toLowerCase().endsWith(".gba") ? "gba" : (item.name.toLowerCase().endsWith(".gbc") ? "gbc" : "gb"),
+        suspended: Boolean(meta.suspended),
+        cover,
+        hasCover: Boolean(cover),
+        size: Number(item.size || 0)
+      };
+    })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }));
+  return response(env, request, { games, updatedAt: management.updatedAt || null });
+}
+
+async function addManagedGame(env, request) {
+  const body = await bodyJson(request);
+  const filename = normalizedRomFilename(body.filename);
+  const romBase64 = String(body.romBase64 || "").replace(/\s/g, "");
+  if (!romBase64 || romBase64.length > MAX_GAME_ROM_BASE64) return bad(env, request, "ROM vacía o demasiado grande", 413);
+  try {
+    await repoContents(env, `games/${filename}`);
+    return bad(env, request, "Ya existe un juego con ese archivo", 409);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+
+  await putRepoFile(env, `games/${filename}`, romBase64, `Add game ${filename}`);
+
+  const management = await gameManagement(env);
+  const base = romBaseName(filename);
+  const entry = {
+    displayName: cleanText(body.displayName, 160) || base,
+    suspended: false
+  };
+
+  const coverBase64 = String(body.coverBase64 || "").replace(/\s/g, "");
+  if (coverBase64) {
+    if (coverBase64.length > MAX_GAME_COVER_BASE64) return bad(env, request, "Carátula demasiado grande", 413);
+    const extension = normalizedCoverExtension(body.coverExtension);
+    const coverPath = `covers/${base}.${extension}`;
+    await putRepoFile(env, coverPath, coverBase64, `Add cover for ${filename}`);
+    entry.cover = coverPath;
+  }
+
+  management.games[filename] = entry;
+  await saveGameManagement(env, management, `Manage game ${filename}`);
+  await syncGamesCatalog(env);
+  return response(env, request, { ok: true, filename, game: entry }, 201);
+}
+
+async function updateManagedGame(env, request, filenameValue) {
+  const filename = normalizedRomFilename(decodeURIComponent(filenameValue));
+  await repoContents(env, `games/${filename}`);
+  const body = await bodyJson(request);
+  const management = await gameManagement(env);
+  const current = management.games[filename] || {};
+  const entry = {
+    ...current,
+    displayName: cleanText(body.displayName, 160) || romBaseName(filename),
+    suspended: Boolean(current.suspended)
+  };
+
+  const coverBase64 = String(body.coverBase64 || "").replace(/\s/g, "");
+  if (coverBase64) {
+    if (coverBase64.length > MAX_GAME_COVER_BASE64) return bad(env, request, "Carátula demasiado grande", 413);
+    const extension = normalizedCoverExtension(body.coverExtension);
+    const coverPath = `covers/${romBaseName(filename)}.${extension}`;
+    await putRepoFile(env, coverPath, coverBase64, `Update cover for ${filename}`);
+    entry.cover = coverPath;
+  }
+
+  management.games[filename] = entry;
+  await saveGameManagement(env, management, `Update game ${filename}`);
+  return response(env, request, { ok: true, filename, game: entry });
+}
+
+async function suspendManagedGame(env, request, filenameValue) {
+  const filename = normalizedRomFilename(decodeURIComponent(filenameValue));
+  await repoContents(env, `games/${filename}`);
+  const body = await bodyJson(request);
+  const management = await gameManagement(env);
+  const current = management.games[filename] || {};
+  management.games[filename] = {
+    ...current,
+    displayName: cleanText(current.displayName, 160) || romBaseName(filename),
+    suspended: Boolean(body.suspended)
+  };
+  await saveGameManagement(env, management, `${body.suspended ? "Suspend" : "Resume"} game ${filename}`);
+  return response(env, request, { ok: true, filename, suspended: Boolean(body.suspended) });
+}
+
+async function deleteManagedGame(env, request, filenameValue) {
+  const filename = normalizedRomFilename(decodeURIComponent(filenameValue));
+  const url = new URL(request.url);
+  const deleteCover = url.searchParams.get("deleteCover") === "1";
+  const base = romBaseName(filename);
+  const management = await gameManagement(env);
+  const current = management.games[filename] || {};
+  const deleted = [];
+
+  if (await deleteRepoFile(env, `games/${filename}`, `Delete game ${filename}`)) {
+    deleted.push(`games/${filename}`);
+  } else {
+    return bad(env, request, "Juego no encontrado", 404);
+  }
+
+  const previews = await listRepoDir(env, "previews");
+  for (const item of previews) {
+    if (item.type !== "file") continue;
+    const previewBase = String(item.name || "").replace(/\.[^.]+$/, "");
+    if (previewBase === base) {
+      const previewPath = `previews/${item.name}`;
+      if (await deleteRepoFile(env, previewPath, `Delete preview for ${filename}`)) deleted.push(previewPath);
+    }
+  }
+
+  if (deleteCover) {
+    const coverPaths = new Set([
+      cleanText(current.cover, 500),
+      `covers/${base}.jpg`,
+      `covers/${base}.png`,
+      `covers/${base}.webp`
+    ].filter((value) => value && value !== "covers/coverml3d.png"));
+    for (const coverPath of coverPaths) {
+      if (await deleteRepoFile(env, coverPath, `Delete cover for ${filename}`)) deleted.push(coverPath);
+    }
+  }
+
+  delete management.games[filename];
+  await saveGameManagement(env, management, `Remove game metadata ${filename}`);
+  await syncGamesCatalog(env);
+  return response(env, request, { ok: true, filename, deleteCover, deleted });
+}
+
+async function heartbeat(env, request) {
+  await ensureUsageAnalyticsSchema(env);
+  const body = await bodyJson(request);
+  const deviceId = cleanText(body.deviceId, 160);
+  const sessionId = cleanText(body.sessionId, 160);
+  const game = cleanText(body.game, 240);
+  if (!deviceId || !sessionId) return bad(env, request, "Faltan datos de sesión");
+
+  const nowMs = Date.now();
+  const now = nowIso();
+  const sessionKey = `${deviceId}:${sessionId}`;
+  const session = await env.DB.prepare(
+    "SELECT id FROM usage_sessions WHERE id = ? AND device_id = ? AND expires_at >= ?"
+  ).bind(sessionKey, deviceId, nowMs).first();
+  if (!session) return bad(env, request, "Sesión de acceso caducada", 403);
+
+  const device = await env.DB.prepare("SELECT status, paused FROM devices WHERE id = ?").bind(deviceId).first();
+  if (!device || device.status !== "approved" || Number(device.paused || 0) !== 0) {
+    return bad(env, request, "Acceso no disponible", 403);
+  }
+
+  const previous = await env.DB.prepare(
+    "SELECT game_key AS gameKey, last_heartbeat_ms AS lastHeartbeatMs FROM usage_heartbeats WHERE id = ?"
+  ).bind(sessionKey).first();
+  const elapsedMs = previous ? Math.max(0, Math.min(45000, nowMs - Number(previous.lastHeartbeatMs || nowMs))) : 0;
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const launchIncrement = game && (!previous || String(previous.gameKey || "") !== game) ? 1 : 0;
+
+  const statements = [
+    env.DB.prepare(`INSERT INTO usage_heartbeats (id, device_id, session_id, game_key, last_heartbeat_ms, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET game_key = excluded.game_key, last_heartbeat_ms = excluded.last_heartbeat_ms, updated_at = excluded.updated_at`)
+      .bind(sessionKey, deviceId, sessionId, game || null, nowMs, now),
+    env.DB.prepare(`UPDATE devices SET total_active_seconds = COALESCE(total_active_seconds,0) + ?,
+      last_active_at = ?, last_seen_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(elapsedSeconds, now, now, now, deviceId),
+    env.DB.prepare("UPDATE usage_sessions SET expires_at = ? WHERE id = ?")
+      .bind(nowMs + SESSION_TTL_MS, sessionKey)
+  ];
+  if (game) {
+    statements.push(
+      env.DB.prepare(`INSERT INTO device_game_usage (device_id, game_key, active_seconds, launches, last_seen_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(device_id, game_key) DO UPDATE SET
+          active_seconds = active_seconds + excluded.active_seconds,
+          launches = launches + excluded.launches,
+          last_seen_at = excluded.last_seen_at`)
+        .bind(deviceId, game, elapsedSeconds, launchIncrement, now)
+    );
+  }
+  await env.DB.batch(statements);
+  return response(env, request, { ok: true, activeSecondsAdded: elapsedSeconds });
 }
 
 function policyForDevice(device) {
@@ -195,6 +602,7 @@ async function verifySignedChallenge(env, deviceId, challengeId, signature) {
 }
 
 async function verify(env, request) {
+  await ensureUsageAnalyticsSchema(env);
   const body = await bodyJson(request);
   const deviceId = cleanText(body.deviceId, 160);
   const challengeId = cleanText(body.challengeId, 120);
@@ -224,8 +632,10 @@ async function verify(env, request) {
     await env.DB.batch([
       env.DB.prepare("INSERT INTO usage_sessions (id, device_id, session_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
         .bind(sessionKey, deviceId, sessionId, now, nowMs + SESSION_TTL_MS),
-      env.DB.prepare("UPDATE devices SET usage_used = usage_used + 1, last_seen_at = ?, updated_at = ? WHERE id = ?")
-        .bind(now, now, deviceId)
+      env.DB.prepare(`UPDATE devices SET usage_used = usage_used + 1,
+        session_count = COALESCE(session_count,0) + 1,
+        last_seen_at = ?, last_active_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, now, deviceId)
     ]);
   } else {
     await env.DB.batch([
@@ -286,12 +696,30 @@ async function listUseRequests(env, request) {
 }
 
 async function listDevices(env, request) {
+  await ensureUsageAnalyticsSchema(env);
   const result = await env.DB.prepare(`SELECT id, display_name AS displayName, status, paused, user_agent AS userAgent,
       created_at AS createdAt, updated_at AS updatedAt, last_seen_at AS lastSeenAt,
       game_mode AS gameMode, allowed_games AS allowedGames, allow_local_roms AS allowLocalRoms,
       allow_sp_skins AS allowSpSkins, usage_limit AS usageLimit, usage_used AS usageUsed,
-      policy_updated_at AS policyUpdatedAt
+      policy_updated_at AS policyUpdatedAt, COALESCE(total_active_seconds,0) AS totalActiveSeconds,
+      COALESCE(session_count,0) AS sessionCount, last_active_at AS lastActiveAt
       FROM devices ORDER BY updated_at DESC LIMIT 300`).all();
+  const gameUsage = await env.DB.prepare(`SELECT device_id AS deviceId, game_key AS gameKey,
+      active_seconds AS activeSeconds, launches, last_seen_at AS lastSeenAt
+      FROM device_game_usage ORDER BY device_id, active_seconds DESC`).all();
+  const topByDevice = new Map();
+  for (const row of gameUsage.results || []) {
+    const list = topByDevice.get(row.deviceId) || [];
+    if (list.length < 5) {
+      list.push({
+        game: row.gameKey || "",
+        activeSeconds: Number(row.activeSeconds || 0),
+        launches: Number(row.launches || 0),
+        lastSeenAt: row.lastSeenAt || null
+      });
+      topByDevice.set(row.deviceId, list);
+    }
+  }
   const devices = (result.results || []).map((d) => ({
     ...d,
     paused: Number(d.paused || 0) !== 0,
@@ -299,7 +727,10 @@ async function listDevices(env, request) {
     allowLocalRoms: Number(d.allowLocalRoms) !== 0,
     allowSpSkins: Number(d.allowSpSkins) !== 0,
     usageLimit: d.usageLimit === null || d.usageLimit === undefined ? null : Number(d.usageLimit),
-    usageUsed: Number(d.usageUsed || 0)
+    usageUsed: Number(d.usageUsed || 0),
+    totalActiveSeconds: Number(d.totalActiveSeconds || 0),
+    sessionCount: Number(d.sessionCount || 0),
+    topGames: topByDevice.get(d.id) || []
   }));
   return response(env, request, { devices });
 }
@@ -739,11 +1170,12 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 2 });
+      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 3 });
       if (request.method === "POST" && url.pathname === "/v1/access/request") return requestAccess(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/challenge") return challenge(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/verify") return verify(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/request-more-uses") return requestMoreUses(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/access/heartbeat") return heartbeat(env, request);
       if (request.method === "GET" && url.pathname === "/v1/emulator/messages") return listEmulatorMessages(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/reports") return submitEmulatorReport(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/status") return publicChatStatus(env, request);
@@ -759,6 +1191,15 @@ export default {
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/messages") return listEmulatorMessages(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/reports") return listEmulatorReports(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/chats") return listAdminChats(env, request);
+        if (request.method === "GET" && url.pathname === "/v1/admin/games") return listManagedGames(env, request);
+        if (request.method === "POST" && url.pathname === "/v1/admin/games") return addManagedGame(env, request);
+
+        const gameUpdateMatch = url.pathname.match(/^\/v1\/admin\/games\/([^/]+)\/update$/);
+        if (request.method === "POST" && gameUpdateMatch) return updateManagedGame(env, request, gameUpdateMatch[1]);
+        const gameSuspendMatch = url.pathname.match(/^\/v1\/admin\/games\/([^/]+)\/suspend$/);
+        if (request.method === "POST" && gameSuspendMatch) return suspendManagedGame(env, request, gameSuspendMatch[1]);
+        const gameDeleteMatch = url.pathname.match(/^\/v1\/admin\/games\/([^/]+)$/);
+        if (request.method === "DELETE" && gameDeleteMatch) return deleteManagedGame(env, request, gameDeleteMatch[1]);
 
         const messageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/messages\/([^/]+)$/);
         if (request.method === "POST" && messageMatch) return updateEmulatorMessage(env, request, messageMatch[1]);
