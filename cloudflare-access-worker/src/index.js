@@ -865,7 +865,9 @@ const DEFAULT_MESSAGE_DESIGN = Object.freeze({
   bodyOffsetX: 0,
   bodyOffsetY: 0,
   mediaWidthPct: 100,
-  mediaAlign: "center"
+  mediaAlign: "center",
+  titleSpans: [],
+  bodySpans: []
 });
 
 function clampNumber(value, min, max, fallback) {
@@ -878,6 +880,36 @@ function messageAlign(value, fallback = "left") {
 function messageColor(value, fallback) {
   const text = String(value || "").trim();
   return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
+}
+function sanitizeMessageLink(value) {
+  const text = cleanText(value, 1000);
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+function sanitizeRichSpans(value, maxLength) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 250).map((item) => {
+    const raw = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+    const start = Math.round(clampNumber(raw.start, 0, maxLength, 0));
+    const end = Math.round(clampNumber(raw.end, 0, maxLength, start));
+    const animation = ["none","pulse","float","glow","shake"].includes(String(raw.animation))
+      ? String(raw.animation)
+      : "none";
+    return {
+      start: Math.min(start, end),
+      end: Math.max(start, end),
+      color: raw.color == null ? "" : messageColor(raw.color, ""),
+      bold: raw.bold == null ? null : Boolean(raw.bold),
+      underline: raw.underline == null ? null : Boolean(raw.underline),
+      animation,
+      link: sanitizeMessageLink(raw.link)
+    };
+  }).filter((item) => item.end > item.start);
 }
 function sanitizeMessageDesign(value) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -899,7 +931,9 @@ function sanitizeMessageDesign(value) {
     bodyOffsetX: clampNumber(raw.bodyOffsetX, -80, 80, 0),
     bodyOffsetY: clampNumber(raw.bodyOffsetY, -60, 100, 0),
     mediaWidthPct: clampNumber(raw.mediaWidthPct, 20, 100, DEFAULT_MESSAGE_DESIGN.mediaWidthPct),
-    mediaAlign: messageAlign(raw.mediaAlign, DEFAULT_MESSAGE_DESIGN.mediaAlign)
+    mediaAlign: messageAlign(raw.mediaAlign, DEFAULT_MESSAGE_DESIGN.mediaAlign),
+    titleSpans: sanitizeRichSpans(raw.titleSpans, 120),
+    bodySpans: sanitizeRichSpans(raw.bodySpans, 6000)
   };
 }
 function parseMessageDesign(raw) {
@@ -1147,9 +1181,12 @@ async function listEmulatorReports(env, request) {
   const result = await env.DB.prepare(`SELECT r.id, r.message, r.image_data AS mediaData,
       COALESCE(r.media_type, '') AS mediaType, r.page_url AS pageUrl,
       r.user_agent AS userAgent, r.game, r.created_at AS createdAt,
-      COALESCE(rc.client_id, '') AS clientId
+      COALESCE(rc.client_id, '') AS clientId,
+      COALESCE(NULLIF(c.display_name, ''), NULLIF(d.display_name, ''), 'Usuario') AS displayName
       FROM emulator_reports r
       LEFT JOIN emulator_report_clients rc ON rc.report_id = r.id
+      LEFT JOIN emulator_clients c ON c.client_id = rc.client_id
+      LEFT JOIN devices d ON d.id = c.device_id
       ORDER BY r.created_at DESC LIMIT 80`).all();
   return response(env, request, { reports: result.results || [] });
 }
@@ -1344,7 +1381,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 3 });
+      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 4 });
       if (request.method === "POST" && url.pathname === "/v1/access/request") return requestAccess(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/challenge") return challenge(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/verify") return verify(env, request);
