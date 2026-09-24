@@ -1178,7 +1178,9 @@ async function submitEmulatorReport(env, request) {
 
 async function listEmulatorReports(env, request) {
   await ensureEmulatorToolsSchema(env);
-  const result = await env.DB.prepare(`SELECT r.id, r.message, r.image_data AS mediaData,
+  const summaryOnly = new URL(request.url).searchParams.get("summary") === "1";
+  const mediaColumn = summaryOnly ? "NULL AS mediaData" : "r.image_data AS mediaData";
+  const result = await env.DB.prepare(`SELECT r.id, r.message, ${mediaColumn},
       COALESCE(r.media_type, '') AS mediaType, r.page_url AS pageUrl,
       r.user_agent AS userAgent, r.game, r.created_at AS createdAt,
       COALESCE(rc.client_id, '') AS clientId,
