@@ -846,6 +846,7 @@ async function ensureEmulatorToolsSchema(env) {
   await env.DB.batch([
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_messages (
       kind TEXT PRIMARY KEY,
+      title TEXT,
       enabled INTEGER NOT NULL DEFAULT 0,
       body TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
@@ -864,7 +865,8 @@ async function ensureEmulatorToolsSchema(env) {
       client_id TEXT PRIMARY KEY,
       access_token TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      chat_deleted_at TEXT
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS emulator_report_clients (
       report_id TEXT PRIMARY KEY,
@@ -885,6 +887,18 @@ async function ensureEmulatorToolsSchema(env) {
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_report_clients_client ON emulator_report_clients(client_id)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_emulator_chat_client_created ON emulator_chat_messages(client_id, created_at)")
   ]);
+  const messageColumns = await env.DB.prepare("PRAGMA table_info(emulator_messages)").all();
+  const messageNames = new Set((messageColumns.results || []).map((row) => row.name));
+  if (!messageNames.has("title")) {
+    await env.DB.prepare("ALTER TABLE emulator_messages ADD COLUMN title TEXT").run();
+  }
+
+  const clientColumns = await env.DB.prepare("PRAGMA table_info(emulator_clients)").all();
+  const clientNames = new Set((clientColumns.results || []).map((row) => row.name));
+  if (!clientNames.has("chat_deleted_at")) {
+    await env.DB.prepare("ALTER TABLE emulator_clients ADD COLUMN chat_deleted_at TEXT").run();
+  }
+
   const reportColumns = await env.DB.prepare("PRAGMA table_info(emulator_reports)").all();
   const reportNames = new Set((reportColumns.results || []).map((row) => row.name));
   if (!reportNames.has("media_type")) {
@@ -914,14 +928,14 @@ function normalizeMessageKind(kind) {
 async function listEmulatorMessages(env, request) {
   await ensureEmulatorToolsSchema(env);
   const result = await env.DB.prepare(
-    "SELECT kind, enabled, body, updated_at AS updatedAt FROM emulator_messages"
+    "SELECT kind, title, enabled, body, updated_at AS updatedAt FROM emulator_messages"
   ).all();
   const rows = new Map((result.results || []).map((row) => [row.kind, row]));
   const messages = Object.keys(EMULATOR_MESSAGE_TITLES).map((kind) => {
     const row = rows.get(kind) || {};
     return {
       kind,
-      title: EMULATOR_MESSAGE_TITLES[kind],
+      title: cleanText(row.title, 120) || EMULATOR_MESSAGE_TITLES[kind],
       enabled: Number(row.enabled || 0) !== 0,
       body: row.body || "",
       updatedAt: row.updatedAt || null
@@ -936,15 +950,16 @@ async function updateEmulatorMessage(env, request, kindValue) {
   if (!kind) return bad(env, request, "Tipo de mensaje no válido", 404);
   const body = await bodyJson(request);
   const enabled = Boolean(body.enabled);
+  const title = cleanText(body.title, 120) || EMULATOR_MESSAGE_TITLES[kind];
   const message = cleanText(body.body, 6000);
   const now = nowIso();
   await env.DB.prepare(
-    "INSERT INTO emulator_messages (kind, enabled, body, updated_at) VALUES (?, ?, ?, ?) " +
-    "ON CONFLICT(kind) DO UPDATE SET enabled = excluded.enabled, body = excluded.body, updated_at = excluded.updated_at"
-  ).bind(kind, enabled ? 1 : 0, message, now).run();
+    "INSERT INTO emulator_messages (kind, title, enabled, body, updated_at) VALUES (?, ?, ?, ?, ?) " +
+    "ON CONFLICT(kind) DO UPDATE SET title = excluded.title, enabled = excluded.enabled, body = excluded.body, updated_at = excluded.updated_at"
+  ).bind(kind, title, enabled ? 1 : 0, message, now).run();
   return response(env, request, {
     ok: true,
-    message: { kind, title: EMULATOR_MESSAGE_TITLES[kind], enabled, body: message, updatedAt: now }
+    message: { kind, title, enabled, body: message, updatedAt: now }
   });
 }
 
@@ -1120,11 +1135,21 @@ async function listAdminChats(env, request) {
         WHERE m.client_id = c.client_id ORDER BY m.created_at DESC LIMIT 1) AS lastAt,
       COALESCE((SELECT r.message FROM emulator_reports r
         JOIN emulator_report_clients rc ON rc.report_id = r.id
-        WHERE rc.client_id = c.client_id ORDER BY r.created_at DESC LIMIT 1), '') AS reportPreview,
-      (SELECT COUNT(*) FROM emulator_report_clients rc WHERE rc.client_id = c.client_id) AS reportCount
+        WHERE rc.client_id = c.client_id
+          AND (c.chat_deleted_at IS NULL OR r.created_at > c.chat_deleted_at)
+        ORDER BY r.created_at DESC LIMIT 1), '') AS reportPreview,
+      (SELECT COUNT(*) FROM emulator_reports r
+        JOIN emulator_report_clients rc ON rc.report_id = r.id
+        WHERE rc.client_id = c.client_id
+          AND (c.chat_deleted_at IS NULL OR r.created_at > c.chat_deleted_at)) AS reportCount
     FROM emulator_clients c
-    WHERE EXISTS (SELECT 1 FROM emulator_report_clients rc WHERE rc.client_id = c.client_id)
-       OR EXISTS (SELECT 1 FROM emulator_chat_messages m WHERE m.client_id = c.client_id)
+    WHERE EXISTS (SELECT 1 FROM emulator_chat_messages m WHERE m.client_id = c.client_id)
+       OR EXISTS (
+         SELECT 1 FROM emulator_reports r
+         JOIN emulator_report_clients rc ON rc.report_id = r.id
+         WHERE rc.client_id = c.client_id
+           AND (c.chat_deleted_at IS NULL OR r.created_at > c.chat_deleted_at)
+       )
     ORDER BY COALESCE(lastAt, c.updated_at) DESC
     LIMIT 100`).all();
   return response(env, request, { chats: result.results || [] });
@@ -1142,6 +1167,19 @@ async function adminChatHistory(env, request, clientIdValue) {
     "UPDATE emulator_chat_messages SET read_admin = 1 WHERE client_id = ? AND sender = 'user'"
   ).bind(clientId).run();
   return response(env, request, { clientId, messages: result.results || [] });
+}
+
+async function adminDeleteChat(env, request, clientIdValue) {
+  await ensureEmulatorToolsSchema(env);
+  const clientId = cleanText(clientIdValue, 120);
+  const client = await env.DB.prepare("SELECT client_id FROM emulator_clients WHERE client_id = ?").bind(clientId).first();
+  if (!client) return bad(env, request, "Chat no encontrado", 404);
+  const now = nowIso();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM emulator_chat_messages WHERE client_id = ?").bind(clientId),
+    env.DB.prepare("UPDATE emulator_clients SET chat_deleted_at = ?, updated_at = ? WHERE client_id = ?").bind(now, now, clientId)
+  ]);
+  return response(env, request, { ok: true, clientId, deletedAt: now });
 }
 
 async function adminChatSend(env, request, clientIdValue) {
@@ -1210,6 +1248,7 @@ export default {
 
         const chatMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)$/);
         if (request.method === "GET" && chatMatch) return adminChatHistory(env, request, chatMatch[1]);
+        if (request.method === "DELETE" && chatMatch) return adminDeleteChat(env, request, chatMatch[1]);
         const chatMessageMatch = url.pathname.match(/^\/v1\/admin\/emulator\/chats\/([^/]+)\/messages$/);
         if (request.method === "POST" && chatMessageMatch) return adminChatSend(env, request, chatMessageMatch[1]);
 
