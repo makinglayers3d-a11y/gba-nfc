@@ -80,6 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_usage_sessions_expires
 CREATE TABLE IF NOT EXISTS emulator_messages (
   kind TEXT PRIMARY KEY CHECK(kind IN ('work','update','announcement')),
   enabled INTEGER NOT NULL DEFAULT 0,
+  title TEXT,
   body TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
@@ -103,7 +104,8 @@ CREATE TABLE IF NOT EXISTS emulator_clients (
   client_id TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  chat_deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS emulator_report_clients (
