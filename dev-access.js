@@ -199,6 +199,7 @@
       <div class="ml3d-access-card" role="dialog" aria-modal="true" aria-labelledby="ml3d-access-title">
         <h2 id="ml3d-access-title">Acceso ML3Demuler</h2>
         <p class="ml3d-access-message">Esto es un cartucho promocional y requiere una autorización para su uso. Introduzca nombre para solicitar autorización de uso.</p>
+        <p style="font-size:12px;color:#8fa5b8;line-height:1.4">Para la administración del acceso se registran tiempo activo, sesiones y juego utilizado mientras el emulador autorizado está visible.</p>
         <div class="ml3d-access-form">
           <input class="ml3d-access-name" maxlength="80" autocomplete="name" placeholder="Tu nombre" aria-label="Nombre">
           <div class="ml3d-access-actions"><button class="ml3d-access-primary" type="button">Solicitar acceso</button></div>
