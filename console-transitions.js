@@ -19,7 +19,18 @@
   let initialIntroPlayed = false;
   let initialIntroPromise = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  const landscape = matchMedia("(orientation: landscape)");
+  const activeMotions = new Set();
   const imageLoads = new Map();
+
+  // A rotation also cancels pending lid loads and releases the transition lock.
+  const stopLandscapeMotion = () => {
+    if (!landscape.matches) return;
+    activeMotions.forEach((controller) => controller.abort());
+    document.body.classList.remove("ml3d-console-transitioning");
+  };
+  if (landscape.addEventListener) landscape.addEventListener("change", stopLandscapeMotion);
+  else landscape.addListener(stopLandscapeMotion);
 
   /*
    * El handoff del cartucho y la apertura forman una sola transición visual.
@@ -145,13 +156,28 @@
     return entering ? frames : reverseFrames(frames);
   }
 
-  async function createRepresentation(family, style, rect, direction) {
+  async function createRepresentation(family, style, rect, direction, signal) {
     const source = appElement();
     if (!source) throw new Error("No se encontró el contenedor del emulador");
 
     const entering = direction === "in";
     const asset = family === "sp" ? SP_TRANSITION_ASSETS[style] : null;
-    const hasLid = Boolean(asset?.lid && await loadImage(asset.lid));
+    let hasLid = false;
+    if (asset?.lid) {
+      let onAbort;
+      try {
+        hasLid = await Promise.race([
+          loadImage(asset.lid),
+          new Promise((resolve) => {
+            onAbort = () => resolve(false);
+            signal.addEventListener("abort", onAbort, { once: true });
+          })
+        ]);
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+      }
+    }
+    if (signal.aborted || !animationsEnabled()) return null;
 
     /*
      * Todo el snapshot se construye fuera del DOM. De este modo la carcasa
@@ -239,18 +265,30 @@
 
   async function animateRepresentation(family, style, direction) {
     const app = appElement();
-    if (!app) return;
-    const rect = app.getBoundingClientRect();
-    const entering = direction === "in";
-    const view = await createRepresentation(family, style, rect, direction);
-    const duration = reducedMotion.matches ? 100 : (family === "sp" && view.panel ? 2200 : 1100);
-    const easing = entering ? "cubic-bezier(.18,.72,.16,1)" : "cubic-bezier(.58,.04,.82,.42)";
-
-    if (reducedMotion.matches && view.panel) {
-      view.panel.style.opacity = "0";
-    }
+    if (!app || !animationsEnabled()) return;
+    const controller = new AbortController();
+    activeMotions.add(controller);
+    let view;
+    const cleanup = () => {
+      if (!view) return;
+      view.stopBootSync();
+      view.overlay.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
+      view.overlay.remove();
+    };
+    controller.signal.addEventListener("abort", cleanup, { once: true });
 
     try {
+      const rect = app.getBoundingClientRect();
+      const entering = direction === "in";
+      view = await createRepresentation(family, style, rect, direction, controller.signal);
+      if (!view || controller.signal.aborted) return;
+      const duration = reducedMotion.matches ? 100 : (family === "sp" && view.panel ? 2200 : 1100);
+      const easing = entering ? "cubic-bezier(.18,.72,.16,1)" : "cubic-bezier(.58,.04,.82,.42)";
+
+      if (reducedMotion.matches && view.panel) {
+        view.panel.style.opacity = "0";
+      }
+
       const animations = [
         view.overlay.animate(motionFrames(rect, entering, Boolean(view.panel)), { duration, easing, fill: "both" })
       ];
@@ -280,23 +318,26 @@
 
       await Promise.all(animations.map((animation) => animation.finished.catch(() => {})));
     } finally {
-      view.stopBootSync();
-      view.overlay.remove();
+      cleanup();
+      activeMotions.delete(controller);
     }
   }
 
   async function runLocked(task) {
     if (transitioning) return false;
     transitioning = true;
+    const controller = new AbortController();
+    activeMotions.add(controller);
     closeOpenMenus();
     document.body.classList.add("ml3d-console-transitioning");
     try {
-      await task();
+      await task(controller.signal);
       return true;
     } finally {
       document.querySelectorAll(".ml3d-console-transition-overlay").forEach((node) => node.remove());
       document.body.classList.remove("ml3d-console-transitioning");
       transitioning = false;
+      activeMotions.delete(controller);
     }
   }
 
@@ -308,7 +349,7 @@
   }
 
   function animationsEnabled() {
-    return localStorage.getItem(ANIMATIONS_KEY) !== "false";
+    return !landscape.matches && localStorage.getItem(ANIMATIONS_KEY) !== "false";
   }
 
   async function playConsoleIntro(family, style) {
@@ -322,29 +363,30 @@
   }
 
   async function switchAppearanceAnimated(nextFamily, nextStyle, applyAppearance) {
+    if (transitioning) return false;
     if (!animationsEnabled()) {
       applyAppearance();
       return true;
     }
-    if (transitioning) return false;
     const current = currentAppearance();
     if (current.family === nextFamily && (nextFamily !== "sp" || current.style === nextStyle)) return true;
-    return runLocked(async () => {
+    return runLocked(async (signal) => {
       await playConsoleOutro(current.family, current.style);
       applyAppearance();
+      if (signal.aborted || !animationsEnabled()) return;
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (signal.aborted || !animationsEnabled()) return;
       await playConsoleIntro(nextFamily, nextStyle);
     });
   }
 
   function playInitialIntro() {
+    if (initialIntroPromise) return initialIntroPromise;
+    if (initialIntroPlayed) return Promise.resolve();
+    initialIntroPlayed = true;
     if (!animationsEnabled() || new URLSearchParams(location.search).get("skipintro") === "1") {
       return Promise.resolve();
     }
-    if (initialIntroPromise) return initialIntroPromise;
-    if (initialIntroPlayed) return Promise.resolve();
-
-    initialIntroPlayed = true;
     const current = currentAppearance();
     initialIntroPromise = runLocked(() => playConsoleIntro(current.family, current.style));
     return initialIntroPromise;
