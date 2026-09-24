@@ -7,6 +7,8 @@
   const KEY_ID = "device-key";
   const SESSION_KEY = "ml3d-dev-access-session";
   const encoder = new TextEncoder();
+  const USAGE_HEARTBEAT_MS = 30000;
+  let usageTrackerStarted = false;
 
   function bytesToBase64Url(bytes) {
     let binary = "";
@@ -128,6 +130,41 @@
     return bytesToBase64Url(new Uint8Array(signature));
   }
 
+  function currentGameKey() {
+    const current = new URLSearchParams(window.location.search);
+    return current.get("rom") || current.get("game") || "";
+  }
+
+  function startUsageTracking(config, identity) {
+    if (usageTrackerStarted || !config?.apiBase) return;
+    usageTrackerStarted = true;
+
+    const heartbeat = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        await api(config, "/v1/access/heartbeat", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceId: identity.deviceId,
+            sessionId: getSessionId(),
+            game: currentGameKey()
+          })
+        });
+      } catch (error) {
+        console.debug("ML3D usage heartbeat:", error?.message || error);
+      }
+    };
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, USAGE_HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") heartbeat();
+    });
+    window.addEventListener("pagehide", () => {
+      window.clearInterval(timer);
+    }, { once: true });
+  }
+
   function cartContext(params) {
     const names = ["rom", "menu", "cartType", "cartColor", "cartLabel"];
     const result = {};
@@ -198,7 +235,10 @@
           sessionId: getSessionId()
         })
       });
-      if (result.approved === true) publishPolicy(result.policy || null);
+      if (result.approved === true) {
+        publishPolicy(result.policy || null);
+        startUsageTracking(config, identity);
+      }
       return {
         approved: result.approved === true,
         status: result.approved ? "approved" : (result.reason || "denied"),
