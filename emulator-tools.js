@@ -54,6 +54,15 @@
     return client;
   }
 
+  function chatIdentityPayload(client) {
+    const access = window.ml3dAccessIdentity || {};
+    return {
+      ...client,
+      deviceId: String(access.deviceId || ""),
+      sessionId: String(access.sessionId || "")
+    };
+  }
+
   function hasPendingNews() {
     try {
       return localStorage.getItem(NEWS_SEEN_KEY) !== NEWS_REVISION;
@@ -218,7 +227,7 @@
     try {
       const result = await api("/v1/emulator/chat/status", {
         method: "POST",
-        body: JSON.stringify(client)
+        body: JSON.stringify(chatIdentityPayload(client))
       });
       const serverUnread = Number(result.unreadCount || 0);
       const localUnread = isNewerAdminMessage(result.latestAdminId || "", result.latestAdminAt || null);
@@ -398,11 +407,57 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
   function showNotice(item) {
     return new Promise((resolve) => {
       const title = String(item.title || "").trim() || MESSAGE_LABELS[item.kind] || "AVISO";
+      const design = item.design && typeof item.design === "object" ? item.design : {};
       const ui = createOverlay(title);
+      const widthPct = Math.max(45, Math.min(96, Number(design.cardWidthPct) || 88));
+      const minHeightPct = Math.max(0, Math.min(78, Number(design.cardMinHeightPct) || 0));
+      ui.card.style.width = `${widthPct}vw`;
+      ui.card.style.maxWidth = "860px";
+      if (minHeightPct > 0) ui.card.style.minHeight = `${minHeightPct}vh`;
+
+      const heading = ui.card.querySelector(".ml3d-tools-title");
+      if (heading) {
+        heading.style.fontSize = `${Math.max(11, Math.min(38, Number(design.titleFontSize) || 17))}px`;
+        heading.style.color = String(design.titleColor || "#ffffff");
+        heading.style.fontWeight = design.titleBold === false ? "400" : "900";
+        heading.style.textDecoration = design.titleUnderline ? "underline" : "none";
+        heading.style.textAlign = ["left","center","right"].includes(design.titleAlign) ? design.titleAlign : "left";
+        heading.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+      }
+
       const text = document.createElement("div");
       text.className = "ml3d-tools-message";
       text.textContent = item.body || "";
+      text.style.fontSize = `${Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14))}px`;
+      text.style.color = String(design.bodyColor || "#ffffff");
+      text.style.fontWeight = design.bodyBold ? "800" : "400";
+      text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
+      text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
+      text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
       ui.card.appendChild(text);
+
+      if (item.mediaData) {
+        const mediaRow = document.createElement("div");
+        mediaRow.style.display = "flex";
+        mediaRow.style.marginTop = "14px";
+        mediaRow.style.justifyContent = design.mediaAlign === "left" ? "flex-start" : (design.mediaAlign === "right" ? "flex-end" : "center");
+        const media = String(item.mediaType || "").startsWith("video/")
+          ? document.createElement("video")
+          : document.createElement("img");
+        media.src = item.mediaData;
+        media.style.width = `${Math.max(20, Math.min(100, Number(design.mediaWidthPct) || 100))}%`;
+        media.style.maxHeight = "46vh";
+        media.style.objectFit = "contain";
+        media.style.borderRadius = "10px";
+        media.style.background = "#000";
+        if (media.tagName === "VIDEO") {
+          media.controls = true;
+          media.playsInline = true;
+        }
+        mediaRow.appendChild(media);
+        ui.card.appendChild(mediaRow);
+      }
+
       const done = () => {
         ui.overlay.remove();
         resolve();
@@ -431,7 +486,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     const byKind = new Map(messages.map((item) => [item.kind, item]));
     for (const kind of MESSAGE_ORDER) {
       const item = byKind.get(kind);
-      if (!item || !item.enabled || !String(item.body || "").trim()) continue;
+      if (!item || !item.enabled || (!String(item.body || "").trim() && !item.mediaData)) continue;
       await showNotice(item);
     }
   }
@@ -610,11 +665,10 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         const result = await api("/v1/emulator/reports", {
           method: "POST",
           body: JSON.stringify({
+            ...chatIdentityPayload(client),
             message,
             mediaData,
             mediaType,
-            clientId: client.clientId,
-            clientToken: client.clientToken,
             pageUrl: (location.origin + location.pathname).slice(0, 1500),
             userAgent: navigator.userAgent.slice(0, 500),
             game: (params.get("rom") || params.get("game") || "").slice(0, 240)
@@ -756,7 +810,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       try {
         const result = await api("/v1/emulator/chat/history", {
           method: "POST",
-          body: JSON.stringify(client)
+          body: JSON.stringify(chatIdentityPayload(client))
         });
         const messages = Array.isArray(result.messages) ? result.messages : [];
         renderChatMessages(list, messages);
@@ -784,7 +838,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       try {
         await api("/v1/emulator/chat/messages", {
           method: "POST",
-          body: JSON.stringify({ ...client, message, mediaData: chatMediaData, mediaType: chatMediaType })
+          body: JSON.stringify({ ...chatIdentityPayload(client), message, mediaData: chatMediaData, mediaType: chatMediaType })
         });
         frame.srcdoc = editorSrcdoc("chat-text", "Escribe tu mensaje…");
         chatMediaData = null;
