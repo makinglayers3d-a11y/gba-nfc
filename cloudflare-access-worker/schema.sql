@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS emulator_messages (
   enabled INTEGER NOT NULL DEFAULT 0,
   title TEXT,
   body TEXT NOT NULL DEFAULT '',
+  design_json TEXT,
+  media_data TEXT,
+  media_type TEXT,
   updated_at TEXT NOT NULL
 );
 
@@ -103,6 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_emulator_reports_created
 CREATE TABLE IF NOT EXISTS emulator_clients (
   client_id TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
+  device_id TEXT,
+  display_name TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   chat_deleted_at TEXT

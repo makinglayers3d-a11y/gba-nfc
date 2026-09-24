@@ -237,6 +237,12 @@
       });
       if (result.approved === true) {
         publishPolicy(result.policy || null);
+        window.ml3dAccessIdentity = {
+          deviceId: String(result.deviceId || identity.deviceId || ""),
+          sessionId: getSessionId(),
+          displayName: String(result.displayName || "")
+        };
+        window.dispatchEvent(new CustomEvent("ml3d-access-identity", { detail: window.ml3dAccessIdentity }));
         startUsageTracking(config, identity);
       }
       return {
