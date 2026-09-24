@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 19,
-  "versionName": "0.11.1",
+  "versionCode": 20,
+  "versionName": "0.11.2",
   "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "7fad406747fc594e8c63151c0908bc1eb44bf1361b50aad3c27b14b3faf82fb6",
+  "sha256": "197e917e366361468cdace664e0f85caeed25bd6ec866247e9c2854703eeb8f7",
   "sizeBytes": 7796154,
   "changelog": [
-    "ML3Demu-tools 0.11.1: fix black preview and editor safe area"
+    "ML3Demu-tools 0.11.2: fix preview and editor safe area"
   ]
 }
