@@ -397,7 +397,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
   function showNotice(item) {
     return new Promise((resolve) => {
-      const title = MESSAGE_LABELS[item.kind] || item.title || "AVISO";
+      const title = String(item.title || "").trim() || MESSAGE_LABELS[item.kind] || "AVISO";
       const ui = createOverlay(title);
       const text = document.createElement("div");
       text.className = "ml3d-tools-message";
