@@ -123,8 +123,9 @@ function githubConfig(env) {
 }
 
 async function githubApi(env, apiPath, options = {}) {
-  if (!env.GITHUB_TOKEN) {
-    const error = new Error("Falta configurar GITHUB_TOKEN en el Worker");
+  const method = String(options.method || "GET").toUpperCase();
+  if (method !== "GET" && !env.GITHUB_TOKEN) {
+    const error = new Error("Falta configurar GITHUB_TOKEN en el Worker para modificar juegos");
     error.status = 503;
     throw error;
   }
@@ -132,7 +133,7 @@ async function githubApi(env, apiPath, options = {}) {
     ...options,
     headers: {
       "Accept": "application/vnd.github+json",
-      "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+      ...(env.GITHUB_TOKEN ? { "Authorization": `Bearer ${env.GITHUB_TOKEN}` } : {}),
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "ML3Demu-tools-worker",
       ...(options.body ? { "Content-Type": "application/json" } : {}),

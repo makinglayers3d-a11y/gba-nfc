@@ -25,4 +25,4 @@ Este sistema bloquea la interfaz del emulador para URLs `dev=1`. Los ROM alojado
 
 ## Gestión de juegos
 
-Los endpoints de administración de juegos usan `GITHUB_TOKEN` solo en el Worker. El APK nunca recibe ni almacena ese token. Las altas y bajas actualizan `games/`, `game-management.json` y `games-catalog.json`; las bajas eliminan también previews asociados y la carátula solo cuando el administrador confirma esa segunda eliminación.
+El listado de juegos puede leerse del repositorio público sin credenciales. Las operaciones que modifican GitHub (añadir, editar carátula/metadatos, suspender o eliminar) requieren `GITHUB_TOKEN` solo en el Worker; el APK nunca recibe ni almacena ese token. Las altas y bajas actualizan `games/`, `game-management.json` y `games-catalog.json`; las bajas eliminan también previews asociados y la carátula solo cuando el administrador confirma esa segunda eliminación.
