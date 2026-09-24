@@ -897,17 +897,17 @@ function sanitizeRichSpans(value, maxLength) {
     const raw = item && typeof item === "object" && !Array.isArray(item) ? item : {};
     const start = Math.round(clampNumber(raw.start, 0, maxLength, 0));
     const end = Math.round(clampNumber(raw.end, 0, maxLength, start));
-    const animation = ["none","pulse","float","glow","shake"].includes(String(raw.animation))
-      ? String(raw.animation)
-      : "none";
+    const animation = raw.animation == null
+      ? null
+      : (["none","pulse","float","glow","shake"].includes(String(raw.animation)) ? String(raw.animation) : null);
     return {
       start: Math.min(start, end),
       end: Math.max(start, end),
-      color: raw.color == null ? "" : messageColor(raw.color, ""),
+      color: raw.color == null ? null : messageColor(raw.color, null),
       bold: raw.bold == null ? null : Boolean(raw.bold),
       underline: raw.underline == null ? null : Boolean(raw.underline),
       animation,
-      link: sanitizeMessageLink(raw.link)
+      link: raw.link == null ? null : sanitizeMessageLink(raw.link)
     };
   }).filter((item) => item.end > item.start);
 }
