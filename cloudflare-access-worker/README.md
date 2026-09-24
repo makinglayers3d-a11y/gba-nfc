@@ -20,3 +20,8 @@ El navegador genera una clave ECDSA P-256 propia. La clave privada permanece en 
 `ADMIN_TOKEN` nunca debe guardarse en este repositorio ni dentro del APK. Se configura como secreto de Cloudflare y se introduce manualmente en la app de gestión.
 
 Este sistema bloquea la interfaz del emulador para URLs `dev=1`. Los ROM alojados públicamente siguen siendo recursos públicos; proteger también los archivos ROM exigiría servirlos mediante un backend autenticado o URLs temporales.
+
+
+## Gestión de juegos
+
+Los endpoints de administración de juegos usan `GITHUB_TOKEN` solo en el Worker. El APK nunca recibe ni almacena ese token. Las altas y bajas actualizan `games/`, `game-management.json` y `games-catalog.json`; las bajas eliminan también previews asociados y la carátula solo cuando el administrador confirma esa segunda eliminación.
