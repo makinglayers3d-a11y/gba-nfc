@@ -49,23 +49,33 @@
       display:block;
     }
     .ml3d-graphics-control{
-      margin:.55rem 0 .8rem;
+      display:grid;
+      grid-template-columns:56px minmax(0,1fr);
+      align-items:center;
+      gap:7px;
+      margin:8px 0 0;
     }
-    .ml3d-graphics-control h3{
-      margin:0 0 .45rem;
+    .ml3d-graphics-title{
+      color:#fff;
+      font-size:.72rem;
+      font-weight:800;
+      line-height:1;
     }
     .ml3d-graphics-modes{
       display:grid;
       grid-template-columns:repeat(4,minmax(0,1fr));
-      gap:6px;
+      gap:4px;
+      min-width:0;
     }
     #menu .ml3d-graphics-modes button{
       min-width:0;
-      min-height:36px;
-      padding:7px 4px;
-      font-size:.72rem;
+      min-height:30px;
+      height:30px;
+      padding:3px 2px;
+      font-size:.61rem;
       font-weight:900;
-      letter-spacing:.02em;
+      line-height:1;
+      letter-spacing:0;
     }
     #menu .ml3d-graphics-modes button.active{
       border-color:#d8ffff!important;
@@ -73,20 +83,26 @@
       filter:brightness(1.16);
     }
     .ml3d-graphics-note{
-      display:block;
-      min-height:2.5em;
-      margin-top:5px;
-      font-size:.68rem;
-      line-height:1.25;
-      opacity:.72;
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
     }
     @media (max-width:380px){
-      .ml3d-graphics-modes{
-        gap:4px;
+      .ml3d-graphics-control{
+        grid-template-columns:48px minmax(0,1fr);
+        gap:5px;
+      }
+      .ml3d-graphics-title{
+        font-size:.66rem;
       }
       #menu .ml3d-graphics-modes button{
-        font-size:.66rem;
-        padding-inline:2px;
+        font-size:.56rem;
       }
     }
   `;
@@ -646,7 +662,7 @@
     section.id = "ml3d-graphics-control";
     section.className = "ml3d-graphics-control";
     section.innerHTML = `
-      <h3>Gráficos</h3>
+      <span class="ml3d-graphics-title">Gráficos</span>
       <div class="ml3d-graphics-modes" role="group" aria-label="Calidad gráfica">
         <button type="button" data-ml3d-graphics-mode="original">ORIGINAL</button>
         <button type="button" data-ml3d-graphics-mode="sharp">NÍTIDO</button>
