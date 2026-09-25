@@ -3,23 +3,31 @@
 self.window = self;
 
 try {
-  importScripts("vendor/xBRjs.min.umd.js?v=1");
+  importScripts("vendor/xBRjs.min.umd.js?v=2");
 } catch (error) {
   self.postMessage({ type: "error", message: "No se pudo cargar xBRjs: " + error.message });
 }
 
 self.onmessage = (event) => {
   const data = event.data || {};
-  if (data.type !== "scale" || !data.buffer || !self.xBRjs?.xbr2x) return;
+  if (data.type !== "scale" || !data.buffer || !self.xBRjs) return;
 
   try {
+    const factor = data.factor === 4 ? 4 : 2;
+    const blendColors = data.blendColors === true;
+    const scaler = factor === 4 ? self.xBRjs.xbr4x : self.xBRjs.xbr2x;
+
+    if (typeof scaler !== "function") {
+      throw new Error("xBR " + factor + "x no está disponible.");
+    }
+
     const input = new Uint32Array(data.buffer);
-    const output = self.xBRjs.xbr2x(
+    const output = scaler(
       input,
       data.width,
       data.height,
       {
-        blendColors: false,
+        blendColors,
         scaleAlpha: false
       }
     );
@@ -28,8 +36,10 @@ self.onmessage = (event) => {
       {
         type: "frame",
         id: data.id,
-        width: data.width * 2,
-        height: data.height * 2,
+        factor,
+        mode: data.mode,
+        width: data.width * factor,
+        height: data.height * factor,
         buffer: output.buffer
       },
       [output.buffer]
