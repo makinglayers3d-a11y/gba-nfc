@@ -1,0 +1,84 @@
+/* ML3D GPU graphics enhancer. Keeps emulator cores and controls untouched. */
+.screen-frame > #screen-enhanced {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #000;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.screen-frame > #status {
+  z-index: 4;
+}
+
+.graphics-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.graphics-control label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+#graphics-mode-select {
+  flex: 0 0 122px;
+  min-width: 112px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  background: var(--button);
+  color: var(--text);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+#graphics-mode-select:focus-visible {
+  outline: 2px solid #ffffffaa;
+  outline-offset: 2px;
+}
+
+#menu .graphics-control {
+  margin-top: 7px;
+}
+
+#menu .graphics-control + .audio-control {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+@media (max-height: 700px) {
+  #menu .graphics-control {
+    margin-top: 4px;
+  }
+
+  #graphics-mode-select {
+    height: 29px;
+  }
+
+  #menu .graphics-control + .audio-control {
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+}
+
+@media (orientation: portrait) {
+  body.sp-skin-test .screen-frame > #screen-enhanced {
+    border-radius: inherit;
+  }
+}
