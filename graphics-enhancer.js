@@ -563,6 +563,101 @@
         return 1.0 - smoothstep(0.035, 0.16, colorDiff(a, b));
       }
 
+      float luma(vec3 c) {
+        return dot(c, vec3(0.299, 0.587, 0.114));
+      }
+
+      float chroma(vec3 c) {
+        return max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b);
+      }
+
+      float grayScore(vec3 c) {
+        return 1.0 - smoothstep(0.035, 0.14, chroma(c));
+      }
+
+      vec3 nearestLocalColor(
+        vec3 x,
+        vec3 A, vec3 B, vec3 C,
+        vec3 D, vec3 E, vec3 F,
+        vec3 G, vec3 H, vec3 I
+      ) {
+        vec3 best = A;
+        float bestD = colorDiff(x, A);
+
+        float d = colorDiff(x, B);
+        if (d < bestD) { bestD = d; best = B; }
+
+        d = colorDiff(x, C);
+        if (d < bestD) { bestD = d; best = C; }
+
+        d = colorDiff(x, D);
+        if (d < bestD) { bestD = d; best = D; }
+
+        d = colorDiff(x, E);
+        if (d < bestD) { bestD = d; best = E; }
+
+        d = colorDiff(x, F);
+        if (d < bestD) { bestD = d; best = F; }
+
+        d = colorDiff(x, G);
+        if (d < bestD) { bestD = d; best = G; }
+
+        d = colorDiff(x, H);
+        if (d < bestD) { bestD = d; best = H; }
+
+        d = colorDiff(x, I);
+        if (d < bestD) { bestD = d; best = I; }
+
+        return best;
+      }
+
+      vec3 binaryLocalContrast(
+        vec3 x,
+        vec3 A, vec3 B, vec3 C,
+        vec3 D, vec3 E, vec3 F,
+        vec3 G, vec3 H, vec3 I
+      ) {
+        vec3 dark = A;
+        vec3 light = A;
+        float darkL = luma(A);
+        float lightL = darkL;
+
+        float v = luma(B);
+        if (v < darkL) { darkL = v; dark = B; }
+        if (v > lightL) { lightL = v; light = B; }
+
+        v = luma(C);
+        if (v < darkL) { darkL = v; dark = C; }
+        if (v > lightL) { lightL = v; light = C; }
+
+        v = luma(D);
+        if (v < darkL) { darkL = v; dark = D; }
+        if (v > lightL) { lightL = v; light = D; }
+
+        v = luma(E);
+        if (v < darkL) { darkL = v; dark = E; }
+        if (v > lightL) { lightL = v; light = E; }
+
+        v = luma(F);
+        if (v < darkL) { darkL = v; dark = F; }
+        if (v > lightL) { lightL = v; light = F; }
+
+        v = luma(G);
+        if (v < darkL) { darkL = v; dark = G; }
+        if (v > lightL) { lightL = v; light = G; }
+
+        v = luma(H);
+        if (v < darkL) { darkL = v; dark = H; }
+        if (v > lightL) { lightL = v; light = H; }
+
+        v = luma(I);
+        if (v < darkL) { darkL = v; dark = I; }
+        if (v > lightL) { lightL = v; light = I; }
+
+        float xL = luma(x);
+        return abs(xL - darkL) <= abs(xL - lightL) ? dark : light;
+      }
+
       vec3 samplePixel(vec2 coord, vec2 texel, float x, float y) {
         return texture2D(uTexture, coord + texel * vec2(x, y)).rgb;
       }
@@ -772,8 +867,8 @@
 
         vec4 px = step(df(e,f), df(e,h));
 
-        // Preserve one-pixel details and busy texture while allowing coherent
-        // contour segments to be smoothed strongly.
+        // Preserve thin strokes and micro-detail. Large coherent contours
+        // still receive strong xBR smoothing.
         float centerAnchor = max(
           max(
             max(colorSimilarity(E, A), colorSimilarity(E, B)),
@@ -784,6 +879,15 @@
             max(colorSimilarity(E, H), colorSimilarity(E, I))
           )
         );
+
+        float orthogonalAnchor =
+          colorSimilarity(E, B) +
+          colorSimilarity(E, D) +
+          colorSimilarity(E, F) +
+          colorSimilarity(E, H);
+
+        float thinStroke =
+          1.0 - smoothstep(1.15, 2.75, orthogonalAnchor);
 
         vec4 edgeCoherence = vec4(
           colorSimilarity(H, F),
@@ -802,26 +906,35 @@
           step(0.11, colorDiff(E, H)) +
           step(0.11, colorDiff(E, I));
 
-        // Dense local variation usually means lettering, dithering or sprite
-        // detail rather than a large clean contour.
         float textureGuard =
           1.0 - smoothstep(5.0, 7.0, changedNeighbours);
 
-        vec4 localStrength =
-          max(max(fx30, fx60), max(fx45, fx45i)) * 0.72;
+        float thinLocalGuard =
+          mix(0.16, 1.0, 1.0 - thinStroke);
 
+        float thinDiagonalGuard =
+          mix(0.62, 1.0, 1.0 - thinStroke);
+
+        vec4 localStrength =
+          max(max(fx30, fx60), max(fx45, fx45i)) *
+          0.55 *
+          thinLocalGuard;
+
+        // Long diagonals remain stronger than local corner smoothing.
         vec4 diagonalContinuity =
-          max(fx15Final, fx75Final) * 0.92;
+          max(fx15Final, fx75Final) *
+          0.88 *
+          thinDiagonalGuard;
 
         vec4 geometricStrength =
           max(localStrength, diagonalContinuity);
 
         vec4 coherenceGuard =
-          mix(vec4(0.18), vec4(1.0), edgeCoherence);
+          mix(vec4(0.10), vec4(1.0), edgeCoherence);
 
         float detailGuard =
-          mix(0.16, 1.0, centerAnchor) *
-          mix(0.42, 1.0, textureGuard);
+          mix(0.08, 1.0, centerAnchor) *
+          mix(0.28, 1.0, textureGuard);
 
         vec4 strength =
           geometricStrength *
@@ -842,13 +955,62 @@
           step(colorDiff(E, res1), colorDiff(E, res2))
         );
 
-        // Absolute protection for isolated micro-details: keep their original
-        // color rather than allowing an edge rule to erase them.
+        // Absolute protection for isolated micro-details.
         float isolatedDetail =
           (1.0 - smoothstep(0.08, 0.28, centerAnchor)) *
           smoothstep(4.5, 7.0, changedNeighbours);
 
-        res = mix(res, E, isolatedDetail * 0.94);
+        float preserveFineDetail =
+          max(isolatedDetail, thinStroke * textureGuard);
+
+        res = mix(res, E, preserveFineDetail * 0.93);
+
+        // Detect monochrome, high-contrast regions such as small white/black
+        // lettering. In these regions interpolation must not invent gray
+        // transition pixels: snap to one of the original local endpoints.
+        float lumA = luma(A);
+        float lumB = luma(B);
+        float lumC = luma(C);
+        float lumD = luma(D);
+        float lumE = luma(E);
+        float lumF = luma(F);
+        float lumG = luma(G);
+        float lumH = luma(H);
+        float lumI = luma(I);
+
+        float lumMin = min(
+          min(min(lumA, lumB), min(lumC, lumD)),
+          min(min(lumE, lumF), min(lumG, min(lumH, lumI)))
+        );
+
+        float lumMax = max(
+          max(max(lumA, lumB), max(lumC, lumD)),
+          max(max(lumE, lumF), max(lumG, max(lumH, lumI)))
+        );
+
+        float grayRatio = (
+          grayScore(A) + grayScore(B) + grayScore(C) +
+          grayScore(D) + grayScore(E) + grayScore(F) +
+          grayScore(G) + grayScore(H) + grayScore(I)
+        ) / 9.0;
+
+        float monochromeContrast =
+          smoothstep(0.58, 0.74, lumMax - lumMin) *
+          smoothstep(0.72, 0.92, grayRatio);
+
+        vec3 snapped = binaryLocalContrast(
+          res,
+          A, B, C,
+          D, E, F,
+          G, H, I
+        );
+
+        // Thin monochrome text gets the strongest binary snap.
+        float binarySnap =
+          monochromeContrast *
+          mix(0.86, 1.0, max(thinStroke, isolatedDetail));
+
+        res = mix(res, snapped, binarySnap);
 
         gl_FragColor = vec4(res, 1.0);
       }
@@ -984,7 +1146,7 @@
     gl.uniform2f(glState.uTextureSize, w, h);
     // Hyllian's xBR is tuned around scale 3 even when output is 4x.
     // This widens the interpolation corridor and avoids segmented diagonals.
-    gl.uniform1f(glState.uScale, 3.0);
+    gl.uniform1f(glState.uScale, 3.35);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     return true;
