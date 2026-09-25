@@ -3,9 +3,9 @@
   "versionCode": 24,
   "versionName": "0.11.6",
   "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.6/ml3d-nfc-writer-0.11.6.apk",
-  "sha256": "e488380888b4f5028430296221b5b50acfbccf7229d6697dd9f1c2b0d92c015e",
+  "sha256": "10fdb6a56cb7030b2db8647dd053045ced96c8b80b576186ef2882877c996957",
   "sizeBytes": 7796154,
   "changelog": [
-    "Publish Windows installer as public release"
+    "ML3Demu-tools Windows 0.1.1: automatic admin access without token"
   ]
 }
