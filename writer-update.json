@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 21,
-  "versionName": "0.11.3",
-  "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer.apk",
-  "sha256": "a3ca9bc11bd968ae515fee3ae04ce9034b6431e0221fef34226e1c348a4ccccf",
+  "versionCode": 22,
+  "versionName": "0.11.4",
+  "downloadUrl": "https://makinglayers3d-a11y.github.io/gba-nfc/ml3d-nfc-writer-0.11.4.apk",
+  "sha256": "fc32515692cfbe4219f11cf14f9309a7ccf671b8e24a217a0ebcaa26860103b6",
   "sizeBytes": 7796154,
   "changelog": [
-    "ML3Demu-tools 0.11.3: pin editor actions above preview"
+    "ML3Demu-tools 0.11.4: reliable versioned update downloads"
   ]
 }
