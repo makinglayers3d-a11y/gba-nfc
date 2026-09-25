@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 25,
-  "versionName": "0.11.7",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.7/ml3d-nfc-writer-0.11.7.apk",
-  "sha256": "1fe78660763ba3b7424441ff530af98c480c766c50e35be404a4f82dd9ca2e7e",
+  "versionCode": 26,
+  "versionName": "0.11.8",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.8/ml3d-nfc-writer-0.11.8.apk",
+  "sha256": "b1ed1daddbf1965d35d39bf160a972655b6b72ff3a73d8d4dae990a52774cd23",
   "sizeBytes": 7812538,
   "changelog": [
-    "ML3Demu-tools Android 0.11.7: simpler startup message editor"
+    "ML3Demu-tools Android 0.11.8: direct preview text editing"
   ]
 }
