@@ -559,6 +559,10 @@
         return d.r + d.g + d.b;
       }
 
+      float colorSimilarity(vec3 a, vec3 b) {
+        return 1.0 - smoothstep(0.035, 0.16, colorDiff(a, b));
+      }
+
       vec3 samplePixel(vec2 coord, vec2 texel, float x, float y) {
         return texture2D(uTexture, coord + texel * vec2(x, y)).rgb;
       }
@@ -768,13 +772,61 @@
 
         vec4 px = step(df(e,f), df(e,h));
 
-        // Level 2 remains slightly conservative to preserve small contours.
-        // Level 3 continuity masks keep long 15/75 degree diagonals connected.
-        vec4 localStrength =
-          max(max(fx30, fx60), max(fx45, fx45i)) * 0.86;
+        // Preserve one-pixel details and busy texture while allowing coherent
+        // contour segments to be smoothed strongly.
+        float centerAnchor = max(
+          max(
+            max(colorSimilarity(E, A), colorSimilarity(E, B)),
+            max(colorSimilarity(E, C), colorSimilarity(E, D))
+          ),
+          max(
+            max(colorSimilarity(E, F), colorSimilarity(E, G)),
+            max(colorSimilarity(E, H), colorSimilarity(E, I))
+          )
+        );
 
-        vec4 diagonalContinuity = max(fx15Final, fx75Final);
-        vec4 strength = max(localStrength, diagonalContinuity);
+        vec4 edgeCoherence = vec4(
+          colorSimilarity(H, F),
+          colorSimilarity(B, F),
+          colorSimilarity(B, D),
+          colorSimilarity(D, H)
+        );
+
+        float changedNeighbours =
+          step(0.11, colorDiff(E, A)) +
+          step(0.11, colorDiff(E, B)) +
+          step(0.11, colorDiff(E, C)) +
+          step(0.11, colorDiff(E, D)) +
+          step(0.11, colorDiff(E, F)) +
+          step(0.11, colorDiff(E, G)) +
+          step(0.11, colorDiff(E, H)) +
+          step(0.11, colorDiff(E, I));
+
+        // Dense local variation usually means lettering, dithering or sprite
+        // detail rather than a large clean contour.
+        float textureGuard =
+          1.0 - smoothstep(5.0, 7.0, changedNeighbours);
+
+        vec4 localStrength =
+          max(max(fx30, fx60), max(fx45, fx45i)) * 0.72;
+
+        vec4 diagonalContinuity =
+          max(fx15Final, fx75Final) * 0.92;
+
+        vec4 geometricStrength =
+          max(localStrength, diagonalContinuity);
+
+        vec4 coherenceGuard =
+          mix(vec4(0.18), vec4(1.0), edgeCoherence);
+
+        float detailGuard =
+          mix(0.16, 1.0, centerAnchor) *
+          mix(0.42, 1.0, textureGuard);
+
+        vec4 strength =
+          geometricStrength *
+          coherenceGuard *
+          detailGuard;
 
         vec3 res1 = E;
         res1 = mix(res1, mix(H, F, px.x), strength.x);
@@ -789,6 +841,14 @@
           res2,
           step(colorDiff(E, res1), colorDiff(E, res2))
         );
+
+        // Absolute protection for isolated micro-details: keep their original
+        // color rather than allowing an edge rule to erase them.
+        float isolatedDetail =
+          (1.0 - smoothstep(0.08, 0.28, centerAnchor)) *
+          smoothstep(4.5, 7.0, changedNeighbours);
+
+        res = mix(res, E, isolatedDetail * 0.94);
 
         gl_FragColor = vec4(res, 1.0);
       }
