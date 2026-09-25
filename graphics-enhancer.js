@@ -472,7 +472,7 @@
         antialias: false,
         depth: false,
         stencil: false,
-        preserveDrawingBuffer: true,
+        preserveDrawingBuffer: false,
         powerPreference: "high-performance"
       });
     } catch (_) {
@@ -498,9 +498,13 @@
     `;
 
     const fragmentSource = `
+      #ifdef GL_FRAGMENT_PRECISION_HIGH
       precision highp float;
+      #else
+      precision mediump float;
+      #endif
 
-      varying highp vec2 vTexCoord;
+      varying vec2 vTexCoord;
       uniform sampler2D uTexture;
       uniform vec2 uTextureSize;
       uniform float uScale;
@@ -826,8 +830,14 @@
     if (!initUltraGPU() || !glState) return false;
 
     const inputCanvas = prepareGPUInput(w, h);
-    const outW = w * 4;
-    const outH = h * 4;
+    const rect = source.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+
+    const desiredW = Math.max(w * 2, Math.round(rect.width * dpr));
+    const desiredH = Math.max(h * 2, Math.round(rect.height * dpr));
+
+    const outW = Math.min(w * 4, desiredW);
+    const outH = Math.min(h * 4, desiredH);
 
     if (overlayGL.width !== outW) overlayGL.width = outW;
     if (overlayGL.height !== outH) overlayGL.height = outH;
@@ -1085,7 +1095,13 @@
     },
     getDisplayCanvas: () => {
       if (mode === "original") return source;
-      if (mode === "ultra") return overlayGL;
+
+      if (mode === "ultra") {
+        const native = nativeResolution();
+        renderUltraGPU(native.width, native.height);
+        return overlayGL;
+      }
+
       return overlay2d;
     },
     modes: { ...MODE_LABELS }
