@@ -359,7 +359,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       .ml3d-startup-notice-card{
         --ml3d-holo-rgb:0,217,255;
-        isolation:isolate;overflow:hidden!important;
+        isolation:isolate;overflow:auto!important;
         background:linear-gradient(145deg,rgba(var(--ml3d-holo-rgb),.34),rgba(4,20,30,.94))!important;
         border:1px solid rgba(var(--ml3d-holo-rgb),.82)!important;
         box-shadow:0 0 16px rgba(var(--ml3d-holo-rgb),.68),0 0 48px rgba(var(--ml3d-holo-rgb),.42),inset 0 0 30px rgba(var(--ml3d-holo-rgb),.18),0 24px 70px #000d!important;
@@ -583,24 +583,27 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         }
       }
 
-      const bodyBox = document.createElement("div");
-      bodyBox.className = "ml3d-notice-text-box ml3d-notice-body-box";
-      bodyBox.style.width = `${Math.max(35, Math.min(100, Number(design.bodyBoxWidthPct) || 100))}%`;
-      bodyBox.style.height = `${Math.max(60, Math.min(360, Number(design.bodyBoxHeightPx) || 140))}px`;
-      const text = document.createElement("div");
-      text.className = "ml3d-tools-message";
-      const bodyMax = Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14));
-      text.style.fontSize = bodyMax + "px";
-      text.style.color = String(design.bodyColor || "#ffffff");
-      text.style.fontWeight = design.bodyBold ? "800" : "400";
-      text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
-      text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
-      text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
-      renderRichText(text, item.body || "", design.bodySpans);
-      bodyBox.appendChild(text);
-      ui.card.appendChild(bodyBox);
-      if (design.bodyAutoFit !== false) {
-        requestAnimationFrame(() => fitTextToBox(text, bodyBox, bodyMax, 8));
+      const bodyValue = String(item.body || "");
+      if (bodyValue.trim()) {
+        const bodyBox = document.createElement("div");
+        bodyBox.className = "ml3d-notice-text-box ml3d-notice-body-box";
+        bodyBox.style.width = `${Math.max(35, Math.min(100, Number(design.bodyBoxWidthPct) || 100))}%`;
+        bodyBox.style.height = `${Math.max(60, Math.min(360, Number(design.bodyBoxHeightPx) || 140))}px`;
+        const text = document.createElement("div");
+        text.className = "ml3d-tools-message";
+        const bodyMax = Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14));
+        text.style.fontSize = bodyMax + "px";
+        text.style.color = String(design.bodyColor || "#ffffff");
+        text.style.fontWeight = design.bodyBold ? "800" : "400";
+        text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
+        text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
+        text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+        renderRichText(text, bodyValue, design.bodySpans);
+        bodyBox.appendChild(text);
+        ui.card.appendChild(bodyBox);
+        if (design.bodyAutoFit !== false) {
+          requestAnimationFrame(() => fitTextToBox(text, bodyBox, bodyMax, 8));
+        }
       }
 
       if (item.mediaData) {
