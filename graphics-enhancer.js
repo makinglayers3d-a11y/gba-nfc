@@ -2,12 +2,12 @@
   "use strict";
 
   const STORAGE_KEY = "ml3d-graphics-mode";
-  const VALID_MODES = new Set(["original", "sharp", "hd", "lcd"]);
+  const VALID_MODES = new Set(["original", "sharp", "hd", "ultra"]);
   const MODE_LABELS = {
     original: "ORIGINAL",
     sharp: "NÍTIDO",
     hd: "HD",
-    lcd: "LCD"
+    ultra: "ULTRA"
   };
 
   const source = document.getElementById("screen");
@@ -33,6 +33,9 @@
       pointer-events:none;
       image-rendering:pixelated;
       image-rendering:crisp-edges;
+    }
+    .screen-frame.ml3d-graphics-ultra #ml3d-enhanced-screen{
+      image-rendering:auto;
     }
     .screen-frame.ml3d-graphics-active #screen{
       opacity:0;
@@ -189,7 +192,7 @@
     if (worker || workerFailed || typeof Worker !== "function") return;
 
     try {
-      worker = new Worker("graphics-enhancer-worker.js?v=xbr-1");
+      worker = new Worker("graphics-enhancer-worker.js?v=xbr-2");
 
       worker.onmessage = (event) => {
         const data = event.data || {};
@@ -210,7 +213,8 @@
         workerBusy = false;
 
         if (
-          mode !== "hd" ||
+          (mode !== "hd" && mode !== "ultra") ||
+          data.mode !== mode ||
           data.id < lastPresentedWorkerFrame ||
           !data.buffer
         ) {
@@ -236,18 +240,22 @@
     }
   }
 
-  function dispatchXBRWorker(w, h) {
+  function dispatchXBRWorker(w, h, targetMode) {
     if (!worker || workerBusy) return false;
 
     try {
       const input = grabSourceFrame(w, h);
       const id = ++workerFrameId;
+      const ultra = targetMode === "ultra";
       workerBusy = true;
 
       worker.postMessage(
         {
           type: "scale",
           id,
+          mode: targetMode,
+          factor: ultra ? 4 : 2,
+          blendColors: ultra,
           width: w,
           height: h,
           buffer: input.data.buffer
@@ -266,9 +274,12 @@
     }
   }
 
-  function renderXBRSynchronous(w, h, now) {
+  function renderXBRSynchronous(w, h, now, targetMode) {
     if (now - syncLastRun < syncInterval) return true;
-    if (!window.xBRjs?.xbr2x) return false;
+
+    const ultra = targetMode === "ultra";
+    const scaler = ultra ? window.xBRjs?.xbr4x : window.xBRjs?.xbr2x;
+    if (typeof scaler !== "function") return false;
 
     const started = performance.now();
 
@@ -280,17 +291,18 @@
         input.data.byteLength / 4
       );
 
-      const output = window.xBRjs.xbr2x(
+      const factor = ultra ? 4 : 2;
+      const output = scaler(
         input32,
         w,
         h,
         {
-          blendColors: false,
+          blendColors: ultra,
           scaleAlpha: false
         }
       );
 
-      presentXBRBuffer(output.buffer, w * 2, h * 2);
+      presentXBRBuffer(output.buffer, w * factor, h * factor);
       syncLastRun = now;
 
       const cost = performance.now() - started;
@@ -303,11 +315,17 @@
           syncCosts.length;
 
         syncInterval =
-          average > 24
-            ? 1000 / 20
-            : average > 13
-              ? 1000 / 30
-              : 1000 / 60;
+          ultra
+            ? average > 40
+              ? 1000 / 12
+              : average > 24
+                ? 1000 / 18
+                : 1000 / 30
+            : average > 24
+              ? 1000 / 20
+              : average > 13
+                ? 1000 / 30
+                : 1000 / 60;
       }
 
       return true;
@@ -425,15 +443,15 @@
     ctx.restore();
   }
 
-  function renderHD(w, h, now) {
+  function renderXBRMode(w, h, now, targetMode) {
     initWorker();
 
     if (worker && !workerFailed) {
-      dispatchXBRWorker(w, h);
+      dispatchXBRWorker(w, h, targetMode);
       return;
     }
 
-    if (renderXBRSynchronous(w, h, now)) return;
+    if (renderXBRSynchronous(w, h, now, targetMode)) return;
     renderScale2xFallback(w, h);
   }
 
@@ -455,9 +473,11 @@
     }
 
     try {
-      if (mode === "hd") renderHD(w, h, now);
-      else if (mode === "lcd") renderLCD(w, h);
-      else renderSharp(w, h);
+      if (mode === "hd" || mode === "ultra") {
+        renderXBRMode(w, h, now, mode);
+      } else {
+        renderSharp(w, h);
+      }
     } catch (error) {
       console.warn("ML3D Graphics: no se pudo procesar el fotograma.", error);
       setMode("original");
@@ -471,7 +491,9 @@
       button.setAttribute("aria-pressed", active ? "true" : "false");
 
       if (button.dataset.ml3dGraphicsMode === "hd") {
-        button.title = "xBR 2×: reconstrucción real de bordes, sin alterar la paleta";
+        button.title = "xBR 2× fiel: reconstruye bordes conservando la paleta";
+      } else if (button.dataset.ml3dGraphicsMode === "ultra") {
+        button.title = "xBR 4× agresivo: suavizado fuerte y apariencia remasterizada";
       }
     });
   }
@@ -481,8 +503,8 @@
       setNote("Imagen original del núcleo, sin procesamiento.");
     } else if (mode === "sharp") {
       setNote("NÍTIDO: escalado nearest-neighbor limpio.");
-    } else if (mode === "lcd") {
-      setNote("LCD: presentación de pantalla portátil.");
+    } else if (mode === "ultra") {
+      setNote("ULTRA: xBR 4× agresivo con suavizado final, cambio visual fuerte.");
     } else if (workerFailed) {
       setNote("HD: xBR 2× en modo compatible, sin modificar colores.");
     } else {
@@ -499,7 +521,9 @@
     source.style.opacity = active ? "0" : "";
     overlay.style.display = active ? "block" : "none";
 
-    if (mode === "hd") {
+    frame?.classList.toggle("ml3d-graphics-ultra", mode === "ultra");
+
+    if (mode === "hd" || mode === "ultra") {
       initWorker();
     }
 
@@ -520,12 +544,16 @@
         mode,
         label: MODE_LABELS[mode],
         backend:
-          mode === "hd"
+          mode === "hd" || mode === "ultra"
             ? worker && !workerFailed
-              ? "xbr2x-worker"
-              : window.xBRjs?.xbr2x
-                ? "xbr2x"
-                : "scale2x"
+              ? mode === "ultra"
+                ? "xbr4x-worker"
+                : "xbr2x-worker"
+              : mode === "ultra" && window.xBRjs?.xbr4x
+                ? "xbr4x"
+                : window.xBRjs?.xbr2x
+                  ? "xbr2x"
+                  : "scale2x"
             : "2d"
       }
     }));
@@ -544,7 +572,7 @@
         <button type="button" data-ml3d-graphics-mode="original">ORIGINAL</button>
         <button type="button" data-ml3d-graphics-mode="sharp">NÍTIDO</button>
         <button type="button" data-ml3d-graphics-mode="hd">HD</button>
-        <button type="button" data-ml3d-graphics-mode="lcd">LCD</button>
+        <button type="button" data-ml3d-graphics-mode="ultra">ULTRA</button>
       </div>
       <small id="ml3d-graphics-note" class="ml3d-graphics-note"></small>
     `;
@@ -567,8 +595,11 @@
     setMode,
     getMode: () => mode,
     getBackend: () => {
-      if (mode !== "hd") return "2d";
-      if (worker && !workerFailed) return "xbr2x-worker";
+      if (mode !== "hd" && mode !== "ultra") return "2d";
+      if (worker && !workerFailed) {
+        return mode === "ultra" ? "xbr4x-worker" : "xbr2x-worker";
+      }
+      if (mode === "ultra" && window.xBRjs?.xbr4x) return "xbr4x";
       if (window.xBRjs?.xbr2x) return "xbr2x";
       return "scale2x";
     },
