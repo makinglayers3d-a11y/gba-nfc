@@ -611,53 +611,6 @@
         return best;
       }
 
-      vec3 binaryLocalContrast(
-        vec3 x,
-        vec3 A, vec3 B, vec3 C,
-        vec3 D, vec3 E, vec3 F,
-        vec3 G, vec3 H, vec3 I
-      ) {
-        vec3 dark = A;
-        vec3 light = A;
-        float darkL = luma(A);
-        float lightL = darkL;
-
-        float v = luma(B);
-        if (v < darkL) { darkL = v; dark = B; }
-        if (v > lightL) { lightL = v; light = B; }
-
-        v = luma(C);
-        if (v < darkL) { darkL = v; dark = C; }
-        if (v > lightL) { lightL = v; light = C; }
-
-        v = luma(D);
-        if (v < darkL) { darkL = v; dark = D; }
-        if (v > lightL) { lightL = v; light = D; }
-
-        v = luma(E);
-        if (v < darkL) { darkL = v; dark = E; }
-        if (v > lightL) { lightL = v; light = E; }
-
-        v = luma(F);
-        if (v < darkL) { darkL = v; dark = F; }
-        if (v > lightL) { lightL = v; light = F; }
-
-        v = luma(G);
-        if (v < darkL) { darkL = v; dark = G; }
-        if (v > lightL) { lightL = v; light = G; }
-
-        v = luma(H);
-        if (v < darkL) { darkL = v; dark = H; }
-        if (v > lightL) { lightL = v; light = H; }
-
-        v = luma(I);
-        if (v < darkL) { darkL = v; dark = I; }
-        if (v > lightL) { lightL = v; light = I; }
-
-        float xL = luma(x);
-        return abs(xL - darkL) <= abs(xL - lightL) ? dark : light;
-      }
-
       vec3 samplePixel(vec2 coord, vec2 texel, float x, float y) {
         return texture2D(uTexture, coord + texel * vec2(x, y)).rgb;
       }
@@ -965,9 +918,11 @@
 
         res = mix(res, E, preserveFineDetail * 0.93);
 
-        // Detect monochrome, high-contrast regions such as small white/black
-        // lettering. In these regions interpolation must not invent gray
-        // transition pixels: snap to one of the original local endpoints.
+        // Detect neutral high-contrast artwork/text. Instead of reducing
+        // it to only black/white, quantize the interpolated result back to an
+        // ACTUAL color present in the 3x3 source neighborhood. This preserves
+        // intentional gray outline/shadow shades in logos such as ROJO FUEGO,
+        // while removing invented semi-transparent-looking transition tones.
         float lumA = luma(A);
         float lumB = luma(B);
         float lumC = luma(C);
@@ -995,22 +950,32 @@
         ) / 9.0;
 
         float monochromeContrast =
-          smoothstep(0.58, 0.74, lumMax - lumMin) *
-          smoothstep(0.72, 0.92, grayRatio);
+          smoothstep(0.50, 0.68, lumMax - lumMin) *
+          smoothstep(0.62, 0.86, grayRatio);
 
-        vec3 snapped = binaryLocalContrast(
+        vec3 paletteSnapped = nearestLocalColor(
           res,
           A, B, C,
           D, E, F,
           G, H, I
         );
 
-        // Thin monochrome text gets the strongest binary snap.
-        float binarySnap =
+        // Strong quantization on high-contrast text, but never collapse the
+        // local palette to only two endpoints.
+        float paletteSnap =
           monochromeContrast *
-          mix(0.86, 1.0, max(thinStroke, isolatedDetail));
+          mix(0.82, 0.98, max(thinStroke, isolatedDetail));
 
-        res = mix(res, snapped, binarySnap);
+        res = mix(res, paletteSnapped, paletteSnap);
+
+        // If the center pixel is a very fine source detail, favor its exact
+        // original shade once more after palette quantization.
+        float exactCenterRestore =
+          monochromeContrast *
+          max(isolatedDetail, thinStroke * textureGuard) *
+          0.38;
+
+        res = mix(res, E, exactCenterRestore);
 
         gl_FragColor = vec4(res, 1.0);
       }
