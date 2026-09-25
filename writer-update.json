@@ -3,9 +3,9 @@
   "versionCode": 24,
   "versionName": "0.11.6",
   "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.6/ml3d-nfc-writer-0.11.6.apk",
-  "sha256": "b01b98da0ae3432f016de744dfeb04f3be05c9e956fbe33b6e0cb72724cbfb45",
+  "sha256": "18a806c5593c1b6f5e6224464190d3ed427ed423817a896df91b72e439e2e924",
   "sizeBytes": 7796154,
   "changelog": [
-    "Fix Windows 0.1.2 self-update publication"
+    "ML3Demu-tools Windows 0.1.3: Android logo and scrollable games"
   ]
 }
