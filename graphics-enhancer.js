@@ -152,6 +152,12 @@
     willReadFrequently: true
   });
 
+  const gpuInput = document.createElement("canvas");
+  const gpuInputCtx = gpuInput.getContext("2d", {
+    alpha: false,
+    desynchronized: true
+  });
+
   let mode = "original";
   let rafId = 0;
   let lastW = 0;
@@ -193,9 +199,28 @@
     if (note) note.textContent = text;
   }
 
+  function nativeResolution() {
+    if (window.__gba) {
+      return { width: 240, height: 160 };
+    }
+
+    return { width: 160, height: 144 };
+  }
+
   function ensureCaptureSize(w, h) {
     if (capture.width !== w) capture.width = w;
     if (capture.height !== h) capture.height = h;
+  }
+
+  function prepareGPUInput(w, h) {
+    if (gpuInput.width !== w) gpuInput.width = w;
+    if (gpuInput.height !== h) gpuInput.height = h;
+
+    gpuInputCtx.imageSmoothingEnabled = false;
+    gpuInputCtx.clearRect(0, 0, w, h);
+    gpuInputCtx.drawImage(source, 0, 0, w, h);
+
+    return gpuInput;
   }
 
   function ensure2DSize(w, h) {
@@ -800,6 +825,7 @@
   function renderUltraGPU(w, h) {
     if (!initUltraGPU() || !glState) return false;
 
+    const inputCanvas = prepareGPUInput(w, h);
     const outW = w * 4;
     const outH = h * 4;
 
@@ -820,7 +846,7 @@
         gl.RGBA,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
-        source
+        inputCanvas
       );
 
       glState.texW = w;
@@ -833,7 +859,7 @@
         0,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
-        source
+        inputCanvas
       );
     }
 
@@ -891,9 +917,9 @@
 
     if (mode === "original") return;
 
-    const w = source.width | 0;
-    const h = source.height | 0;
-    if (!w || !h) return;
+    const native = nativeResolution();
+    const w = native.width;
+    const h = native.height;
 
     if (w !== lastW || h !== lastH) {
       lastW = w;
@@ -917,7 +943,7 @@
       } else if (mode === "hd") {
         renderHD(w, h, now);
       } else {
-        renderSharp(w, h);
+        renderSharp(source.width | 0, source.height | 0);
       }
     } catch (error) {
       console.warn("ML3D Graphics: no se pudo procesar el fotograma.", error);
