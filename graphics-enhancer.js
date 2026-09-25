@@ -510,6 +510,7 @@
       uniform float uScale;
 
       const float XBR_EQ_THRESHOLD = 15.0;
+      const float XBR_EQ_THRESHOLD2 = 2.0;
       const float XBR_LV2_COEFFICIENT = 2.0;
       const vec3 RGBW = vec3(14.352, 28.176, 5.472);
 
@@ -527,6 +528,14 @@
 
       vec4 neq4(vec4 A, vec4 B) {
         return vec4(1.0) - eq4(A, B);
+      }
+
+      vec4 eq2(vec4 A, vec4 B) {
+        return step(abs(A - B), vec4(XBR_EQ_THRESHOLD2));
+      }
+
+      vec4 neq2(vec4 A, vec4 B) {
+        return vec4(1.0) - eq2(A, B);
       }
 
       vec4 wd(
@@ -631,6 +640,10 @@
         );
 
         vec4 f4 = h5.yzwx;
+        vec4 c1 = i4.yzwx;
+        vec4 g0 = i5.wxyz;
+        vec4 b1 = h5.zwxy;
+        vec4 d0 = h5.wxyz;
 
         vec4 Ao = vec4( 1.0, -1.0, -1.0, 1.0 );
         vec4 Bo = vec4( 1.0,  1.0, -1.0,-1.0 );
@@ -643,6 +656,14 @@
         vec4 Ay = vec4( 1.0, -1.0, -1.0, 1.0 );
         vec4 By = vec4( 2.0,  0.5, -2.0,-0.5 );
         vec4 Cy = vec4( 2.0,  0.0, -1.0, 0.5 );
+
+        vec4 Az = vec4( 6.0, -2.0, -6.0, 2.0 );
+        vec4 Bz = vec4( 2.0,  6.0, -2.0,-6.0 );
+        vec4 Cz = vec4( 5.0,  3.0, -3.0,-1.0 );
+
+        vec4 Aw = vec4( 2.0, -6.0, -2.0, 6.0 );
+        vec4 Bw = vec4( 6.0,  2.0, -6.0,-2.0 );
+        vec4 Cw = vec4( 5.0, -1.0, -3.0, 3.0 );
 
         vec4 delta = vec4(1.0 / uScale);
         vec4 deltaL = vec4(
@@ -657,6 +678,8 @@
         vec4 fx = Ao * fp.y + Bo * fp.x;
         vec4 fxL = Ax * fp.y + Bx * fp.x;
         vec4 fxU = Ay * fp.y + By * fp.x;
+        vec4 fx3L = Az * fp.y + Bz * fp.x;
+        vec4 fx3U = Aw * fp.y + Bw * fp.x;
 
         vec4 irlv0 = diff4(e,f) * diff4(e,h);
 
@@ -673,6 +696,9 @@
 
         vec4 irlv2l = diff4(e,g) * diff4(d,g);
         vec4 irlv2u = diff4(e,c) * diff4(b,c);
+
+        vec4 irlv3l = eq2(g,g0) * neq2(d0,g0);
+        vec4 irlv3u = eq2(c,c1) * neq2(b1,c1);
 
         vec4 fx45i = clamp(
           (fx + delta - Co - Ci) / (2.0 * delta),
@@ -696,6 +722,18 @@
           (fxU + deltaU - Cy) / (2.0 * deltaU),
           0.0,
           1.0
+        );
+
+        vec4 fx15 = smoothstep(
+          Cz - delta,
+          Cz + delta,
+          fx3L
+        );
+
+        vec4 fx75 = smoothstep(
+          Cw - delta,
+          Cw + delta,
+          fx3U
         );
 
         vec4 wd1 = weightedDistance(
@@ -725,8 +763,18 @@
         fx60 = edrU * fx60;
         fx45i = edri * fx45i;
 
+        vec4 fx15Final = edr * edrL * irlv3l * fx15;
+        vec4 fx75Final = edr * edrU * irlv3u * fx75;
+
         vec4 px = step(df(e,f), df(e,h));
-        vec4 strength = max(max(fx30, fx60), max(fx45, fx45i));
+
+        // Level 2 remains slightly conservative to preserve small contours.
+        // Level 3 continuity masks keep long 15/75 degree diagonals connected.
+        vec4 localStrength =
+          max(max(fx30, fx60), max(fx45, fx45i)) * 0.86;
+
+        vec4 diagonalContinuity = max(fx15Final, fx75Final);
+        vec4 strength = max(localStrength, diagonalContinuity);
 
         vec3 res1 = E;
         res1 = mix(res1, mix(H, F, px.x), strength.x);
@@ -874,7 +922,9 @@
     }
 
     gl.uniform2f(glState.uTextureSize, w, h);
-    gl.uniform1f(glState.uScale, 4.0);
+    // Hyllian's xBR is tuned around scale 3 even when output is 4x.
+    // This widens the interpolation corridor and avoids segmented diagonals.
+    gl.uniform1f(glState.uScale, 3.0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     return true;
