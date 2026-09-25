@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "version": "0.1.2",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3demu-tools-windows-update-v0.1.2/ML3Demu-tools-Windows-0.1.2-setup.exe.enc",
+  "nonce": "ZqbSk_tg5xWaFyiO",
+  "sha256": "5405198491d7b9fb62d2bf6c35b6fe034b88cf3caad1ae5991f6621763fa3513",
+  "encryptedSha256": "681b3f2b22bf9b3be0e6b1e295c2ebb45b280c938c58463f5ed2f3fcef4cd3bb",
+  "sizeBytes": 2879784,
+  "changelog": [
+    "ML3Demu-tools Windows 0.1.2: actualización automática desde la propia aplicación"
+  ]
+}
