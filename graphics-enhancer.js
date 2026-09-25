@@ -501,8 +501,6 @@
 
     if (mode === "hd") {
       initWorker();
-    } else {
-      workerBusy = false;
     }
 
     if (!active) {
