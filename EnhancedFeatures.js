@@ -358,9 +358,16 @@
 
   function captureThumbnail() {
     try {
-      return canvas.toDataURL("image/jpeg", .58);
+      const displayCanvas =
+        window.ML3DGraphics?.getDisplayCanvas?.() ||
+        canvas;
+      return displayCanvas.toDataURL("image/jpeg", .72);
     } catch (_) {
-      return "";
+      try {
+        return canvas.toDataURL("image/jpeg", .58);
+      } catch (_) {
+        return "";
+      }
     }
   }
 
