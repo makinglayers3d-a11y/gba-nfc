@@ -359,13 +359,24 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       .ml3d-startup-notice-card{
         --ml3d-holo-rgb:0,217,255;
-        isolation:isolate;overflow:hidden!important;
+        isolation:isolate;overflow:auto!important;
         background:linear-gradient(145deg,rgba(var(--ml3d-holo-rgb),.34),rgba(4,20,30,.94))!important;
         border:1px solid rgba(var(--ml3d-holo-rgb),.82)!important;
         box-shadow:0 0 16px rgba(var(--ml3d-holo-rgb),.68),0 0 48px rgba(var(--ml3d-holo-rgb),.42),inset 0 0 30px rgba(var(--ml3d-holo-rgb),.18),0 24px 70px #000d!important;
         color:#f5feff!important;text-shadow:0 0 4px rgba(var(--ml3d-holo-rgb),.9)
       }
       .ml3d-startup-notice-card>*{position:relative;z-index:2}
+      .ml3d-notice-text-box{
+        box-sizing:border-box;display:flex;align-items:center;overflow:hidden;
+        border:1px solid rgba(var(--ml3d-holo-rgb),.28);border-radius:10px;
+        background:rgba(0,0,0,.12);padding:7px 9px;margin:0 0 9px 0
+      }
+      .ml3d-notice-title-box{margin-right:38px}
+      .ml3d-notice-text-box .ml3d-tools-title,
+      .ml3d-notice-text-box .ml3d-tools-message{
+        box-sizing:border-box;width:100%;max-width:100%;margin:0!important;line-height:1.25;overflow:visible
+      }
+      .ml3d-notice-text-box .ml3d-tools-message{line-height:1.42}
       .ml3d-startup-notice-card::before{
         content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
         background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(var(--ml3d-holo-rgb),.08) 4px,rgba(var(--ml3d-holo-rgb),.06) 5px);
@@ -517,6 +528,18 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     }
   }
 
+  function fitTextToBox(target, box, maximumPx, minimumPx) {
+    if (!target || !box) return;
+    let size = Math.max(minimumPx, maximumPx);
+    target.style.fontSize = size + "px";
+    target.style.lineHeight = target.classList.contains("ml3d-tools-title") ? "1.18" : "1.35";
+    for (let attempts = 0; attempts < 80 && size > minimumPx; attempts++) {
+      if (target.scrollHeight <= box.clientHeight - 2 && target.scrollWidth <= box.clientWidth - 2) break;
+      size -= .5;
+      target.style.fontSize = size + "px";
+    }
+  }
+
   function showNotice(item) {
     return new Promise((resolve) => {
       const title = String(item.title || "").trim() || MESSAGE_LABELS[item.kind] || "AVISO";
@@ -539,26 +562,49 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       if (minHeightPct > 0) ui.card.style.minHeight = `${minHeightPct}vh`;
 
       const heading = ui.card.querySelector(".ml3d-tools-title");
+      let titleBox = null;
       if (heading) {
-        heading.style.fontSize = `${Math.max(11, Math.min(38, Number(design.titleFontSize) || 17))}px`;
+        titleBox = document.createElement("div");
+        titleBox.className = "ml3d-notice-text-box ml3d-notice-title-box";
+        titleBox.style.width = `${Math.max(35, Math.min(100, Number(design.titleBoxWidthPct) || 100))}%`;
+        titleBox.style.height = `${Math.max(38, Math.min(180, Number(design.titleBoxHeightPx) || 64))}px`;
+        heading.parentNode.insertBefore(titleBox, heading);
+        titleBox.appendChild(heading);
         heading.style.color = String(design.titleColor || "#ffffff");
         heading.style.fontWeight = design.titleBold === false ? "400" : "900";
         heading.style.textDecoration = design.titleUnderline ? "underline" : "none";
         heading.style.textAlign = ["left","center","right"].includes(design.titleAlign) ? design.titleAlign : "left";
         heading.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
         renderRichText(heading, title, design.titleSpans);
+        const titleMax = Math.max(11, Math.min(38, Number(design.titleFontSize) || 17));
+        heading.style.fontSize = titleMax + "px";
+        if (design.titleAutoFit !== false) {
+          requestAnimationFrame(() => fitTextToBox(heading, titleBox, titleMax, 9));
+        }
       }
 
-      const text = document.createElement("div");
-      text.className = "ml3d-tools-message";
-      text.style.fontSize = `${Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14))}px`;
-      text.style.color = String(design.bodyColor || "#ffffff");
-      text.style.fontWeight = design.bodyBold ? "800" : "400";
-      text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
-      text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
-      text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
-      renderRichText(text, item.body || "", design.bodySpans);
-      ui.card.appendChild(text);
+      const bodyValue = String(item.body || "");
+      if (bodyValue.trim()) {
+        const bodyBox = document.createElement("div");
+        bodyBox.className = "ml3d-notice-text-box ml3d-notice-body-box";
+        bodyBox.style.width = `${Math.max(35, Math.min(100, Number(design.bodyBoxWidthPct) || 100))}%`;
+        bodyBox.style.height = `${Math.max(60, Math.min(360, Number(design.bodyBoxHeightPx) || 140))}px`;
+        const text = document.createElement("div");
+        text.className = "ml3d-tools-message";
+        const bodyMax = Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14));
+        text.style.fontSize = bodyMax + "px";
+        text.style.color = String(design.bodyColor || "#ffffff");
+        text.style.fontWeight = design.bodyBold ? "800" : "400";
+        text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
+        text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
+        text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+        renderRichText(text, bodyValue, design.bodySpans);
+        bodyBox.appendChild(text);
+        ui.card.appendChild(bodyBox);
+        if (design.bodyAutoFit !== false) {
+          requestAnimationFrame(() => fitTextToBox(text, bodyBox, bodyMax, 8));
+        }
+      }
 
       if (item.mediaData) {
         const mediaRow = document.createElement("div");
@@ -594,11 +640,6 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
   }
 
   async function showStartupMessages() {
-    try {
-      if (sessionStorage.getItem(STARTUP_NOTICE_KEY) === "1") return;
-      sessionStorage.setItem(STARTUP_NOTICE_KEY, "1");
-    } catch (_) {}
-
     let payload;
     try {
       payload = await api("/v1/emulator/messages");
@@ -606,13 +647,39 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       console.warn("ML3D emulator messages:", error);
       return;
     }
+
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
-    const byKind = new Map(messages.map((item) => [item.kind, item]));
+    const active = messages.filter((item) =>
+      item &&
+      item.enabled &&
+      (
+        String(item.title || "").trim() ||
+        String(item.body || "").trim() ||
+        item.mediaData
+      )
+    );
+    if (!active.length) {
+      try { sessionStorage.removeItem(STARTUP_NOTICE_KEY); } catch (_) {}
+      return;
+    }
+
+    const signature = active
+      .map((item) => [item.kind, item.updatedAt || "", item.title || "", item.body || "", Boolean(item.mediaData)].join("|"))
+      .join("::");
+    try {
+      if (sessionStorage.getItem(STARTUP_NOTICE_KEY) === signature) return;
+    } catch (_) {}
+
+    const byKind = new Map(active.map((item) => [item.kind, item]));
     for (const kind of MESSAGE_ORDER) {
       const item = byKind.get(kind);
-      if (!item || !item.enabled || (!String(item.body || "").trim() && !item.mediaData)) continue;
+      if (!item) continue;
       await showNotice(item);
     }
+
+    try {
+      sessionStorage.setItem(STARTUP_NOTICE_KEY, signature);
+    } catch (_) {}
   }
 
   function loadImageFile(file) {
