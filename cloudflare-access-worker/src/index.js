@@ -11,7 +11,7 @@ function cors(env, request) {
   const allowed = env.ALLOWED_ORIGIN || "https://makinglayers3d-a11y.github.io";
   const headers = {
     "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-ML3D-Windows-Time,X-ML3D-Windows-Signature",
     "Access-Control-Max-Age": "86400"
   };
   if (origin === allowed) headers["Access-Control-Allow-Origin"] = origin;
@@ -72,8 +72,61 @@ async function deviceIdForJwk(jwk) {
 function validatePublicJwk(jwk) {
   return jwk && jwk.kty === "EC" && jwk.crv === "P-256" && typeof jwk.x === "string" && typeof jwk.y === "string";
 }
-function adminAuthorized(env, request) {
-  return Boolean(env.ADMIN_TOKEN) && request.headers.get("Authorization") === `Bearer ${env.ADMIN_TOKEN}`;
+const WINDOWS_ADMIN_PUBLIC_JWK = Object.freeze({
+  kty: "EC",
+  crv: "P-256",
+  x: "02nYUHplUmECv4Y9wuXxhxT8XVgcGwE9ZXlM25GD6to",
+  y: "HxAhpYQTzkqZ2m3vl4iXYn9QbJUVW-j1Db-9qm98VbI",
+  ext: true
+});
+
+function bytesToHex(bytes) {
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function windowsAdminAuthorized(request) {
+  const timestampText = request.headers.get("X-ML3D-Windows-Time") || "";
+  const signatureText = request.headers.get("X-ML3D-Windows-Signature") || "";
+  const timestamp = Number(timestampText);
+  if (!Number.isFinite(timestamp) || !signatureText) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestamp) > 300) return false;
+
+  try {
+    const bodyBytes = new Uint8Array(await request.clone().arrayBuffer());
+    const bodyDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", bodyBytes));
+    const url = new URL(request.url);
+    const canonical = [
+      request.method.toUpperCase(),
+      url.pathname + url.search,
+      timestampText,
+      bytesToHex(bodyDigest)
+    ].join("\n");
+
+    const publicKey = await crypto.subtle.importKey(
+      "jwk",
+      WINDOWS_ADMIN_PUBLIC_JWK,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+    return await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      base64UrlToBytes(signatureText),
+      encoder.encode(canonical)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function adminAuthorized(env, request) {
+  if (Boolean(env.ADMIN_TOKEN) && request.headers.get("Authorization") === `Bearer ${env.ADMIN_TOKEN}`) {
+    return true;
+  }
+  return windowsAdminAuthorized(request);
 }
 
 
@@ -1399,7 +1452,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/read") return publicChatRead(env, request);
 
       if (url.pathname.startsWith("/v1/admin/")) {
-        if (!adminAuthorized(env, request)) return bad(env, request, "No autorizado", 401);
+        if (!(await adminAuthorized(env, request))) return bad(env, request, "No autorizado", 401);
         if (request.method === "GET" && url.pathname === "/v1/admin/requests") return listRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/use-requests") return listUseRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/devices") return listDevices(env, request);
