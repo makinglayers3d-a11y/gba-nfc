@@ -175,6 +175,7 @@
 
   let glState = null;
   let ultraUnavailable = false;
+  let scaleFXUnavailable = false;
 
   function readStoredMode() {
     const requested = new URLSearchParams(location.search).get("graphics");
@@ -1062,11 +1063,40 @@
   }
 
   function renderUltraGPU(w, h) {
-    if (!initUltraGPU() || !glState) return false;
-
     const inputCanvas = prepareGPUInput(w, h);
     const rect = source.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+
+    const cssScaleX = Math.max(1, (rect.width * dpr) / w);
+    const cssScaleY = Math.max(1, (rect.height * dpr) / h);
+    const scaleFXScale = Math.min(
+      3,
+      Math.max(2, Math.min(cssScaleX, cssScaleY))
+    );
+
+    const scaleFXW = Math.max(w * 2, Math.round(w * scaleFXScale));
+    const scaleFXH = Math.max(h * 2, Math.round(h * scaleFXScale));
+
+    if (
+      !scaleFXUnavailable &&
+      window.ML3DScaleFX?.render
+    ) {
+      const scaleFXOK = window.ML3DScaleFX.render({
+        outputCanvas: overlayGL,
+        inputCanvas,
+        width: w,
+        height: h,
+        targetWidth: scaleFXW,
+        targetHeight: scaleFXH
+      });
+
+      if (scaleFXOK) return true;
+
+      scaleFXUnavailable = true;
+      console.warn("ML3D Graphics: ScaleFX no disponible, usando xBR como fallback.");
+    }
+
+    if (!initUltraGPU() || !glState) return false;
 
     const desiredW = Math.max(w * 2, Math.round(rect.width * dpr));
     const desiredH = Math.max(h * 2, Math.round(rect.height * dpr));
@@ -1214,7 +1244,7 @@
       if (button.dataset.ml3dGraphicsMode === "hd") {
         button.title = "xBR 2× fiel";
       } else if (button.dataset.ml3dGraphicsMode === "ultra") {
-        button.title = "xBR GPU 4×: mejora fuerte sin ralentizar la emulación";
+        button.title = "ScaleFX GPU: bordes hasta nivel 6, detalle y colores originales";
       }
     });
   }
@@ -1227,14 +1257,22 @@
     } else if (mode === "hd") {
       setNote("HD: xBR 2× conservador.");
     } else {
-      setNote("ULTRA: xBR GPU 4× en tiempo real.");
+      setNote(
+        scaleFXUnavailable
+          ? "ULTRA: xBR GPU de respaldo."
+          : "ULTRA: ScaleFX GPU, colores originales y bordes de nivel 6."
+      );
     }
   }
 
   function setMode(nextMode, persist = true) {
     if (!VALID_MODES.has(nextMode)) nextMode = "original";
 
-    if (nextMode === "ultra" && !initUltraGPU()) {
+    if (
+      nextMode === "ultra" &&
+      scaleFXUnavailable &&
+      !initUltraGPU()
+    ) {
       nextMode = "hd";
     }
 
@@ -1265,7 +1303,9 @@
         label: MODE_LABELS[mode],
         backend:
           mode === "ultra"
-            ? "xbr-gpu"
+            ? scaleFXUnavailable
+              ? "xbr-gpu"
+              : "scalefx-gpu"
             : mode === "hd"
               ? worker && !workerFailed
                 ? "xbr2x-worker"
@@ -1322,7 +1362,9 @@
     setMode,
     getMode: () => mode,
     getBackend: () => {
-      if (mode === "ultra") return "xbr-gpu";
+      if (mode === "ultra") {
+        return scaleFXUnavailable ? "xbr-gpu" : "scalefx-gpu";
+      }
       if (mode === "hd") {
         return worker && !workerFailed
           ? "xbr2x-worker"
