@@ -136,6 +136,9 @@
   let scale2xImageData = null;
 
   function readStoredMode() {
+    const requested = new URLSearchParams(location.search).get("graphics");
+    if (VALID_MODES.has(requested)) return requested;
+
     try {
       const saved = localStorage.getItem(STORAGE_KEY) || "original";
       return VALID_MODES.has(saved) ? saved : "original";
