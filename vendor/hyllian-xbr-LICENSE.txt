@@ -21,6 +21,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ML3Demuler GPU adaptation:
-Based on Hyllian's xBR-lv2 shader. Adapted for WebGL 1.0 and direct emulator
+Based on Hyllian's xBR-lv2/lv3 shaders. Adapted for WebGL 1.0 and direct emulator
 canvas texture input. The original copyright and permission notice above are
 retained.
