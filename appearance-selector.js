@@ -17,26 +17,10 @@
   ];
 
   const UPDATE_ITEMS = [
-    ["GBA + GB + GBC", "IodineGBA y binjgb conviven con cambio estable entre los tres sistemas."],
-    ["Selector renovado", "Nuevo selector visual con portadas y filtros TODOS, GB, GBC y GBA."],
-    ["ROMs locales", "Carga .gba, .gb y .gbc desde el dispositivo; la ROM permanece solo en memoria."],
-    ["Cambio sin recargar", "Alterna entre ROM local y catálogo deteniendo limpiamente el núcleo anterior."],
-    ["Guardados locales", "Identidad estable para recuperar las partidas de una ROM local al volver a elegirla."],
-    ["Nuevos estilos SP", "Silver, gris-roja, crema-burdeos, Zelda dorada y amarilla."],
-    ["SP legendarias", "Carcasas Groudon, Kyogre y Rayquaza con geometría y controles alineados."],
-    ["Tapas SP", "Cada modelo usa su tapa y una apertura/cierre realista desde la bisagra."],
-    ["Cambio animado", "Transiciones completas entre estilos y familias de consola."],
-    ["Control Anim.", "Interruptor persistente para activar o aplicar al instante los cambios de consola."],
-    ["Nuevo arranque", "Secuencia continua: cartucho, apertura de consola, ML3D, aviso y juego."],
-    ["Cartuchos dinámicos", "Color y etiqueta configurables mediante un catálogo seguro."],
-    ["Etiquetas especiales", "Diseños de Pokémon y Zelda: The Minish Cap preparados para cada cartucho."],
-    ["Reconocimiento", "Sonido y vibración acompañan la entrada del cartucho."],
-    ["Guardado visual", "Tarjeta ML3D con captura, juego, sistema, tiempo, fecha, hora y SAVE OK."],
-    ["Tarjeta absorbida", "La confirmación levita y termina entrando claramente en el botón MENU."],
-    ["Controles y audio", "Mejoras en touch, teclado, volumen, mute y vibración configurable."],
-    ["Touch Lab", "Herramientas, perfiles y calibración precisa de controles, incluida la disposición SP."],
-    ["Selector SP horizontal", "Todos los estilos ocupan una fila deslizable con touch y ratón."],
-    ["Estabilidad", "Transiciones más limpias, assets alineados y correcciones de carga y caché."]
+    [
+      "Mejora gráfica ULTRA",
+      "Nuevo modo ULTRA con ScaleFX acelerado por GPU: reconstruye contornos y diagonales hasta nivel 6, conserva detalles finos y utiliza únicamente colores presentes en la imagen original. Incluye ORIGINAL, NÍTIDO, HD y ULTRA con fallback automático."
+    ]
   ];
 
   /* Remove state left behind by the retired custom SP colour editor. */
@@ -344,7 +328,7 @@
       head.innerHTML = `
         <div>
           <div class="ml3d-updates-title">NOVEDADES</div>
-          <span class="ml3d-updates-subtitle">PORT DEL REPO DE PRUEBAS AL PRINCIPAL</span>
+          <span class="ml3d-updates-subtitle">MEJORA GRÁFICA ULTRA · SCALEFX</span>
         </div>
         <button id="ml3d-updates-close" type="button" aria-label="Cerrar novedades">×</button>`;
 

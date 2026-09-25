@@ -7,7 +7,7 @@
   const CHAT_CLIENT_KEY = "ml3d-help-chat-client-v1";
   const CHAT_SEEN_KEY = "ml3d-help-chat-seen-v1";
   const NEWS_SEEN_KEY = "ml3d-updates-seen-v1";
-  const NEWS_REVISION = "2026-09-18-rich-media-1";
+  const NEWS_REVISION = "2026-09-25-scalefx-ultra-1";
   const MAX_VIDEO_FILE_BYTES = 1050000;
   let chatUnreadCount = 0;
   let chatStatusTimer = 0;
