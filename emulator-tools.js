@@ -574,7 +574,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         heading.style.fontWeight = design.titleBold === false ? "400" : "900";
         heading.style.textDecoration = design.titleUnderline ? "underline" : "none";
         heading.style.textAlign = ["left","center","right"].includes(design.titleAlign) ? design.titleAlign : "left";
-        heading.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+        heading.style.transform = "none";
+        titleBox.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
         renderRichText(heading, title, design.titleSpans);
         const titleMax = Math.max(11, Math.min(38, Number(design.titleFontSize) || 17));
         heading.style.fontSize = titleMax + "px";
@@ -597,7 +598,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         text.style.fontWeight = design.bodyBold ? "800" : "400";
         text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
         text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
-        text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+        text.style.transform = "none";
+        bodyBox.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
         renderRichText(text, bodyValue, design.bodySpans);
         bodyBox.appendChild(text);
         ui.card.appendChild(bodyBox);
