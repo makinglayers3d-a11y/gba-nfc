@@ -3,9 +3,9 @@
   "versionCode": 24,
   "versionName": "0.11.6",
   "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.6/ml3d-nfc-writer-0.11.6.apk",
-  "sha256": "7b162af82c0901bae512d8b2ee26ed93e00fdb82244605ed6d2e20f537c04a2e",
+  "sha256": "19f71d95c69b9a6cc507e82e407fe8647351eba34cc69ce4600c4a00e4a7110a",
   "sizeBytes": 7796154,
   "changelog": [
-    "ML3Demu-tools 0.11.6: visible fields, native preview and hologram color"
+    "Add ML3Demu-tools Windows 10 desktop app"
   ]
 }
