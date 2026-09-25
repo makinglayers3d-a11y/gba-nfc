@@ -670,6 +670,9 @@ window.addEventListener(
     if (system === "gb" || system === "gbc") {
       canvas.width = 160;
       canvas.height = 144;
+      if (window.ml3dGraphicsEnhancer) {
+        window.ml3dGraphicsEnhancer.useCanvasSource(canvas);
+      }
       if (!window.gbaGB || typeof window.gbaGB.startBuffer !== "function") {
         throw new Error("Falta el núcleo GB/GBC compatible con memoria.");
       }
@@ -698,6 +701,9 @@ window.addEventListener(
       emulator.settings.SKIPBoot = true;
       const blitter = new GfxGlueCode(240, 160);
       blitter.attachCanvas(canvas);
+      if (window.ml3dGraphicsEnhancer && blitter.canvasBuffer) {
+        window.ml3dGraphicsEnhancer.useImageDataSource(blitter.canvasBuffer);
+      }
       emulator.attachGraphicsFrameHandler(blitter);
       currentGbaRomBytes = rom.slice();
       currentGbaRomFilename = filename;
