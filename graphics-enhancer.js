@@ -14,22 +14,15 @@
   if (!source) return;
 
   const frame = source.closest(".screen-frame");
-
-  const overlay2d = document.createElement("canvas");
-  overlay2d.id = "ml3d-enhanced-screen";
-  overlay2d.setAttribute("aria-hidden", "true");
-  source.insertAdjacentElement("afterend", overlay2d);
-
-  const overlayGL = document.createElement("canvas");
-  overlayGL.id = "ml3d-enhanced-screen-gl";
-  overlayGL.setAttribute("aria-hidden", "true");
-  overlay2d.insertAdjacentElement("afterend", overlayGL);
+  const overlay = document.createElement("canvas");
+  overlay.id = "ml3d-enhanced-screen";
+  overlay.setAttribute("aria-hidden", "true");
+  source.insertAdjacentElement("afterend", overlay);
 
   const style = document.createElement("style");
   style.id = "ml3d-graphics-enhancer-style";
   style.textContent = `
-    #ml3d-enhanced-screen,
-    #ml3d-enhanced-screen-gl{
+    #ml3d-enhanced-screen{
       position:absolute;
       inset:0;
       z-index:2;
@@ -44,9 +37,11 @@
     .screen-frame.ml3d-graphics-active #screen{
       opacity:0;
     }
-    .screen-frame.ml3d-graphics-2d #ml3d-enhanced-screen,
-    .screen-frame.ml3d-graphics-gl #ml3d-enhanced-screen-gl{
+    .screen-frame.ml3d-graphics-active #ml3d-enhanced-screen{
       display:block;
+    }
+    .screen-frame #status{
+      z-index:20;
     }
     .ml3d-graphics-control{
       display:grid;
@@ -108,26 +103,34 @@
   `;
   document.head.appendChild(style);
 
-  const ctx = overlay2d.getContext("2d", {
+  const ctx = overlay.getContext("2d", {
     alpha: false,
     desynchronized: true
   });
+
   const capture = document.createElement("canvas");
   const captureCtx = capture.getContext("2d", {
-    willReadFrequently: true,
-    alpha: false
+    alpha: false,
+    willReadFrequently: true
   });
 
   let mode = "original";
   let rafId = 0;
   let lastW = 0;
   let lastH = 0;
-  let hdImageData = null;
 
-  let glState = null;
-  let hdBackend = "pending";
-  let perfSamples = [];
-  let lastFallbackAttempt = 0;
+  let worker = null;
+  let workerReady = false;
+  let workerBusy = false;
+  let workerFailed = false;
+  let workerFrameId = 0;
+  let lastPresentedWorkerFrame = 0;
+
+  let syncLastRun = 0;
+  let syncInterval = 1000 / 30;
+  let syncCosts = [];
+  let hdImageData = null;
+  let scale2xImageData = null;
 
   function readStoredMode() {
     try {
@@ -154,11 +157,164 @@
     if (capture.height !== h) capture.height = h;
   }
 
-  function ensureOverlay2DSize(w, h, multiplier) {
-    const targetW = Math.max(1, Math.round(w * multiplier));
-    const targetH = Math.max(1, Math.round(h * multiplier));
-    if (overlay2d.width !== targetW) overlay2d.width = targetW;
-    if (overlay2d.height !== targetH) overlay2d.height = targetH;
+  function ensureOverlaySize(w, h) {
+    if (overlay.width !== w) overlay.width = w;
+    if (overlay.height !== h) overlay.height = h;
+  }
+
+  function grabSourceFrame(w, h) {
+    ensureCaptureSize(w, h);
+    captureCtx.imageSmoothingEnabled = false;
+    captureCtx.clearRect(0, 0, w, h);
+    captureCtx.drawImage(source, 0, 0, w, h);
+    return captureCtx.getImageData(0, 0, w, h);
+  }
+
+  function presentXBRBuffer(buffer, width, height) {
+    ensureOverlaySize(width, height);
+
+    if (
+      !hdImageData ||
+      hdImageData.width !== width ||
+      hdImageData.height !== height
+    ) {
+      hdImageData = ctx.createImageData(width, height);
+    }
+
+    hdImageData.data.set(new Uint8ClampedArray(buffer));
+    ctx.putImageData(hdImageData, 0, 0);
+  }
+
+  function initWorker() {
+    if (worker || workerFailed || typeof Worker !== "function") return;
+
+    try {
+      worker = new Worker("graphics-enhancer-worker.js?v=xbr-1");
+
+      worker.onmessage = (event) => {
+        const data = event.data || {};
+
+        if (data.type === "error") {
+          console.warn("ML3D Graphics xBR worker:", data.message);
+          workerFailed = true;
+          workerBusy = false;
+          worker?.terminate();
+          worker = null;
+          updateNoteForMode();
+          return;
+        }
+
+        if (data.type !== "frame") return;
+
+        workerReady = true;
+        workerBusy = false;
+
+        if (
+          mode !== "hd" ||
+          data.id < lastPresentedWorkerFrame ||
+          !data.buffer
+        ) {
+          return;
+        }
+
+        lastPresentedWorkerFrame = data.id;
+        presentXBRBuffer(data.buffer, data.width, data.height);
+      };
+
+      worker.onerror = (event) => {
+        console.warn("ML3D Graphics: xBR worker no disponible.", event.message);
+        workerFailed = true;
+        workerBusy = false;
+        worker?.terminate();
+        worker = null;
+        updateNoteForMode();
+      };
+    } catch (error) {
+      console.warn("ML3D Graphics: no se pudo crear el worker xBR.", error);
+      workerFailed = true;
+      worker = null;
+    }
+  }
+
+  function dispatchXBRWorker(w, h) {
+    if (!worker || workerBusy) return false;
+
+    try {
+      const input = grabSourceFrame(w, h);
+      const id = ++workerFrameId;
+      workerBusy = true;
+
+      worker.postMessage(
+        {
+          type: "scale",
+          id,
+          width: w,
+          height: h,
+          buffer: input.data.buffer
+        },
+        [input.data.buffer]
+      );
+
+      return true;
+    } catch (error) {
+      console.warn("ML3D Graphics: error enviando fotograma a xBR.", error);
+      workerFailed = true;
+      workerBusy = false;
+      worker?.terminate();
+      worker = null;
+      return false;
+    }
+  }
+
+  function renderXBRSynchronous(w, h, now) {
+    if (now - syncLastRun < syncInterval) return true;
+    if (!window.xBRjs?.xbr2x) return false;
+
+    const started = performance.now();
+
+    try {
+      const input = grabSourceFrame(w, h);
+      const input32 = new Uint32Array(
+        input.data.buffer,
+        input.data.byteOffset,
+        input.data.byteLength / 4
+      );
+
+      const output = window.xBRjs.xbr2x(
+        input32,
+        w,
+        h,
+        {
+          blendColors: false,
+          scaleAlpha: false
+        }
+      );
+
+      presentXBRBuffer(output.buffer, w * 2, h * 2);
+      syncLastRun = now;
+
+      const cost = performance.now() - started;
+      syncCosts.push(cost);
+      if (syncCosts.length > 24) syncCosts.shift();
+
+      if (syncCosts.length >= 12) {
+        const average =
+          syncCosts.reduce((sum, value) => sum + value, 0) /
+          syncCosts.length;
+
+        syncInterval =
+          average > 24
+            ? 1000 / 20
+            : average > 13
+              ? 1000 / 30
+              : 1000 / 60;
+      }
+
+      return true;
+    } catch (error) {
+      console.warn("ML3D Graphics: xBR síncrono falló.", error);
+      return false;
+    }
   }
 
   function samePixel(data, a, b) {
@@ -175,30 +331,23 @@
     dst[dstIndex + 3] = src[srcIndex + 3];
   }
 
-  function renderScale2x(w, h) {
-    ensureCaptureSize(w, h);
-    captureCtx.imageSmoothingEnabled = false;
-    captureCtx.clearRect(0, 0, w, h);
-    captureCtx.drawImage(source, 0, 0, w, h);
-
-    let input;
-    try {
-      input = captureCtx.getImageData(0, 0, w, h);
-    } catch (_) {
-      renderSharp(w, h);
-      return;
-    }
-
+  function renderScale2xFallback(w, h) {
+    const input = grabSourceFrame(w, h);
     const outW = w * 2;
     const outH = h * 2;
-    ensureOverlay2DSize(w, h, 2);
 
-    if (!hdImageData || hdImageData.width !== outW || hdImageData.height !== outH) {
-      hdImageData = ctx.createImageData(outW, outH);
+    ensureOverlaySize(outW, outH);
+
+    if (
+      !scale2xImageData ||
+      scale2xImageData.width !== outW ||
+      scale2xImageData.height !== outH
+    ) {
+      scale2xImageData = ctx.createImageData(outW, outH);
     }
 
     const src = input.data;
-    const dst = hdImageData.data;
+    const dst = scale2xImageData.data;
 
     for (let y = 0; y < h; y++) {
       const yUp = y > 0 ? y - 1 : y;
@@ -235,325 +384,57 @@
       }
     }
 
-    ctx.putImageData(hdImageData, 0, 0);
+    ctx.putImageData(scale2xImageData, 0, 0);
   }
 
   function renderSharp(w, h) {
     const rect = source.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cssW = Math.max(w, Math.round(rect.width * dpr));
-    const cssH = Math.max(h, Math.round(rect.height * dpr));
+    const targetW = Math.max(w, Math.round(rect.width * dpr));
+    const targetH = Math.max(h, Math.round(rect.height * dpr));
 
-    if (overlay2d.width !== cssW) overlay2d.width = cssW;
-    if (overlay2d.height !== cssH) overlay2d.height = cssH;
-
+    ensureOverlaySize(targetW, targetH);
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, overlay2d.width, overlay2d.height);
-    ctx.drawImage(source, 0, 0, overlay2d.width, overlay2d.height);
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    ctx.drawImage(source, 0, 0, overlay.width, overlay.height);
   }
 
   function renderLCD(w, h) {
-    ensureOverlay2DSize(w, h, 2);
+    const outW = w * 2;
+    const outH = h * 2;
+    ensureOverlaySize(outW, outH);
+
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, overlay2d.width, overlay2d.height);
-    ctx.drawImage(source, 0, 0, overlay2d.width, overlay2d.height);
+    ctx.clearRect(0, 0, outW, outH);
+    ctx.drawImage(source, 0, 0, outW, outH);
 
     ctx.save();
     ctx.globalCompositeOperation = "multiply";
-    ctx.fillStyle = "rgba(16, 24, 22, 0.16)";
-    for (let y = 1; y < overlay2d.height; y += 2) {
-      ctx.fillRect(0, y, overlay2d.width, 1);
+    ctx.fillStyle = "rgba(16,24,22,.16)";
+    for (let y = 1; y < outH; y += 2) {
+      ctx.fillRect(0, y, outW, 1);
     }
     ctx.restore();
 
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.fillStyle = "rgba(220, 255, 238, 0.035)";
-    for (let x = 0; x < overlay2d.width; x += 3) {
-      ctx.fillRect(x, 0, 1, overlay2d.height);
+    ctx.fillStyle = "rgba(220,255,238,.035)";
+    for (let x = 0; x < outW; x += 3) {
+      ctx.fillRect(x, 0, 1, outH);
     }
     ctx.restore();
   }
 
-  function compileShader(gl, type, shaderSource) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, shaderSource);
-    gl.compileShader(shader);
+  function renderHD(w, h, now) {
+    initWorker();
 
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const message = gl.getShaderInfoLog(shader) || "Shader desconocido";
-      gl.deleteShader(shader);
-      throw new Error(message);
-    }
-
-    return shader;
-  }
-
-  function initWebGL() {
-    if (glState) return true;
-    if (hdBackend === "scale2x") return false;
-
-    let gl = null;
-    try {
-      gl = overlayGL.getContext("webgl", {
-        alpha: false,
-        antialias: false,
-        depth: false,
-        stencil: false,
-        preserveDrawingBuffer: true,
-        powerPreference: "high-performance"
-      });
-    } catch (_) {
-      gl = null;
-    }
-
-    if (!gl) {
-      hdBackend = "scale2x";
-      return false;
-    }
-
-    try {
-      const vertexSource = `
-        attribute vec2 aPosition;
-        varying highp vec2 vUV;
-
-        void main() {
-          gl_Position = vec4(aPosition, 0.0, 1.0);
-          vUV = vec2(
-            (aPosition.x + 1.0) * 0.5,
-            1.0 - ((aPosition.y + 1.0) * 0.5)
-          );
-        }
-      `;
-
-      const fragmentSource = `
-        precision mediump float;
-
-        varying highp vec2 vUV;
-        uniform sampler2D uTexture;
-        uniform vec2 uTexel;
-        uniform vec2 uSourceSize;
-
-        float colorDistance(vec3 a, vec3 b) {
-          vec3 d = abs(a - b);
-          return dot(d, vec3(0.299, 0.587, 0.114));
-        }
-
-        float similarity(float d) {
-          return 1.0 - smoothstep(0.055, 0.19, d);
-        }
-
-        float difference(float d) {
-          return smoothstep(0.075, 0.28, d);
-        }
-
-        void main() {
-          vec2 pixel = vUV * uSourceSize;
-          vec2 p = fract(pixel);
-          vec2 baseUV = (floor(pixel) + vec2(0.5)) / uSourceSize;
-
-          vec3 E  = texture2D(uTexture, baseUV).rgb;
-          vec3 B  = texture2D(uTexture, baseUV + vec2(0.0, -uTexel.y)).rgb;
-          vec3 D  = texture2D(uTexture, baseUV + vec2(-uTexel.x, 0.0)).rgb;
-          vec3 F  = texture2D(uTexture, baseUV + vec2(uTexel.x, 0.0)).rgb;
-          vec3 H  = texture2D(uTexture, baseUV + vec2(0.0, uTexel.y)).rgb;
-          vec3 A  = texture2D(uTexture, baseUV + vec2(-uTexel.x, -uTexel.y)).rgb;
-          vec3 C  = texture2D(uTexture, baseUV + vec2(uTexel.x, -uTexel.y)).rgb;
-          vec3 G  = texture2D(uTexture, baseUV + vec2(-uTexel.x, uTexel.y)).rgb;
-          vec3 I  = texture2D(uTexture, baseUV + vec2(uTexel.x, uTexel.y)).rgb;
-
-          vec3 outColor = E;
-
-          float tlNeighbors = similarity(colorDistance(B, D));
-          float tlCenter = difference(min(colorDistance(E, B), colorDistance(E, D)));
-          float tlSupport = max(
-            similarity(colorDistance(A, B)),
-            similarity(colorDistance(A, D))
-          );
-          float tlCorner = 1.0 - smoothstep(0.18, 0.72, max(p.x, p.y));
-          float tl = tlNeighbors * tlCenter * max(0.68, tlSupport) * tlCorner;
-          outColor = mix(outColor, (B + D) * 0.5, tl * 0.86);
-
-          float trNeighbors = similarity(colorDistance(B, F));
-          float trCenter = difference(min(colorDistance(E, B), colorDistance(E, F)));
-          float trSupport = max(
-            similarity(colorDistance(C, B)),
-            similarity(colorDistance(C, F))
-          );
-          float trCorner = 1.0 - smoothstep(0.18, 0.72, max(1.0 - p.x, p.y));
-          float tr = trNeighbors * trCenter * max(0.68, trSupport) * trCorner;
-          outColor = mix(outColor, (B + F) * 0.5, tr * 0.86);
-
-          float blNeighbors = similarity(colorDistance(D, H));
-          float blCenter = difference(min(colorDistance(E, D), colorDistance(E, H)));
-          float blSupport = max(
-            similarity(colorDistance(G, D)),
-            similarity(colorDistance(G, H))
-          );
-          float blCorner = 1.0 - smoothstep(0.18, 0.72, max(p.x, 1.0 - p.y));
-          float bl = blNeighbors * blCenter * max(0.68, blSupport) * blCorner;
-          outColor = mix(outColor, (D + H) * 0.5, bl * 0.86);
-
-          float brNeighbors = similarity(colorDistance(F, H));
-          float brCenter = difference(min(colorDistance(E, F), colorDistance(E, H)));
-          float brSupport = max(
-            similarity(colorDistance(I, F)),
-            similarity(colorDistance(I, H))
-          );
-          float brCorner = 1.0 - smoothstep(0.18, 0.72, max(1.0 - p.x, 1.0 - p.y));
-          float br = brNeighbors * brCenter * max(0.68, brSupport) * brCorner;
-          outColor = mix(outColor, (F + H) * 0.5, br * 0.86);
-
-          gl_FragColor = vec4(outColor, 1.0);
-        }
-      `;
-
-      const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
-      const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
-      const program = gl.createProgram();
-
-      gl.attachShader(program, vertexShader);
-      gl.attachShader(program, fragmentShader);
-      gl.linkProgram(program);
-
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        throw new Error(gl.getProgramInfoLog(program) || "No se pudo enlazar el programa WebGL.");
-      }
-
-      const buffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        new Float32Array([
-          -1, -1,
-           1, -1,
-          -1,  1,
-           1,  1
-        ]),
-        gl.STATIC_DRAW
-      );
-
-      const aPosition = gl.getAttribLocation(program, "aPosition");
-      gl.enableVertexAttribArray(aPosition);
-      gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
-
-      const texture = gl.createTexture();
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-      gl.useProgram(program);
-      gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);
-
-      glState = {
-        gl,
-        program,
-        texture,
-        uTexel: gl.getUniformLocation(program, "uTexel"),
-        uSourceSize: gl.getUniformLocation(program, "uSourceSize")
-      };
-      hdBackend = "webgl";
-      perfSamples = [];
-      return true;
-    } catch (error) {
-      console.warn("ML3D Graphics: WebGL HD no disponible; se usará Scale2x.", error);
-      glState = null;
-      hdBackend = "scale2x";
-      return false;
-    }
-  }
-
-  function ensureGLSize(w, h) {
-    const rect = source.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const desiredW = Math.max(w * 2, Math.round(rect.width * dpr));
-    const desiredH = Math.max(h * 2, Math.round(rect.height * dpr));
-    const targetW = Math.min(w * 4, desiredW);
-    const targetH = Math.min(h * 4, desiredH);
-
-    if (overlayGL.width !== targetW) overlayGL.width = targetW;
-    if (overlayGL.height !== targetH) overlayGL.height = targetH;
-  }
-
-  function recordWebGLCost(costMs) {
-    perfSamples.push(costMs);
-    if (perfSamples.length > 90) perfSamples.shift();
-    if (perfSamples.length < 90) return;
-
-    const avg = perfSamples.reduce((sum, value) => sum + value, 0) / perfSamples.length;
-    if (avg > 9.5) {
-      console.warn(
-        "ML3D Graphics: el shader HD es costoso en este dispositivo; activando Scale2x compatible."
-      );
-      hdBackend = "scale2x";
-      lastFallbackAttempt = performance.now();
-      frame?.classList.remove("ml3d-graphics-gl");
-      frame?.classList.add("ml3d-graphics-2d");
-      setNote("HD: modo compatible Scale2x para mantener el rendimiento.");
-    }
-  }
-
-  function renderWebGL(w, h) {
-    if (!initWebGL() || !glState) {
-      renderScale2x(w, h);
-      return false;
-    }
-
-    const started = performance.now();
-    ensureGLSize(w, h);
-
-    const gl = glState.gl;
-    gl.viewport(0, 0, overlayGL.width, overlayGL.height);
-    gl.useProgram(glState.program);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, glState.texture);
-
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      source
-    );
-
-    gl.uniform2f(glState.uTexel, 1 / w, 1 / h);
-    gl.uniform2f(glState.uSourceSize, w, h);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-    recordWebGLCost(performance.now() - started);
-    return true;
-  }
-
-  function updateVisibleSurface() {
-    if (!frame) return;
-
-    const active = mode !== "original";
-    frame.classList.toggle("ml3d-graphics-active", active);
-    frame.classList.remove("ml3d-graphics-2d", "ml3d-graphics-gl");
-
-    if (!active) {
-      source.style.opacity = "";
-      overlay2d.style.display = "none";
-      overlayGL.style.display = "none";
+    if (worker && !workerFailed) {
+      dispatchXBRWorker(w, h);
       return;
     }
 
-    source.style.opacity = "0";
-
-    if (mode === "hd" && hdBackend !== "scale2x") {
-      frame.classList.add("ml3d-graphics-gl");
-      overlayGL.style.display = "block";
-      overlay2d.style.display = "none";
-    } else {
-      frame.classList.add("ml3d-graphics-2d");
-      overlay2d.style.display = "block";
-      overlayGL.style.display = "none";
-    }
+    if (renderXBRSynchronous(w, h, now)) return;
+    renderScale2xFallback(w, h);
   }
 
   function renderFrame(now) {
@@ -568,35 +449,15 @@
       lastW = w;
       lastH = h;
       hdImageData = null;
+      scale2xImageData = null;
+      workerFrameId = 0;
+      lastPresentedWorkerFrame = 0;
     }
 
     try {
-      if (mode === "hd") {
-        if (hdBackend === "scale2x") {
-          renderScale2x(w, h);
-
-          if (
-            glState &&
-            now - lastFallbackAttempt > 12000 &&
-            perfSamples.length >= 30
-          ) {
-            perfSamples = [];
-            hdBackend = "webgl";
-            updateVisibleSurface();
-            setNote("HD: reconstrucción de bordes por shader WebGL.");
-          }
-        } else {
-          const rendered = renderWebGL(w, h);
-          if (!rendered || hdBackend === "scale2x") {
-            updateVisibleSurface();
-            renderScale2x(w, h);
-          }
-        }
-      } else if (mode === "lcd") {
-        renderLCD(w, h);
-      } else {
-        renderSharp(w, h);
-      }
+      if (mode === "hd") renderHD(w, h, now);
+      else if (mode === "lcd") renderLCD(w, h);
+      else renderSharp(w, h);
     } catch (error) {
       console.warn("ML3D Graphics: no se pudo procesar el fotograma.", error);
       setMode("original");
@@ -608,20 +469,24 @@
       const active = button.dataset.ml3dGraphicsMode === mode;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
+
+      if (button.dataset.ml3dGraphicsMode === "hd") {
+        button.title = "xBR 2×: reconstrucción real de bordes, sin alterar la paleta";
+      }
     });
   }
 
   function updateNoteForMode() {
     if (mode === "original") {
-      setNote("Imagen original del núcleo, sin procesamiento adicional.");
+      setNote("Imagen original del núcleo, sin procesamiento.");
     } else if (mode === "sharp") {
-      setNote("NÍTIDO: escalado limpio sin suavizar los píxeles.");
+      setNote("NÍTIDO: escalado nearest-neighbor limpio.");
     } else if (mode === "lcd") {
-      setNote("LCD: píxel definido con trama ligera de pantalla portátil.");
-    } else if (hdBackend === "scale2x") {
-      setNote("HD: modo compatible Scale2x para mantener el rendimiento.");
+      setNote("LCD: presentación de pantalla portátil.");
+    } else if (workerFailed) {
+      setNote("HD: xBR 2× en modo compatible, sin modificar colores.");
     } else {
-      setNote("HD: reconstrucción de diagonales y bordes por shader WebGL.");
+      setNote("HD: xBR 2× real, bordes reconstruidos y colores originales.");
     }
   }
 
@@ -629,17 +494,24 @@
     if (!VALID_MODES.has(nextMode)) nextMode = "original";
     mode = nextMode;
 
-    if (mode === "hd" && hdBackend === "pending") {
-      initWebGL();
+    const active = mode !== "original";
+    frame?.classList.toggle("ml3d-graphics-active", active);
+    source.style.opacity = active ? "0" : "";
+    overlay.style.display = active ? "block" : "none";
+
+    if (mode === "hd") {
+      initWorker();
+    } else {
+      workerBusy = false;
     }
 
-    if (mode === "original") {
-      overlay2d.width = 1;
-      overlay2d.height = 1;
+    if (!active) {
+      overlay.width = 1;
+      overlay.height = 1;
       hdImageData = null;
+      scale2xImageData = null;
     }
 
-    updateVisibleSurface();
     updateButtons();
     updateNoteForMode();
 
@@ -649,7 +521,14 @@
       detail: {
         mode,
         label: MODE_LABELS[mode],
-        backend: mode === "hd" ? hdBackend : "2d"
+        backend:
+          mode === "hd"
+            ? worker && !workerFailed
+              ? "xbr2x-worker"
+              : window.xBRjs?.xbr2x
+                ? "xbr2x"
+                : "scale2x"
+            : "2d"
       }
     }));
   }
@@ -689,12 +568,13 @@
   window.ML3DGraphics = {
     setMode,
     getMode: () => mode,
-    getBackend: () => mode === "hd" ? hdBackend : "2d",
-    getDisplayCanvas: () => {
-      if (mode === "original") return source;
-      if (mode === "hd" && hdBackend !== "scale2x") return overlayGL;
-      return overlay2d;
+    getBackend: () => {
+      if (mode !== "hd") return "2d";
+      if (worker && !workerFailed) return "xbr2x-worker";
+      if (window.xBRjs?.xbr2x) return "xbr2x";
+      return "scale2x";
     },
+    getDisplayCanvas: () => mode === "original" ? source : overlay,
     modes: { ...MODE_LABELS }
   };
 
@@ -704,5 +584,6 @@
 
   window.addEventListener("beforeunload", () => {
     if (rafId) cancelAnimationFrame(rafId);
+    worker?.terminate();
   }, { once: true });
 })();
