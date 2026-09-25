@@ -358,21 +358,22 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions button{flex:1;min-height:40px;border:1px solid #ffffff34;border-radius:11px;background:#ffffff10;color:inherit;font-weight:900}
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       .ml3d-startup-notice-card{
+        --ml3d-holo-rgb:0,217,255;
         isolation:isolate;overflow:hidden!important;
-        background:linear-gradient(145deg,#063c4ce8,#04141ef0)!important;
-        border:1px solid #74f3ffcc!important;
-        box-shadow:0 0 16px #42eaffaa,0 0 48px #00bfff70,inset 0 0 30px #40eaff25,0 24px 70px #000d!important;
-        color:#e5fdff!important;text-shadow:0 0 4px #26dfff
+        background:linear-gradient(145deg,rgba(var(--ml3d-holo-rgb),.34),rgba(4,20,30,.94))!important;
+        border:1px solid rgba(var(--ml3d-holo-rgb),.82)!important;
+        box-shadow:0 0 16px rgba(var(--ml3d-holo-rgb),.68),0 0 48px rgba(var(--ml3d-holo-rgb),.42),inset 0 0 30px rgba(var(--ml3d-holo-rgb),.18),0 24px 70px #000d!important;
+        color:#f5feff!important;text-shadow:0 0 4px rgba(var(--ml3d-holo-rgb),.9)
       }
       .ml3d-startup-notice-card>*{position:relative;z-index:2}
       .ml3d-startup-notice-card::before{
         content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
-        background:repeating-linear-gradient(0deg,transparent 0 3px,#b8f8ff12 4px,#00d9ff10 5px);
+        background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(var(--ml3d-holo-rgb),.08) 4px,rgba(var(--ml3d-holo-rgb),.06) 5px);
         mix-blend-mode:screen;animation:ml3dNoticeScan 3.2s linear infinite
       }
       .ml3d-startup-notice-card::after{
         content:"";position:absolute;inset:-20%;z-index:1;pointer-events:none;
-        background:linear-gradient(100deg,transparent 40%,#e8ffff34 47%,#58eaff16 51%,transparent 58%);
+        background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.22) 47%,rgba(var(--ml3d-holo-rgb),.16) 51%,transparent 58%);
         animation:ml3dNoticeSweep 4.8s ease-in-out infinite
       }
       .ml3d-rich-link{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;cursor:pointer}
@@ -522,6 +523,15 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       const design = item.design && typeof item.design === "object" ? item.design : {};
       const ui = createOverlay(title);
       ui.card.classList.add("ml3d-startup-notice-card");
+      const holo = /^#[0-9a-f]{6}$/i.test(String(design.hologramColor || ""))
+        ? String(design.hologramColor)
+        : "#00d9ff";
+      const holoRgb = [
+        parseInt(holo.slice(1, 3), 16),
+        parseInt(holo.slice(3, 5), 16),
+        parseInt(holo.slice(5, 7), 16)
+      ].join(",");
+      ui.card.style.setProperty("--ml3d-holo-rgb", holoRgb);
       const widthPct = Math.max(45, Math.min(96, Number(design.cardWidthPct) || 88));
       const minHeightPct = Math.max(0, Math.min(78, Number(design.cardMinHeightPct) || 0));
       ui.card.style.width = `${widthPct}vw`;
