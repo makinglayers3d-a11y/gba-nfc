@@ -291,6 +291,17 @@
         .ml3d-family-line .ml3d-family-tabs { gap: 5px !important; }
         .ml3d-sp-swatches { gap: 8px !important; }
       }
+
+      /* Landscape uses the regular controls; retain the saved portrait skin. */
+      @media (orientation: landscape) {
+        #ml3d-appearance-selector .ml3d-family-line,
+        #ml3d-appearance-selector [data-panel="sp"] {
+          display: none !important;
+        }
+        #ml3d-appearance-selector [data-panel="custom"] {
+          display: block !important;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
