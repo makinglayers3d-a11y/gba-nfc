@@ -866,6 +866,7 @@ const DEFAULT_MESSAGE_DESIGN = Object.freeze({
   bodyOffsetY: 0,
   mediaWidthPct: 100,
   mediaAlign: "center",
+  hologramColor: "#00d9ff",
   titleSpans: [],
   bodySpans: []
 });
@@ -932,6 +933,7 @@ function sanitizeMessageDesign(value) {
     bodyOffsetY: clampNumber(raw.bodyOffsetY, -60, 100, 0),
     mediaWidthPct: clampNumber(raw.mediaWidthPct, 20, 100, DEFAULT_MESSAGE_DESIGN.mediaWidthPct),
     mediaAlign: messageAlign(raw.mediaAlign, DEFAULT_MESSAGE_DESIGN.mediaAlign),
+    hologramColor: messageColor(raw.hologramColor, DEFAULT_MESSAGE_DESIGN.hologramColor),
     titleSpans: sanitizeRichSpans(raw.titleSpans, 120),
     bodySpans: sanitizeRichSpans(raw.bodySpans, 6000)
   };
