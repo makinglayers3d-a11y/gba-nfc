@@ -1,5 +1,5 @@
 /* Main stylesheet loader. Base snapshot + current SP alignment overrides. */
-@import url("base-style.css?v=save-reset-1");
+@import url("base-style.css?v=menu-compact-1");
 @import url("sp-controls-fix.css?v=final-port-1");
 
 /* Temporary snapshots keep final layout and touch geometry completely untouched. */
