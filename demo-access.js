@@ -127,10 +127,10 @@
     if (trackingTimer) clearInterval(trackingTimer);
     publish(info);
 
-    const heartbeat = async () => {
-      if (document.visibilityState !== "visible") return;
+    const heartbeat = async (force = false, resetBaseline = false) => {
+      if (!force && document.visibilityState !== "visible") return;
       try {
-        const result = await api(cfg, "/v1/demo/heartbeat", { token, clientId, sessionId });
+        const result = await api(cfg, "/v1/demo/heartbeat", { token, clientId, sessionId, resetBaseline });
         if (result && result.ok) {
           window.ml3dDemoAccess.expiresAt = Number(result.expiresAt || window.ml3dDemoAccess.expiresAt || 0);
         }
@@ -143,12 +143,16 @@
       }
     };
 
-    heartbeat();
-    trackingTimer = window.setInterval(heartbeat, HEARTBEAT_MS);
+    heartbeat(true, true);
+    trackingTimer = window.setInterval(() => heartbeat(false, false), HEARTBEAT_MS);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") heartbeat();
+      if (document.visibilityState === "hidden") {
+        heartbeat(true, false);
+      } else {
+        heartbeat(true, true);
+      }
     });
-    window.addEventListener("pagehide", () => heartbeat(), { once: true });
+    window.addEventListener("pagehide", () => heartbeat(true, false), { once: true });
   }
 
   async function ensureAccess(params) {
