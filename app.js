@@ -476,6 +476,7 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   let pressed = false;
 
   function press() {
+    if (window.ml3dStartupGateLocked) return;
     if (pressed) return;
 
     pressed = true;
@@ -575,6 +576,9 @@ window.addEventListener(
   "keydown",
   (event) => {
     if (isEditableKeyboardTarget(event.target)) {
+      return;
+    }
+    if (window.ml3dStartupGateLocked) {
       return;
     }
 
@@ -1350,6 +1354,11 @@ async function startApplication() {
     const accessGranted = await window.ml3dDevAccess.ensureAccess(params);
     if (!accessGranted) return;
   }
+
+  if (typeof window.ml3dReleaseStartupGate === "function") {
+    window.ml3dReleaseStartupGate();
+  }
+  await Promise.resolve(window.ml3dStartupGatePromise).catch(() => {});
 
   const menuOnly =
     params.get("menu") === "1";
