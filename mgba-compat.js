@@ -75,6 +75,27 @@
     }
   }
 
+  function compatibilityOptions(filename, system) {
+    const name = String(filename || "").toLowerCase();
+
+    // Tomb Raider GBC is sensitive to the selected Game Boy model/startup path.
+    // Use AGB compatibility mode for this title; keep all other games on normal
+    // auto-detection.
+    if (system === "gbc" && name.includes("tomb") && name.includes("raider")) {
+      return {
+        system: "gb",
+        gbModel: "agb",
+        skipBios: true
+      };
+    }
+
+    return {
+      system: system === "gba" ? "gba" : "auto",
+      gbModel: "auto",
+      skipBios: true
+    };
+  }
+
   async function start({ rom, filename, saveId, canvas, system, volume = 1, speed = 0.9 }) {
     await stop();
 
@@ -94,6 +115,8 @@
     activeVolume = Math.max(0, Math.min(1, Number(volume) || 0));
     activeSpeed = Math.max(0.1, Math.min(4, Number(speed) || 0.9));
 
+    const compat = compatibilityOptions(filename, system);
+
     instance = await sdk.load({
       assets: { rom: bytes },
       canvasEl: canvas,
@@ -101,11 +124,9 @@
       jsUrl: CORE_JS,
       wasmUrl: CORE_WASM,
       options: {
-        // Let mGBA inspect GB/GBC cartridge headers itself. Forcing CGB
-        // hardware can break titles that depend on model-specific startup.
-        system: system === "gba" ? "gba" : "auto",
-        gbModel: "auto",
-        skipBios: true,
+        system: compat.system,
+        gbModel: compat.gbModel,
+        skipBios: compat.skipBios,
         renderFilter: "pixelated",
         aspect: "native",
         interframeBlending: false,
