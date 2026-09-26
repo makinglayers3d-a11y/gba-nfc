@@ -562,26 +562,51 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       if (minHeightPct > 0) ui.card.style.minHeight = `${minHeightPct}vh`;
 
       const heading = ui.card.querySelector(".ml3d-tools-title");
+      let titleBox = null;
       if (heading) {
-        heading.style.fontSize = `${Math.max(11, Math.min(38, Number(design.titleFontSize) || 17))}px`;
+        titleBox = document.createElement("div");
+        titleBox.className = "ml3d-notice-text-box ml3d-notice-title-box";
+        titleBox.style.width = `${Math.max(35, Math.min(100, Number(design.titleBoxWidthPct) || 100))}%`;
+        titleBox.style.height = `${Math.max(38, Math.min(180, Number(design.titleBoxHeightPx) || 64))}px`;
+        titleBox.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+        heading.parentNode.insertBefore(titleBox, heading);
+        titleBox.appendChild(heading);
         heading.style.color = String(design.titleColor || "#ffffff");
         heading.style.fontWeight = design.titleBold === false ? "400" : "900";
         heading.style.textDecoration = design.titleUnderline ? "underline" : "none";
         heading.style.textAlign = ["left","center","right"].includes(design.titleAlign) ? design.titleAlign : "left";
-        heading.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+        heading.style.transform = "none";
         renderRichText(heading, title, design.titleSpans);
+        const titleMax = Math.max(11, Math.min(38, Number(design.titleFontSize) || 17));
+        heading.style.fontSize = titleMax + "px";
+        if (design.titleAutoFit !== false) {
+          requestAnimationFrame(() => fitTextToBox(heading, titleBox, titleMax, 9));
+        }
       }
 
-      const text = document.createElement("div");
-      text.className = "ml3d-tools-message";
-      text.style.fontSize = `${Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14))}px`;
-      text.style.color = String(design.bodyColor || "#ffffff");
-      text.style.fontWeight = design.bodyBold ? "800" : "400";
-      text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
-      text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
-      text.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
-      renderRichText(text, item.body || "", design.bodySpans);
-      ui.card.appendChild(text);
+      const bodyValue = String(item.body || "");
+      if (bodyValue.trim()) {
+        const bodyBox = document.createElement("div");
+        bodyBox.className = "ml3d-notice-text-box ml3d-notice-body-box";
+        bodyBox.style.width = `${Math.max(35, Math.min(100, Number(design.bodyBoxWidthPct) || 100))}%`;
+        bodyBox.style.height = `${Math.max(60, Math.min(360, Number(design.bodyBoxHeightPx) || 140))}px`;
+        bodyBox.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+        const text = document.createElement("div");
+        text.className = "ml3d-tools-message";
+        const bodyMax = Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14));
+        text.style.fontSize = bodyMax + "px";
+        text.style.color = String(design.bodyColor || "#ffffff");
+        text.style.fontWeight = design.bodyBold ? "800" : "400";
+        text.style.textDecoration = design.bodyUnderline ? "underline" : "none";
+        text.style.textAlign = ["left","center","right"].includes(design.bodyAlign) ? design.bodyAlign : "left";
+        text.style.transform = "none";
+        renderRichText(text, bodyValue, design.bodySpans);
+        bodyBox.appendChild(text);
+        ui.card.appendChild(bodyBox);
+        if (design.bodyAutoFit !== false) {
+          requestAnimationFrame(() => fitTextToBox(text, bodyBox, bodyMax, 8));
+        }
+      }
 
       if (item.mediaData) {
         const mediaRow = document.createElement("div");
