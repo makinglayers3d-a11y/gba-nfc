@@ -1,12 +1,12 @@
 {
   "enabled": true,
-  "version": "0.1.5",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3demu-tools-windows-update-v0.1.5/ML3Demu-tools-Windows-0.1.5-setup.exe.enc",
-  "nonce": "l_2J-dtZwRTexdTu",
-  "sha256": "1205a3cdf6e7691b8db9287b23f84ac8c3c772180dfe9bd2ecd2c30685602102",
-  "encryptedSha256": "5e22cd772a3165df18db1cfa004dfdbf0953aac03e92c81a6502a31c5bffe7b5",
-  "sizeBytes": 2896036,
+  "version": "0.1.6",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3demu-tools-windows-update-v0.1.6/ML3Demu-tools-Windows-0.1.6-setup.exe.enc",
+  "nonce": "0V0LNGlTF1gTwTGJ",
+  "sha256": "a54776e3185013131771c0a2ebd78c007d3cf08064016582587c2d6d5008f4ce",
+  "encryptedSha256": "dbcc22d30509929805a710214fac4c1a5b14983bdbf9c6939faec1916c7edca2",
+  "sizeBytes": 2953924,
   "changelog": [
-    "ML3Demu-tools Windows 0.1.5: actualización automática desde la propia aplicación"
+    "ML3Demu-tools Windows 0.1.6: actualización automática desde la propia aplicación"
   ]
 }
