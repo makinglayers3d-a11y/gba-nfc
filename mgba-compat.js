@@ -87,6 +87,7 @@ registerProcessor("ml3d-mgba-sink", ML3DMgbaSink);
   let paused = false;
   let currentSystem = null;
   let currentNamespace = "";
+  let currentSaveIdentity = "";
   let keyMask = 0;
   let speed = 0.9;
   let volume = 1;
@@ -285,15 +286,53 @@ registerProcessor("ml3d-mgba-sink", ML3DMgbaSink);
     }
   }
 
+  function findLegacySave() {
+    try {
+      if (currentSystem === "gba") {
+        const prefix = "gba-save:" + currentSaveIdentity + ":";
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            const encoded = localStorage.getItem(key);
+            if (encoded) return base64ToBytes(encoded);
+          }
+        }
+      } else {
+        const encoded = localStorage.getItem("gba-gb-save:" + currentSaveIdentity);
+        if (encoded) {
+          return new Uint8Array(JSON.parse(encoded));
+        }
+      }
+    } catch (error) {
+      console.warn("mGBA: no se pudo leer un save legado:", error);
+    }
+    return null;
+  }
+
   function restoreSave() {
     if (!mod || !currentNamespace) return false;
     try {
+      let bytes = null;
       const encoded = localStorage.getItem(saveStorageKey());
-      if (!encoded) return false;
-      const bytes = base64ToBytes(encoded);
+
+      if (encoded) {
+        bytes = base64ToBytes(encoded);
+      } else {
+        bytes = findLegacySave();
+      }
+
+      if (!bytes || !bytes.length) return false;
+
       const ptr = heapAlloc(bytes);
       const ok = mod._mgbawasm_sram_load(ptr, bytes.length);
       mod._free(ptr);
+
+      if (ok && !encoded) {
+        // One-time copy into the mGBA save namespace. The legacy save remains
+        // untouched so Cable Link/Iodine can still use it.
+        localStorage.setItem(saveStorageKey(), bytesToBase64(bytes));
+      }
+
       return Boolean(ok);
     } catch (error) {
       console.warn("mGBA: no se pudo restaurar SRAM:", error);
@@ -309,7 +348,8 @@ registerProcessor("ml3d-mgba-sink", ML3DMgbaSink);
     if (!ctx) throw new Error("No se pudo abrir el canvas para mGBA.");
 
     currentSystem = system;
-    currentNamespace = sanitizeNamespace(filename, saveId);
+    currentSaveIdentity = String(saveId || filename || "game");
+    currentNamespace = sanitizeNamespace(filename, currentSaveIdentity);
     volume = clamp(initialVolume, 0, 1);
     speed = clamp(initialSpeed, 0.1, 4);
 
@@ -403,6 +443,7 @@ registerProcessor("ml3d-mgba-sink", ML3DMgbaSink);
     paused = false;
     currentSystem = null;
     currentNamespace = "";
+    currentSaveIdentity = "";
     keyMask = 0;
     imageData = null;
 
