@@ -357,6 +357,17 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions{display:flex;gap:8px;margin-top:8px}
       .ml3d-chat-actions button{flex:1;min-height:40px;border:1px solid #ffffff34;border-radius:11px;background:#ffffff10;color:inherit;font-weight:900}
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
+      html.ml3d-notice-preview-only,body.ml3d-notice-preview-only{
+        margin:0!important;width:100%!important;height:100%!important;overflow:hidden!important;
+        background:#05070a!important;overscroll-behavior:none!important
+      }
+      html.ml3d-notice-preview-only .ml3d-tools-overlay{
+        background:#05070a!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+        padding:14px!important;overflow:hidden!important
+      }
+      html.ml3d-notice-preview-only .ml3d-startup-notice-card{
+        max-height:calc(100dvh - 28px)!important;margin:auto!important
+      }
       .ml3d-startup-notice-card{
         --ml3d-holo-rgb:0,217,255;
         isolation:isolate;overflow-x:hidden!important;overflow-y:auto!important;
@@ -1178,16 +1189,24 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      ensureStyles();
-      installReportButton();
-      installChatStatusWatch();
-    }, { once: true });
-  } else {
+  const noticePreviewOnly =
+    new URLSearchParams(window.location.search).get("noticePreview") === "1";
+
+  function initializeEmulatorToolsUi() {
     ensureStyles();
+    if (noticePreviewOnly) {
+      document.documentElement.classList.add("ml3d-notice-preview-only");
+      document.body?.classList.add("ml3d-notice-preview-only");
+      return;
+    }
     installReportButton();
     installChatStatusWatch();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeEmulatorToolsUi, { once: true });
+  } else {
+    initializeEmulatorToolsUi();
   }
 
   window.ml3dEmulatorTools = {
