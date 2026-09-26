@@ -359,7 +359,8 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
       .ml3d-chat-actions .primary{background:#8fe3ff;color:#071019;border-color:#8fe3ff}
       .ml3d-startup-notice-card{
         --ml3d-holo-rgb:0,217,255;
-        isolation:isolate;overflow:auto!important;
+        isolation:isolate;overflow-x:hidden!important;overflow-y:auto!important;
+        overscroll-behavior-x:none;touch-action:pan-y;
         background:linear-gradient(145deg,rgba(var(--ml3d-holo-rgb),.34),rgba(4,20,30,.94))!important;
         border:1px solid rgba(var(--ml3d-holo-rgb),.82)!important;
         box-shadow:0 0 16px rgba(var(--ml3d-holo-rgb),.68),0 0 48px rgba(var(--ml3d-holo-rgb),.42),inset 0 0 30px rgba(var(--ml3d-holo-rgb),.18),0 24px 70px #000d!important;
