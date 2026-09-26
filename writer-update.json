@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 32,
-  "versionName": "0.11.14",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.14/ml3d-nfc-writer-0.11.14.apk",
-  "sha256": "2fe86f28d9f6587e7a16b6e1dbb778901decb348db7dec14cd792740b5535600",
-  "sizeBytes": 7828926,
+  "versionCode": 33,
+  "versionName": "0.11.15",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.15/ml3d-nfc-writer-0.11.15.apk",
+  "sha256": "576cbd14ad19f92c9cb55ec4556d725a5978ede8f22328edbfc92e545c96f287",
+  "sizeBytes": 7829138,
   "changelog": [
-    "Android 0.11.14: fix exact preview black screen"
+    "Android 0.11.15: native full-screen exact preview"
   ]
 }
