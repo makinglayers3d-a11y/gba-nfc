@@ -691,15 +691,13 @@ window.addEventListener(
       emulator.attachSaveImportHandler((name, callback, errorCallback) => errorCallback());
 
       const storedSpeedRaw = localStorage.getItem("gba-speed");
-      let savedSpeed = Number(storedSpeedRaw == null ? "1" : storedSpeedRaw);
+      let savedSpeed = Number(storedSpeedRaw == null ? "0.9" : storedSpeedRaw);
 
-      // 0.95 was the historical ML3Demuler default. It changes the emulated
-      // clock and can expose audio/video timing issues in games that are more
-      // sensitive to DMA, sound FIFO or scanline timing. Migrate only that
-      // legacy default; explicit user-selected speeds remain untouched.
-      if (storedSpeedRaw === "0.95" || !Number.isFinite(savedSpeed) || savedSpeed <= 0) {
-        savedSpeed = 1;
-        localStorage.setItem("gba-speed", "1");
+      // ML3Demuler uses 90% as its normal default. Keep the user's explicit
+      // speed choice untouched and only fall back to 90% for invalid values.
+      if (!Number.isFinite(savedSpeed) || savedSpeed <= 0) {
+        savedSpeed = 0.9;
+        localStorage.setItem("gba-speed", "0.9");
       }
 
       emulator.setSpeed(savedSpeed);
