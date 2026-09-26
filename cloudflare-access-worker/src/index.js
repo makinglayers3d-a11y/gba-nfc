@@ -1455,7 +1455,7 @@ const DEFAULT_DEMO_BASE_URL = "https://makinglayers3d-a11y.github.io/gba-nfc/";
 
 async function ensureDemoSchema(env) {
   await env.DB.batch([
-    env.DB.prepare(\`CREATE TABLE IF NOT EXISTS demo_links (
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_links (
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
       label TEXT,
@@ -1463,8 +1463,8 @@ async function ensureDemoSchema(env) {
       created_at TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       updated_at TEXT NOT NULL
-    )\`),
-    env.DB.prepare(\`CREATE TABLE IF NOT EXISTS demo_visitors (
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_visitors (
       id TEXT PRIMARY KEY,
       demo_id TEXT NOT NULL,
       client_id TEXT NOT NULL,
@@ -1476,8 +1476,8 @@ async function ensureDemoSchema(env) {
       active_seconds INTEGER NOT NULL DEFAULT 0,
       session_count INTEGER NOT NULL DEFAULT 0,
       UNIQUE(demo_id, client_id)
-    )\`),
-    env.DB.prepare(\`CREATE TABLE IF NOT EXISTS demo_sessions (
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_sessions (
       id TEXT PRIMARY KEY,
       demo_id TEXT NOT NULL,
       visitor_id TEXT NOT NULL,
@@ -1486,7 +1486,7 @@ async function ensureDemoSchema(env) {
       last_heartbeat_ms INTEGER NOT NULL,
       last_seen_at TEXT NOT NULL,
       active_seconds INTEGER NOT NULL DEFAULT 0
-    )\`),
+    )`),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_links_expires ON demo_links(expires_at DESC)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_visitors_demo ON demo_visitors(demo_id, last_seen_at DESC)"),
     env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_sessions_visitor ON demo_sessions(visitor_id, last_seen_at DESC)")
@@ -1496,7 +1496,7 @@ async function ensureDemoSchema(env) {
 function demoPublicUrl(env, token) {
   const base = cleanText(env.DEMO_BASE_URL || DEFAULT_DEMO_BASE_URL, 500) || DEFAULT_DEMO_BASE_URL;
   const separator = base.includes("?") ? "&" : "?";
-  return \`\${base}\${separator}demo=\${encodeURIComponent(token)}&menu=1\`;
+  return `${base}${separator}demo=${encodeURIComponent(token)}&menu=1`;
 }
 
 function demoState(row) {
@@ -1567,29 +1567,29 @@ async function publicDemoRegister(env, request) {
   if (state !== "active") return response(env, request, { ok: false, state, expiresAt: Number(demo.expires_at) }, 403);
 
   const now = nowIso();
-  const visitorId = \`\${demo.id}:\${clientId}\`;
+  const visitorId = `${demo.id}:${clientId}`;
   const existingVisitor = await env.DB.prepare(
     "SELECT id FROM demo_visitors WHERE demo_id = ? AND client_id = ?"
   ).bind(demo.id, clientId).first();
 
   if (!existingVisitor) {
-    await env.DB.prepare(\`INSERT INTO demo_visitors
+    await env.DB.prepare(`INSERT INTO demo_visitors
       (id, demo_id, client_id, instagram, user_agent, terms_version, first_seen_at, last_seen_at, active_seconds, session_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)\`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`)
       .bind(visitorId, demo.id, clientId, instagram, userAgent, DEMO_TERMS_VERSION, now, now).run();
   } else {
-    await env.DB.prepare(\`UPDATE demo_visitors SET instagram = ?, user_agent = ?, terms_version = ?,
-      last_seen_at = ? WHERE id = ?\`)
+    await env.DB.prepare(`UPDATE demo_visitors SET instagram = ?, user_agent = ?, terms_version = ?,
+      last_seen_at = ? WHERE id = ?`)
       .bind(instagram, userAgent, DEMO_TERMS_VERSION, now, visitorId).run();
   }
 
-  const sessionKey = \`\${visitorId}:\${sessionId}\`;
+  const sessionKey = `${visitorId}:${sessionId}`;
   const session = await env.DB.prepare("SELECT id FROM demo_sessions WHERE id = ?").bind(sessionKey).first();
   if (!session) {
     await env.DB.batch([
-      env.DB.prepare(\`INSERT INTO demo_sessions
+      env.DB.prepare(`INSERT INTO demo_sessions
         (id, demo_id, visitor_id, session_id, started_at, last_heartbeat_ms, last_seen_at, active_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)\`)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
         .bind(sessionKey, demo.id, visitorId, sessionId, now, Date.now(), now),
       env.DB.prepare("UPDATE demo_visitors SET session_count = session_count + 1, last_seen_at = ? WHERE id = ?")
         .bind(now, visitorId)
@@ -1618,13 +1618,13 @@ async function publicDemoHeartbeat(env, request) {
   const state = demoState(demo);
   if (state !== "active") return response(env, request, { ok: false, state, expiresAt: Number(demo.expires_at) }, 403);
 
-  const visitorId = \`\${demo.id}:\${clientId}\`;
+  const visitorId = `${demo.id}:${clientId}`;
   const visitor = await env.DB.prepare("SELECT id FROM demo_visitors WHERE id = ?").bind(visitorId).first();
   if (!visitor) return bad(env, request, "Identificación de demo no registrada", 403);
 
   const nowMs = Date.now();
   const now = nowIso();
-  const sessionKey = \`\${visitorId}:\${sessionId}\`;
+  const sessionKey = `${visitorId}:${sessionId}`;
   const previous = await env.DB.prepare(
     "SELECT last_heartbeat_ms AS lastHeartbeatMs FROM demo_sessions WHERE id = ?"
   ).bind(sessionKey).first();
@@ -1632,9 +1632,9 @@ async function publicDemoHeartbeat(env, request) {
   let elapsedSeconds = 0;
   if (!previous) {
     await env.DB.batch([
-      env.DB.prepare(\`INSERT INTO demo_sessions
+      env.DB.prepare(`INSERT INTO demo_sessions
         (id, demo_id, visitor_id, session_id, started_at, last_heartbeat_ms, last_seen_at, active_seconds)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)\`)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
         .bind(sessionKey, demo.id, visitorId, sessionId, now, nowMs, now),
       env.DB.prepare("UPDATE demo_visitors SET session_count = session_count + 1, last_seen_at = ? WHERE id = ?")
         .bind(now, visitorId)
@@ -1642,11 +1642,11 @@ async function publicDemoHeartbeat(env, request) {
   } else {
     elapsedSeconds = Math.floor(Math.max(0, Math.min(45000, nowMs - Number(previous.lastHeartbeatMs || nowMs))) / 1000);
     await env.DB.batch([
-      env.DB.prepare(\`UPDATE demo_sessions SET last_heartbeat_ms = ?, last_seen_at = ?,
-        active_seconds = active_seconds + ? WHERE id = ?\`)
+      env.DB.prepare(`UPDATE demo_sessions SET last_heartbeat_ms = ?, last_seen_at = ?,
+        active_seconds = active_seconds + ? WHERE id = ?`)
         .bind(nowMs, now, elapsedSeconds, sessionKey),
-      env.DB.prepare(\`UPDATE demo_visitors SET last_seen_at = ?,
-        active_seconds = active_seconds + ? WHERE id = ?\`)
+      env.DB.prepare(`UPDATE demo_visitors SET last_seen_at = ?,
+        active_seconds = active_seconds + ? WHERE id = ?`)
         .bind(now, elapsedSeconds, visitorId)
     ]);
   }
@@ -1688,9 +1688,9 @@ async function adminCreateDemo(env, request) {
   const nowMs = Date.now();
   const now = nowIso();
   const expiresAt = nowMs + Math.round(expiresInMinutes * 60 * 1000);
-  await env.DB.prepare(\`INSERT INTO demo_links
+  await env.DB.prepare(`INSERT INTO demo_links
     (id, token, label, status, created_at, expires_at, updated_at)
-    VALUES (?, ?, ?, 'active', ?, ?, ?)\`)
+    VALUES (?, ?, ?, 'active', ?, ?, ?)`)
     .bind(id, token, label || null, now, expiresAt, now).run();
   return response(env, request, {
     demo: demoSummary(env, {
@@ -1702,28 +1702,28 @@ async function adminCreateDemo(env, request) {
 
 async function adminListDemos(env, request) {
   await ensureDemoSchema(env);
-  const result = await env.DB.prepare(\`SELECT d.id, d.token, d.label, d.status,
+  const result = await env.DB.prepare(`SELECT d.id, d.token, d.label, d.status,
       d.created_at AS createdAt, d.expires_at AS expiresAt,
       (SELECT COUNT(*) FROM demo_visitors v WHERE v.demo_id = d.id) AS visitorCount,
       (SELECT COALESCE(SUM(v.active_seconds),0) FROM demo_visitors v WHERE v.demo_id = d.id) AS totalActiveSeconds
-    FROM demo_links d ORDER BY d.created_at DESC LIMIT 300\`).all();
+    FROM demo_links d ORDER BY d.created_at DESC LIMIT 300`).all();
   return response(env, request, { demos: (result.results || []).map((row) => demoSummary(env, row)) });
 }
 
 async function adminDemoDetail(env, request, demoIdValue) {
   await ensureDemoSchema(env);
   const demoId = cleanText(decodeURIComponent(demoIdValue), 120);
-  const demo = await env.DB.prepare(\`SELECT d.id, d.token, d.label, d.status,
+  const demo = await env.DB.prepare(`SELECT d.id, d.token, d.label, d.status,
       d.created_at AS createdAt, d.expires_at AS expiresAt,
       (SELECT COUNT(*) FROM demo_visitors v WHERE v.demo_id = d.id) AS visitorCount,
       (SELECT COALESCE(SUM(v.active_seconds),0) FROM demo_visitors v WHERE v.demo_id = d.id) AS totalActiveSeconds
-    FROM demo_links d WHERE d.id = ?\`).bind(demoId).first();
+    FROM demo_links d WHERE d.id = ?`).bind(demoId).first();
   if (!demo) return bad(env, request, "Demo no encontrada", 404);
 
-  const visitors = await env.DB.prepare(\`SELECT id, instagram, user_agent AS userAgent,
+  const visitors = await env.DB.prepare(`SELECT id, instagram, user_agent AS userAgent,
       first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt,
       active_seconds AS activeSeconds, session_count AS sessionCount
-    FROM demo_visitors WHERE demo_id = ? ORDER BY last_seen_at DESC LIMIT 500\`).bind(demoId).all();
+    FROM demo_visitors WHERE demo_id = ? ORDER BY last_seen_at DESC LIMIT 500`).bind(demoId).all();
   return response(env, request, { demo: demoSummary(env, demo), visitors: visitors.results || [] });
 }
 
