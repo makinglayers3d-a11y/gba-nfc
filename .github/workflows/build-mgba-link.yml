@@ -1,0 +1,166 @@
+name: Build mGBA Link core
+
+# Build reproducible del fork mGBA de ML3D. Solo en la rama de migracion del
+# Cable Link: no toca main ni la rama del lobby.
+#
+# Fase 1 (`upstream`): compila el shim original de mGBA-wasm sin tocarlo y
+# comprueba que exporta exactamente lo mismo que @wasm-gaming/mgba-wasm@0.1.1.
+# Fase 2 (`multi`): shim multi-instancia con ROM compartida, todavia sin SIO.
+#
+# La fase 2 no se lanza sola: hay que pedirla con workflow_dispatch.
+
+on:
+  push:
+    branches: [test/mgba-link-2026-09-26]
+    paths:
+      - 'link-mgba/**'
+      - '.github/workflows/build-mgba-link.yml'
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Fase a compilar'
+        type: choice
+        options: [upstream, multi]
+        default: upstream
+      emsdk_tag:
+        description: 'Etiqueta de la imagen emscripten/emsdk (pinar cuando haya un build bueno)'
+        type: string
+        default: latest
+      smoke_seconds:
+        description: 'Segundos de la prueba de estabilidad (solo fase multi)'
+        type: string
+        default: '60'
+      rom:
+        description: 'ROM para la prueba headless'
+        type: string
+        default: 'games/Mario Kart - Super Circuit.gba'
+
+permissions:
+  contents: read
+
+env:
+  # El commit del que salio @wasm-gaming/mgba-wasm@0.1.1: mgba master, 2026-07-21.
+  MGBA_REF: c034660f007c543233f1cadeb0ca13c71afd8f41
+  STAGE: ${{ inputs.stage || 'upstream' }}
+  ROM: ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
+  SMOKE_SECONDS: ${{ inputs.smoke_seconds || '60' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: emscripten/emsdk:${{ inputs.emsdk_tag || 'latest' }}
+
+    steps:
+      # El repo trae 577 MB de ROMs en games/. Sin sparse-checkout el clone se
+      # lleva casi todo el tiempo del job, asi que se pide solo link-mgba y la
+      # ROM de la prueba.
+      - name: Checkout (solo link-mgba y la ROM de prueba)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            link-mgba
+            ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
+          sparse-checkout-cone-mode: false
+
+      - name: Entorno
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          echo "Fase: ${STAGE}"
+          echo "mGBA pinado: ${MGBA_REF}"
+          echo
+          echo "emcc:  $(emcc --version | head -1)"
+          echo "node:  $(node --version)"
+          echo "git:   $(git --version)"
+          # La imagen de emsdk trae cmake y make, pero no esta garantizado en
+          # todas las etiquetas. Si falta alguno se instala y se dice.
+          for tool in cmake make; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "$tool: $($tool --version | head -1)"
+            else
+              echo "::warning::${tool} no esta en la imagen; instalando con apt"
+              apt-get update -qq && apt-get install -y -qq "$tool"
+              echo "$tool: $($tool --version | head -1)"
+            fi
+          done
+
+      - name: Cache del checkout y el build de mGBA
+        uses: actions/cache@v4
+        with:
+          path: link-mgba/.tmp
+          key: mgba-${{ env.MGBA_REF }}-${{ inputs.emsdk_tag || 'latest' }}-${{ env.STAGE }}
+          restore-keys: |
+            mgba-${{ env.MGBA_REF }}-${{ inputs.emsdk_tag || 'latest' }}-
+
+      - name: Compilar
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash link-mgba/scripts/build.sh "${STAGE}"
+
+      - name: Verificar el commit de mGBA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          HEAD_SHA="$(git -C link-mgba/.tmp/mgba-build rev-parse HEAD)"
+          echo "mGBA HEAD: ${HEAD_SHA}"
+          if [ "${HEAD_SHA}" != "${MGBA_REF}" ]; then
+            echo "::error::mGBA compilado desde ${HEAD_SHA}, se esperaba ${MGBA_REF}"
+            exit 1
+          fi
+          echo "Coincide con el commit pinado."
+
+      # build.sh ya llama a check-exports.sh y falla si el enlazador ha tirado
+      # algun export. Se repite aqui como paso propio para que el fallo salga
+      # con su nombre en la interfaz de Actions.
+      - name: Verificar exports y tamano
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash link-mgba/scripts/check-exports.sh "${STAGE}"
+
+      - name: Prueba headless (node)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}"
+
+      - name: Resumen
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="link-mgba/dist/${STAGE}"
+          {
+            echo "## Fase \`${STAGE}\`"
+            echo
+            if [ -f "${DIST}/mgba.wasm" ]; then
+              WASM=$(wc -c < "${DIST}/mgba.wasm")
+              GLUE=$(wc -c < "${DIST}/mgba.js")
+              EXPORTS=$(grep -aoE '_mgbawasm_[a-z0-9_]+' "${DIST}/mgba.js" | sort -u | wc -l)
+              echo "| Medida | Valor |"
+              echo "| --- | --- |"
+              echo "| mgba.wasm | $WASM bytes ($((WASM / 1024)) KiB) |"
+              echo "| mgba.js | $GLUE bytes ($((GLUE / 1024)) KiB) |"
+              echo "| exports \`mgbawasm_*\` | $EXPORTS |"
+              echo "| mGBA | \`${MGBA_REF}\` |"
+              echo "| emsdk | $(emcc --version | head -1) |"
+              echo "| ROM de prueba | \`${ROM}\` |"
+            else
+              echo "El build no ha producido artefactos."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::mgba.wasm = $( [ -f "${DIST}/mgba.wasm" ] && wc -c < "${DIST}/mgba.wasm" || echo 0 ) bytes"
+
+      - name: Subir artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mgba-${{ env.STAGE }}-${{ github.run_number }}
+          path: |
+            link-mgba/dist/${{ env.STAGE }}/mgba.js
+            link-mgba/dist/${{ env.STAGE }}/mgba.wasm
+          if-no-files-found: error

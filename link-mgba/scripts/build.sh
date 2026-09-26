@@ -47,10 +47,16 @@ mkdir -p "${BUILD_DIR}" "${OUT_DIR}"
 
 # --- Fetch pinned source ----------------------------------------------------
 if [ ! -d "${BUILD_DIR}/.git" ]; then
-	echo "Cloning mGBA..."
-	git clone "${MGBA_REPO}" "${BUILD_DIR}"
+	echo "Init mGBA checkout..."
+	git init --quiet "${BUILD_DIR}"
+	git -C "${BUILD_DIR}" remote add origin "${MGBA_REPO}"
 fi
-git -C "${BUILD_DIR}" fetch --quiet origin "${MGBA_REF}" || true
+# Only the pinned commit, shallow: mGBA's full history is a few hundred MB and
+# nothing here reads it. Servers that refuse a bare SHA fall back to a full
+# fetch. version.cmake's `git describe` finds no tags in a shallow checkout and
+# leaves the version string empty, which it already handles for tarball builds.
+git -C "${BUILD_DIR}" fetch --quiet --depth 1 origin "${MGBA_REF}" \
+	|| git -C "${BUILD_DIR}" fetch --quiet origin
 git -C "${BUILD_DIR}" checkout --quiet "${MGBA_REF}"
 echo "mGBA at $(git -C "${BUILD_DIR}" rev-parse HEAD)"
 
@@ -182,8 +188,7 @@ emcc \
 echo
 echo "Built artifacts:"
 ls -l "${OUT_DIR}/mgba.js" "${OUT_DIR}/mgba.wasm"
-echo
-echo "Exports:"
-grep -aoE "_mgbawasm_[a-z0-9_]+" "${OUT_DIR}/mgba.js" | sort -u | sed 's/^/  /'
-echo
-echo "Lockstep linked in: $(grep -ac 'GBA SIO Lockstep' "${OUT_DIR}/mgba.wasm" || true) (0 until stage 3)"
+
+# Fails the build when the linker dropped an export the shim declares. Same
+# script CI runs, so a green build locally means the same thing there.
+bash "$(dirname "${BASH_SOURCE[0]}")/check-exports.sh" "${STAGE}"

@@ -10,12 +10,13 @@ paquete de jsdelivr y las páginas de `prototype/` se abren a mano.
 
 | Fase | Qué | Estado |
 | --- | --- | --- |
-| 1 | Reproducir el build oficial, shim original sin tocar | **scripts listos, sin compilar** |
-| 2 | Shim multi-instancia con ROM compartida, sin cable | **escrito, sin compilar** |
+| 1 | Reproducir el build oficial, shim original sin tocar | **en CI, pendiente de la primera ejecución** |
+| 2 | Shim multi-instancia con ROM compartida, sin cable | escrita, se lanza a mano tras la fase 1 |
 | 3 | `GBASIOLockstepCoordinator` | no empezada |
 
-Nada se ha compilado todavía: en el PC donde se escribió esto no hay `docker`,
-`emcc`, `cmake`, `make` ni `node`. Hace falta uno de los dos caminos de abajo.
+Nada se ha compilado todavía. El build va por GitHub Actions, no por el PC: en la
+máquina donde se escribió esto no hay `docker`, `emcc`, `cmake`, `make` ni
+`node`, y el sentido de hacerlo en CI es justo que eso deje de importar.
 
 ## Origen y licencia
 
@@ -25,6 +26,8 @@ Nada se ha compilado todavía: en el PC donde se escribió esto no hay `docker`,
 | `upstream/build-mgba.sh` | `scripts/build-mgba.sh` del mismo repo, copia literal, solo como referencia |
 | `shim/mgba_shim_multi.c` | derivado del anterior: multi-instancia y ROM compartida |
 | `scripts/build.sh` | derivado de `upstream/build-mgba.sh` |
+| `scripts/check-exports.sh` | nuestro: compara los `EXPORT` del shim con los que quedaron enlazados |
+| `scripts/smoke.cjs` | nuestro: prueba headless en node, sin navegador |
 
 mGBA y mGBA-wasm son MPL-2.0, y los ficheros derivados también. Las copias
 conservan su cabecera.
@@ -38,6 +41,39 @@ mGBA se clona en `.tmp/` durante el build (ignorado por git), pinado a
 que salió `@wasm-gaming/mgba-wasm@0.1.1`.
 
 ## Compilar
+
+### GitHub Actions — el build oficial
+
+`.github/workflows/build-mgba-link.yml`, solo en esta rama. Es el camino
+reproducible: no depende de lo que haya instalado en ningún PC.
+
+Se lanza desde Actions → **Build mGBA Link core** → *Run workflow*, con cuatro
+entradas:
+
+| Entrada | Por defecto | Para qué |
+| --- | --- | --- |
+| `stage` | `upstream` | `upstream` = fase 1, `multi` = fase 2 |
+| `emsdk_tag` | `latest` | Etiqueta de `emscripten/emsdk`. Pinar en cuanto haya un build bueno |
+| `smoke_seconds` | `60` | Duración de la prueba de estabilidad de la fase 2 |
+| `rom` | `games/Mario Kart - Super Circuit.gba` | ROM de la prueba headless |
+
+También corre solo al empujar cambios en `link-mgba/**`, y ahí siempre en fase
+`upstream`: la fase 2 hay que pedirla a mano.
+
+Qué hace el job, en orden: checkout disperso (solo `link-mgba` y una ROM —
+`games/` pesa 577 MB), build con el commit de mGBA pinado, comprobación de que
+el `HEAD` clonado es ese commit, verificación de exports, prueba headless en
+node, resumen con el tamaño del `.wasm` y artifact `mgba-<fase>-<run>` con
+`mgba.js` y `mgba.wasm`.
+
+Falla si el build falla, si el commit no coincide, si el enlazador ha tirado
+algún export, si la fase 1 no exporta exactamente lo mismo que el paquete
+publicado, o si la prueba headless no pasa.
+
+`emsdk_tag: latest` es deliberado de momento: la versión de emsdk con la que se
+construyó `@wasm-gaming/mgba-wasm@0.1.1` no está registrada en ninguna parte del
+paquete ni de su repo, así que no hay versión que igualar. El log imprime
+`emcc --version`; con eso se pina y a partir de ahí el build es byte a byte.
 
 ### Con Docker (recomendado: no instala nada en el PC)
 
@@ -75,6 +111,29 @@ Variables útiles:
 | `EMSDK_TAG` | otra etiqueta de la imagen de Docker |
 
 ## Probar
+
+### Sin navegador (lo que corre en CI)
+
+```bash
+node scripts/smoke.cjs upstream                      # fase 1
+SMOKE_SECONDS=180 node scripts/smoke.cjs multi       # fase 2
+```
+
+El glue se enlaza con `-sENVIRONMENT=web,node`, así que node carga el mismo
+artefacto que sube el artifact. Lo que mide cada fase:
+
+| Fase 1 | Fase 2 |
+| --- | --- |
+| `mgbawasm_load` devuelve 1 | heap con 0 núcleos, con ROM, con 1 y con 2 |
+| plataforma detectada como GBA | abre el núcleo 0 y el núcleo 1 |
+| sample rate y framerate reales | el 2.º núcleo no duplica la ROM |
+| 600 frames sin atascarse | frames idénticos sin entrada (determinismo) |
+| 240x160 con imagen de verdad | pantallas distintas al pulsar solo en uno |
+| el núcleo produce audio | punteros de framebuffer distintos |
+| | estabilidad N segundos, sin fugas de heap |
+| | cerrar, reabrir y volver al punto de partida |
+
+### En el navegador
 
 Las dos páginas necesitan servidor (cargan módulos ES y hacen `fetch`). Vale el
 del repo: `probar-lobby-local.cmd` o `powershell -ExecutionPolicy Bypass -File

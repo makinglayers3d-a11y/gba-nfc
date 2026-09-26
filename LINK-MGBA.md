@@ -18,11 +18,16 @@ emulador principal y `mgba-compat.js` no se tocan.
 
 | Fase | Qué | Estado |
 | --- | --- | --- |
-| 1 | Reproducir el build oficial con el shim original | scripts listos, sin compilar |
-| 2 | Shim multi-instancia con ROM compartida, sin cable | escrito, sin compilar |
+| 1 | Reproducir el build oficial con el shim original | en CI, pendiente de la primera ejecución |
+| 2 | Shim multi-instancia con ROM compartida, sin cable | escrita, se lanza a mano tras la fase 1 |
 | 3 | `GBASIOLockstepCoordinator` | no empezada |
 
-Nada compilado todavía: falta toolchain (`docker` o `emsdk` + `cmake` + `make`).
+El build oficial del fork es
+[`.github/workflows/build-mgba-link.yml`](.github/workflows/build-mgba-link.yml),
+solo en esta rama: compila en un contenedor `emscripten/emsdk`, verifica el
+commit pinado y los exports, corre una prueba headless en node y sube
+`mgba.js` + `mgba.wasm` como artifact. Así el build no depende de lo que haya
+instalado en ningún PC, que es justo lo que se buscaba.
 
 ## Punto de partida
 
@@ -416,7 +421,9 @@ Por instancia, sumando lo que asigna el shim y lo que ocupa un GBA:
 
 ## Plan de pruebas
 
-Por fases, y ninguna avanza sin la anterior.
+Por fases, y ninguna avanza sin la anterior. Las fases 1 y 2 se miden en CI con
+`link-mgba/scripts/smoke.cjs`, sin navegador; las páginas de `link-mgba/prototype/`
+son la comprobación a ojo encima de eso.
 
 **Fase 1 — reproducir el build oficial.** Compilar con el script del port sin
 tocar nada y comparar contra el `.wasm` publicado.

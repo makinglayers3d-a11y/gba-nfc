@@ -134,9 +134,25 @@ let lastTick = 0;
 
 /* --------------------------------------------------------------- arranque */
 
+/* mgba.js es un script clásico UMD, no un módulo ES: define el global
+   createMgbaModule y solo exporta por module.exports/AMD, que en el navegador no
+   existen. Así lo carga también el SDK oficial (loadClassicScriptOnce). */
+function loadClassicScript(url) {
+  return new Promise((resolve, reject) => {
+    const tag = document.createElement("script");
+    tag.src = url;
+    tag.onload = () => resolve();
+    tag.onerror = () => reject(new Error("no se pudo cargar " + url));
+    document.head.appendChild(tag);
+  });
+}
+
 async function boot() {
-  const factory = await import(WASM_DIR + "mgba.js").then((m) => m.default);
-  Module = await factory({ locateFile: (p) => WASM_DIR + p });
+  await loadClassicScript(WASM_DIR + "mgba.js");
+  if (typeof window.createMgbaModule !== "function") {
+    throw new Error("mgba.js no ha definido createMgbaModule: ¿compilaste la fase multi?");
+  }
+  Module = await window.createMgbaModule({ locateFile: (p) => WASM_DIR + p });
   Module._mgbawasm_init();
   Module._mgbawasm_set_log_level(1);
   log("Módulo cargado. Máximo de instancias: " + Module._mgbawasm_instance_max(), "ok");
