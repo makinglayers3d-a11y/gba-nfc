@@ -1170,6 +1170,24 @@ async function startApplication() {
   const params =
     new URLSearchParams(window.location.search);
 
+  const bootScreen =
+    document.getElementById("boot-screen");
+
+  if (params.get("noticePreview") === "1") {
+    if (bootScreen) {
+      bootScreen.classList.add("boot-finished");
+      bootScreen.style.display = "none";
+      bootScreen.style.visibility = "hidden";
+      bootScreen.style.opacity = "0";
+      bootScreen.style.pointerEvents = "none";
+    }
+    status.hidden = true;
+    status.style.display = "none";
+    document.documentElement.classList.add("ml3d-notice-preview-mode");
+    window.__ML3D_NOTICE_PREVIEW_READY__ = true;
+    return;
+  }
+
   if (params.get("dev") === "1") {
     if (!window.ml3dDevAccess || typeof window.ml3dDevAccess.ensureAccess !== "function") {
       status.hidden = false;
@@ -1186,9 +1204,6 @@ async function startApplication() {
 
   const skipIntro =
     params.get("skipintro") === "1";
-
-  const bootScreen =
-    document.getElementById("boot-screen");
 
   /*
    * NFC -> MENÚ
