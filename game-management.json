@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-26T10:37:03.471Z",
+  "updatedAt": "2026-09-26T12:18:00.135Z",
   "games": {
     "The Lion King.gba": {
       "displayName": "The Lion King",
@@ -8,7 +8,7 @@
     },
     "Sonic Advance 2.gba": {
       "displayName": "Sonic Advance 2",
-      "suspended": true
+      "suspended": false
     },
     "Tomb Raider.gbc": {
       "displayName": "Tomb Raider",
