@@ -1628,6 +1628,7 @@ async function publicDemoHeartbeat(env, request) {
   const previous = await env.DB.prepare(
     "SELECT last_heartbeat_ms AS lastHeartbeatMs FROM demo_sessions WHERE id = ?"
   ).bind(sessionKey).first();
+  const resetBaseline = body.resetBaseline === true;
 
   let elapsedSeconds = 0;
   if (!previous) {
@@ -1640,7 +1641,9 @@ async function publicDemoHeartbeat(env, request) {
         .bind(now, visitorId)
     ]);
   } else {
-    elapsedSeconds = Math.floor(Math.max(0, Math.min(45000, nowMs - Number(previous.lastHeartbeatMs || nowMs))) / 1000);
+    elapsedSeconds = resetBaseline
+      ? 0
+      : Math.floor(Math.max(0, Math.min(45000, nowMs - Number(previous.lastHeartbeatMs || nowMs))) / 1000);
     await env.DB.batch([
       env.DB.prepare(`UPDATE demo_sessions SET last_heartbeat_ms = ?, last_seen_at = ?,
         active_seconds = active_seconds + ? WHERE id = ?`)
