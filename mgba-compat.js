@@ -35,6 +35,8 @@
   let instance = null;
   let active = false;
   let activeSystem = null;
+  let activeNamespace = "";
+  let activeDisplayName = "";
   let activeSpeed = 0.9;
   let activeVolume = 1;
 
@@ -66,6 +68,8 @@
     instance = null;
     active = false;
     activeSystem = null;
+    activeNamespace = "";
+    activeDisplayName = "";
     if (current) {
       try {
         current.destroy();
@@ -75,7 +79,7 @@
     }
   }
 
-  async function start({ rom, filename, saveId, canvas, system, volume = 1, speed = 0.9 }) {
+  async function start({ rom, filename, displayName, saveId, canvas, system, volume = 1, speed = 0.9 }) {
     await stop();
 
     // During mGBA validation, bypass all post-processing. This makes the
@@ -94,10 +98,21 @@
     activeVolume = Math.max(0, Math.min(1, Number(volume) || 0));
     activeSpeed = Math.max(0.1, Math.min(4, Number(speed) || 0.9));
 
+    activeNamespace = namespaceFor(filename, saveId);
+    activeDisplayName = String(displayName || filename || "partida");
+
+    if (window.ML3DLocalSave?.prepareMgbaNamespace) {
+      try {
+        await window.ML3DLocalSave.prepareMgbaNamespace(activeNamespace, activeDisplayName);
+      } catch (error) {
+        console.warn("mGBA compat: no se pudo preparar el save externo:", error);
+      }
+    }
+
     instance = await sdk.load({
       assets: { rom: bytes },
       canvasEl: canvas,
-      storageNamespace: namespaceFor(filename, saveId),
+      storageNamespace: activeNamespace,
       jsUrl: CORE_JS,
       wasmUrl: CORE_WASM,
       options: {
@@ -156,14 +171,21 @@
     try { instance?.reset?.(); } catch (_) {}
   }
 
-  function save() {
-    // SDK persists SRAM itself. pause/resume is used as an immediate flush.
+  async function flushSave() {
     try {
-      if (instance) {
-        instance.pause();
-        instance.resume();
-      }
-    } catch (_) {}
+      if (!instance) return false;
+      instance.pause();
+      // The SDK persists SRAM asynchronously when pause() is called.
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      instance.resume();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function save() {
+    void flushSave();
   }
 
   window.ML3DMgbaCompat = {
@@ -175,10 +197,13 @@
     resume,
     reset,
     save,
+    flushSave,
     setVolume,
     setSpeed,
     isActive: () => active,
     getSystem: () => activeSystem,
+    getNamespace: () => activeNamespace,
+    getDisplayName: () => activeDisplayName,
     getSpeed: () => activeSpeed,
     getInstance: () => instance
   };
