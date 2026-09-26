@@ -683,6 +683,12 @@ window.addEventListener(
     emulator.setIntervalRate(16 * safeLegacySpeed);
   }
 
+  function shouldUseMgbaCompat() {
+    // Single-player uses mGBA. The existing IodineGBA path is preserved
+    // exclusively for active Cable Link sessions.
+    return !linkRoomActive;
+  }
+
 
   async function startRomFromBytes(bytes, filename, options = {}) {
     const requestId = ++romStartRequest;
