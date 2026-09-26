@@ -233,6 +233,11 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.press(keyName);
+    return;
+  }
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -261,6 +266,11 @@ function loadGameType(name, callback) {
 }
 
  function releaseKey(keyName) {
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.release(keyName);
+    return;
+  }
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -341,6 +351,10 @@ function updateEmulatorAudioOutput() {
 
   if (window.gbaGB) {
     window.gbaGB.setVolume(effectiveVolume);
+  }
+
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.setVolume(effectiveVolume);
   }
 }
 
@@ -614,6 +628,15 @@ window.addEventListener(
   async function stopCurrentEmulator() {
     stopGbaTimers();
 
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      try {
+        await window.ML3DMgbaCompat.stop();
+      } catch (error) {
+        console.warn("No se pudo detener mGBA compat limpiamente:", error);
+      }
+      window.__gba = null;
+    }
+
     if (emulator) {
       try {
         window.ML3DLinkCable?.detachEmulator?.(emulator);
@@ -671,6 +694,18 @@ window.addEventListener(
     }
   }
 
+  function shouldUseMgbaCompat(filename, displayName) {
+    if (linkRoomActive) return false;
+
+    const value = (String(filename || "") + " " + String(displayName || "")).toLowerCase();
+    return (
+      value.includes("the lion king") ||
+      value.includes("lion king") ||
+      value.includes("sonic advance 2") ||
+      value.includes("tomb raider")
+    );
+  }
+
   async function startRomFromBytes(bytes, filename, options = {}) {
     const requestId = ++romStartRequest;
     const rom = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -703,7 +738,31 @@ window.addEventListener(
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
       : null;
 
-    if (system === "gb" || system === "gbc") {
+    if (shouldUseMgbaCompat(filename, selected.name)) {
+      if (!window.ML3DMgbaCompat?.start) {
+        throw new Error("Falta el núcleo mGBA de compatibilidad.");
+      }
+
+      canvas.width = system === "gba" ? 240 : 160;
+      canvas.height = system === "gba" ? 160 : 144;
+
+      const effectiveVolume =
+        audioMuted
+          ? 0
+          : audioVolume * (gameMenuAudioDucked ? GAME_MENU_VOLUME_FACTOR : 1);
+
+      await window.ML3DMgbaCompat.start({
+        rom,
+        filename,
+        saveId: currentSaveId,
+        canvas,
+        system,
+        volume: effectiveVolume
+      });
+
+      emulator = null;
+      window.__gba = system === "gba" ? { compatCore: "mgba" } : null;
+    } else if (system === "gb" || system === "gbc") {
       canvas.width = 160;
       canvas.height = 144;
       if (!window.gbaGB || typeof window.gbaGB.startBuffer !== "function") {
@@ -973,6 +1032,11 @@ updateHapticUI();
     const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
     try {
+      if (window.ML3DMgbaCompat?.isActive?.()) {
+        console.log("Partida mGBA gestionada por persistencia automática.");
+        return;
+      }
+
       if (isGBFamily) {
         if (
           window.gbaGB &&
@@ -1036,6 +1100,10 @@ if (reloadButton) {
 
     backgroundSuspended = true;
 
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.pause();
+    }
+
     if (emulator) {
       resumeGbaAfterBackground = emulator.emulatorStatus < 0x10;
 
@@ -1069,6 +1137,10 @@ if (reloadButton) {
     if (!backgroundSuspended && !force) return;
 
     backgroundSuspended = false;
+
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.resume();
+    }
 
     const dualLinkRunning =
       linkRoomActive &&
@@ -1132,6 +1204,10 @@ if (reloadButton) {
 
   function shutdownEmulator() {
     stopGbaTimers();
+
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.stop();
+    }
 
     if (emulator) {
       try {
