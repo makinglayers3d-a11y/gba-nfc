@@ -693,8 +693,10 @@ window.addEventListener(
       const storedSpeedRaw = localStorage.getItem("gba-speed");
       let savedSpeed = Number(storedSpeedRaw == null ? "0.9" : storedSpeedRaw);
 
-      // ML3Demuler uses 90% as its normal default. Keep the user's explicit
-      // speed choice untouched and only fall back to 90% for invalid values.
+      // Calibrated ML3Demuler baseline:
+      // emulator speed 0.9 is presented to the user as 100%.
+      // This preserves the previous real gameplay pace while making it the
+      // nominal reference point of the UI.
       if (!Number.isFinite(savedSpeed) || savedSpeed <= 0) {
         savedSpeed = 0.9;
         localStorage.setItem("gba-speed", "0.9");
