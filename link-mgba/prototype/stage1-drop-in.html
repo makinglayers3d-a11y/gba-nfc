@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fase 1 · reproducir el build</title>
+<style>
+  body {
+    margin: 0; padding: 16px; background: #14161a; color: #e6e8ec;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: #9aa2af; max-width: 74ch; }
+  #controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  button, select, input[type=file] {
+    font: inherit; color: #e6e8ec; background: #262b34;
+    border: 1px solid #2d323c; border-radius: 4px; padding: 6px 10px;
+  }
+  canvas {
+    display: block; width: 480px; max-width: 100%; height: auto;
+    image-rendering: pixelated; background: #000;
+    border: 1px solid #2d323c; border-radius: 4px;
+  }
+  #log {
+    margin-top: 16px; padding: 10px; background: #0f1114; border: 1px solid #2d323c;
+    border-radius: 6px; max-height: 200px; overflow: auto; font-size: 12px; white-space: pre-wrap;
+  }
+  .bad { color: #eb5757; }
+  .ok { color: #6fcf97; }
+  code { color: #e6e8ec; }
+</style>
+</head>
+<body>
+
+<h1>Fase 1 · el build propio, con el SDK oficial</h1>
+<p>
+  Misma ruta de código que <code>mgba-compat.js</code> del emulador principal: el
+  SDK publicado de <code>@wasm-gaming/mgba-wasm@0.1.1</code>, pero con
+  <code>jsUrl</code> y <code>wasmUrl</code> apuntando a
+  <code>../dist/upstream/</code>, es decir al WASM que hemos compilado nosotros
+  con el shim original sin tocar. Si imagen, sonido y arranque salen igual, la
+  fase 1 está pasada. El criterio es de comportamiento, no de hash: otra versión
+  de emsdk da otro binario.
+</p>
+
+<div id="controls">
+  <select id="library"><option value="">— biblioteca del repo —</option></select>
+  <input type="file" id="file" accept=".gba,.gb,.gbc">
+  <label><input type="checkbox" id="official"> usar el WASM oficial de jsdelivr (control)</label>
+</div>
+
+<canvas id="screen" width="240" height="160"></canvas>
+<div id="log"></div>
+
+<script type="module">
+const SDK_URL = "https://esm.sh/@wasm-gaming/mgba-wasm@0.1.1?bundle";
+const LOCAL = { js: "../dist/upstream/mgba.js", wasm: "../dist/upstream/mgba.wasm" };
+const OFFICIAL = {
+  js: "https://cdn.jsdelivr.net/npm/@wasm-gaming/mgba-wasm@0.1.1/dist/mgba/mgba.js",
+  wasm: "https://cdn.jsdelivr.net/npm/@wasm-gaming/mgba-wasm@0.1.1/dist/mgba/mgba.wasm"
+};
+
+/* Mismo mapeo virtual que usa mgba-compat.js: el SDK escucha teclas reales, así
+   que el teclado del PC vale directamente con su propio mapa por defecto. */
+const el = (id) => document.getElementById(id);
+const logBox = el("log");
+function log(message, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = message;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+let sdk = null;
+let instance = null;
+
+async function start(bytes, name) {
+  if (!sdk) sdk = await import(SDK_URL);
+  if (instance) { try { instance.destroy(); } catch {} instance = null; }
+
+  const source = el("official").checked ? OFFICIAL : LOCAL;
+  log("Núcleo: " + source.wasm);
+
+  const t0 = performance.now();
+  instance = await sdk.load({
+    assets: { rom: bytes },
+    canvasEl: el("screen"),
+    storageNamespace: "ml3d-stage1-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    jsUrl: source.js,
+    wasmUrl: source.wasm,
+    options: {
+      system: "auto", gbModel: "auto", skipBios: true,
+      renderFilter: "pixelated", aspect: "native", interframeBlending: false,
+      volume: 1, gamepads: false, escMenu: false
+    },
+    persist: {},
+    onEvent(event) { if (event?.type === "exit") log("exit"); }
+  });
+  instance.start();
+  log("Arrancado " + name + " en " + Math.round(performance.now() - t0) + " ms", "ok");
+}
+
+el("file").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (file) await start(new Uint8Array(await file.arrayBuffer()), file.name);
+});
+
+el("library").addEventListener("change", async (e) => {
+  const name = e.target.value;
+  if (!name) return;
+  const response = await fetch("../../games/" + encodeURIComponent(name));
+  if (!response.ok) { log("HTTP " + response.status + " al leer " + name, "bad"); return; }
+  await start(new Uint8Array(await response.arrayBuffer()), name);
+});
+
+fetch("../../games-catalog.json", { cache: "no-store" })
+  .then((r) => r.json())
+  .then((entries) => {
+    const names = (Array.isArray(entries) ? entries : [])
+      .map((entry) => String(entry?.name || entry || ""))
+      .filter((name) => /\.(gba|gb|gbc)$/i.test(name))
+      .sort();
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = option.textContent = name;
+      el("library").appendChild(option);
+    }
+    log("Biblioteca: " + names.length + " juegos");
+  })
+  .catch(() => log("Sin biblioteca (sirve el repo con dev-server.ps1 para tenerla)"));
+</script>
+</body>
+</html>

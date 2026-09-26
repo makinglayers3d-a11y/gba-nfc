@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dos núcleos mGBA</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f26;
+    --line: #2d323c;
+    --text: #e6e8ec;
+    --dim: #9aa2af;
+    --ok: #6fcf97;
+    --bad: #eb5757;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: var(--dim); max-width: 70ch; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px;
+  }
+  canvas {
+    display: block; width: 480px; max-width: 100%; height: auto;
+    image-rendering: pixelated; background: #000;
+    border: 1px solid var(--line); border-radius: 4px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+  .card .keys { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  button, select, input[type=file] {
+    font: inherit; color: var(--text);
+    background: #262b34; border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 10px;
+  }
+  button:hover:not(:disabled) { background: #30363f; }
+  button:disabled { opacity: .45; }
+  #controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  table { border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 3px 14px 3px 0; }
+  th { color: var(--dim); font-weight: 400; }
+  #log {
+    margin-top: 16px; padding: 10px; background: #0f1114;
+    border: 1px solid var(--line); border-radius: 6px;
+    max-height: 180px; overflow: auto; font-size: 12px; white-space: pre-wrap;
+  }
+  .ok { color: var(--ok); }
+  .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<h1>Dos núcleos mGBA en un solo WASM</h1>
+<p class="lead">
+  Fase 2 del prototipo: un módulo, dos <code>mCore</code>, una ROM cargada una
+  sola vez y compartida. Todavía sin Cable Link. La prueba pasa si los dos
+  núcleos avanzan frames por separado y responden solo a sus propias teclas.
+</p>
+
+<div id="controls">
+  <select id="library"><option value="">— biblioteca del repo —</option></select>
+  <input type="file" id="file" accept=".gba,.gb,.gbc">
+  <button id="open2" disabled>Abrir segundo núcleo</button>
+  <button id="close2" disabled>Cerrar segundo núcleo</button>
+  <button id="sameKeys" disabled>Enviar mis teclas a los dos</button>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h2>Núcleo 0</h2>
+    <canvas id="c0" width="240" height="160"></canvas>
+    <div class="keys">flechas · X=A · Z=B · A=L · S=R · Enter=START · Shift=SELECT</div>
+  </div>
+  <div class="card">
+    <h2>Núcleo 1</h2>
+    <canvas id="c1" width="240" height="160"></canvas>
+    <div class="keys">WASD · N=A · M=B · Q=L · E=R · Espacio=START · Tab=SELECT</div>
+  </div>
+  <div class="card">
+    <h2>Medidas</h2>
+    <table>
+      <tr><th>Instancias abiertas</th><td id="mCount">0</td></tr>
+      <tr><th>ROM compartida</th><td id="mRom">—</td></tr>
+      <tr><th>Heap en uso (malloc)</th><td id="mHeap">—</td></tr>
+      <tr><th>Memoria lineal reservada</th><td id="mLinear">—</td></tr>
+      <tr><th>Frames núcleo 0</th><td id="mF0">0</td></tr>
+      <tr><th>Frames núcleo 1</th><td id="mF1">—</td></tr>
+      <tr><th>fps medidos</th><td id="mFps">—</td></tr>
+      <tr><th>Plataforma</th><td id="mPlat">—</td></tr>
+    </table>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script>
+/* Página de prueba aislada. No toca mgba-compat.js ni el emulador principal:
+   habla directamente con el módulo que produce scripts/build.sh multi. */
+
+const WASM_DIR = "../dist/multi/";
+
+/* enum GBAKey de include/mgba/internal/gba/input.h */
+const KEY = { A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 };
+
+const LAYOUT = [
+  { ArrowUp: KEY.UP, ArrowDown: KEY.DOWN, ArrowLeft: KEY.LEFT, ArrowRight: KEY.RIGHT,
+    KeyX: KEY.A, KeyZ: KEY.B, KeyA: KEY.L, KeyS: KEY.R, Enter: KEY.START, ShiftLeft: KEY.SELECT, ShiftRight: KEY.SELECT },
+  { KeyW: KEY.UP, KeyS: KEY.DOWN, KeyA: KEY.LEFT, KeyD: KEY.RIGHT,
+    KeyN: KEY.A, KeyM: KEY.B, KeyQ: KEY.L, KeyE: KEY.R, Space: KEY.START, Tab: KEY.SELECT }
+];
+
+const el = (id) => document.getElementById(id);
+const logBox = el("log");
+function log(message, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = message;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+let Module = null;
+let romBytes = null;
+const cores = [];          /* { id, canvas, ctx, image, mask } */
+let mirrorKeys = false;
+let fpsSamples = [];
+let lastTick = 0;
+
+/* --------------------------------------------------------------- arranque */
+
+async function boot() {
+  const factory = await import(WASM_DIR + "mgba.js").then((m) => m.default);
+  Module = await factory({ locateFile: (p) => WASM_DIR + p });
+  Module._mgbawasm_init();
+  Module._mgbawasm_set_log_level(1);
+  log("Módulo cargado. Máximo de instancias: " + Module._mgbawasm_instance_max(), "ok");
+  refresh();
+}
+
+/* Sube la ROM una sola vez al heap del módulo. El shim se queda con su propia
+   copia, así que el puntero temporal se libera aquí mismo. */
+function shareRom(bytes) {
+  const ptr = Module._malloc(bytes.length);
+  Module.HEAPU8.set(bytes, ptr);
+  const shared = Module._mgbawasm_rom_share(ptr, bytes.length);
+  Module._free(ptr);
+  if (!shared) throw new Error("mgbawasm_rom_share falló");
+  log("ROM compartida: " + fmtBytes(shared) + " (una copia para todas las instancias)", "ok");
+  return shared;
+}
+
+function openCore(canvasId) {
+  const id = Module._mgbawasm_instance_open(-1, 0, 1);   /* platform auto, skipBios */
+  if (id < 0) { log("mgbawasm_instance_open falló", "bad"); return null; }
+  const canvas = el(canvasId);
+  const core = { id, canvas, ctx: canvas.getContext("2d"), image: null, mask: 0 };
+  cores.push(core);
+  log("Núcleo abierto con id " + id + " → " + canvasId, "ok");
+  return core;
+}
+
+function closeCore(core) {
+  Module._mgbawasm_instance_close(core.id);
+  cores.splice(cores.indexOf(core), 1);
+  core.ctx.clearRect(0, 0, core.canvas.width, core.canvas.height);
+  log("Núcleo " + core.id + " cerrado");
+}
+
+async function start(bytes, name) {
+  for (const core of cores.slice()) closeCore(core);
+  Module._mgbawasm_rom_release();
+  romBytes = bytes;
+  shareRom(bytes);
+  const core = openCore("c0");
+  if (!core) return;
+  el("mPlat").textContent = Module._mgbawasm_platform(core.id) === 0 ? "GBA" : "GB/GBC";
+  el("open2").disabled = false;
+  el("sameKeys").disabled = false;
+  log("Cargado: " + name);
+  if (!lastTick) { lastTick = performance.now(); requestAnimationFrame(tick); }
+}
+
+/* ------------------------------------------------------------------ bucle */
+
+function tick(now) {
+  /* Un frame por núcleo y vuelta. Con el cable (fase 3) esto pasa a ser un
+     round-robin por ciclos; aquí la independencia es justo lo que se prueba. */
+  for (const core of cores) {
+    Module._mgbawasm_run_frame(core.id);
+    Module._mgbawasm_drop_audio(core.id);
+    blit(core);
+  }
+
+  const dt = now - lastTick;
+  lastTick = now;
+  if (dt > 0) {
+    fpsSamples.push(1000 / dt);
+    if (fpsSamples.length > 60) fpsSamples.shift();
+  }
+  refresh();
+  requestAnimationFrame(tick);
+}
+
+function blit(core) {
+  const width = Module._mgbawasm_video_width(core.id);
+  const height = Module._mgbawasm_video_height(core.id);
+  if (!width || !height) return;
+  if (core.canvas.width !== width || core.canvas.height !== height) {
+    core.canvas.width = width;
+    core.canvas.height = height;
+    core.image = null;
+  }
+  if (!core.image) core.image = core.ctx.createImageData(width, height);
+  const ptr = Module._mgbawasm_video_ptr(core.id);
+  core.image.data.set(Module.HEAPU8.subarray(ptr, ptr + width * height * 4));
+  core.ctx.putImageData(core.image, 0, 0);
+}
+
+function refresh() {
+  el("mCount").textContent = Module ? Module._mgbawasm_instance_count() : 0;
+  if (!Module) return;
+  el("mRom").textContent = Module._mgbawasm_rom_size() ? fmtBytes(Module._mgbawasm_rom_size()) : "—";
+  el("mHeap").textContent = fmtBytes(Module._mgbawasm_heap_used() >>> 0);
+  el("mLinear").textContent = fmtBytes(Module.HEAPU8.length);
+  el("mF0").textContent = cores[0] ? Module._mgbawasm_frame_counter(cores[0].id) : "—";
+  el("mF1").textContent = cores[1] ? Module._mgbawasm_frame_counter(cores[1].id) : "—";
+  el("mFps").textContent = fpsSamples.length
+    ? (fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length).toFixed(1)
+    : "—";
+}
+
+function fmtBytes(n) {
+  return (n / 1048576).toFixed(2) + " MiB (" + n.toLocaleString("es") + " B)";
+}
+
+/* ----------------------------------------------------------------- teclas */
+
+function onKey(event, down) {
+  let used = false;
+  cores.forEach((core, seat) => {
+    const layout = LAYOUT[mirrorKeys ? 0 : seat];
+    const key = layout?.[event.code];
+    if (key === undefined) return;
+    core.mask = down ? (core.mask | (1 << key)) : (core.mask & ~(1 << key));
+    Module._mgbawasm_set_keys(core.id, core.mask);
+    used = true;
+  });
+  if (used) event.preventDefault();
+}
+
+window.addEventListener("keydown", (e) => onKey(e, true));
+window.addEventListener("keyup", (e) => onKey(e, false));
+
+/* ------------------------------------------------------------------- UI */
+
+el("open2").addEventListener("click", () => {
+  if (openCore("c1")) {
+    el("open2").disabled = true;
+    el("close2").disabled = false;
+  }
+});
+
+el("close2").addEventListener("click", () => {
+  if (cores[1]) closeCore(cores[1]);
+  el("open2").disabled = false;
+  el("close2").disabled = true;
+});
+
+el("sameKeys").addEventListener("click", (e) => {
+  mirrorKeys = !mirrorKeys;
+  e.target.textContent = mirrorKeys ? "Teclas separadas por núcleo" : "Enviar mis teclas a los dos";
+  log("Teclas " + (mirrorKeys ? "espejadas a todos los núcleos" : "separadas por núcleo"));
+});
+
+el("file").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (file) await start(new Uint8Array(await file.arrayBuffer()), file.name);
+});
+
+el("library").addEventListener("change", async (e) => {
+  const name = e.target.value;
+  if (!name) return;
+  const response = await fetch("../../games/" + encodeURIComponent(name));
+  if (!response.ok) { log("No se pudo leer " + name + ": HTTP " + response.status, "bad"); return; }
+  await start(new Uint8Array(await response.arrayBuffer()), name);
+});
+
+/* La biblioteca del repo, si la página se sirve desde la raíz con dev-server. */
+fetch("../../games-catalog.json", { cache: "no-store" })
+  .then((r) => r.json())
+  .then((entries) => {
+    const names = (Array.isArray(entries) ? entries : [])
+      .map((entry) => String(entry?.name || entry || ""))
+      .filter((name) => /\.(gba|gb|gbc)$/i.test(name))
+      .sort();
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = option.textContent = name;
+      el("library").appendChild(option);
+    }
+    log("Biblioteca: " + names.length + " juegos");
+  })
+  .catch(() => log("Sin biblioteca (sirve el repo con dev-server.ps1 para tenerla)"));
+
+boot().catch((error) => log("Fallo al arrancar: " + error.message, "bad"));
+</script>
+</body>
+</html>
