@@ -676,9 +676,18 @@ window.addEventListener(
     emulator.setIntervalRate(16 * safeLegacySpeed);
   }
 
+  function isIOSWebKit() {
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const touchMac = platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return /iPad|iPhone|iPod/i.test(ua) || touchMac;
+  }
+
   function shouldUseMgbaCompat() {
-    // Single-player uses mGBA. Active Cable Link sessions keep the
-    // existing IodineGBA implementation unchanged.
+    // mGBA's browser/WASM runtime can stall shortly after startup on iOS
+    // WebKit. Keep iPhone/iPad on the proven legacy cores while preserving
+    // mGBA for single-player on the rest of the platforms.
+    if (isIOSWebKit()) return false;
     return !linkRoomActive;
   }
 
@@ -979,15 +988,21 @@ if (hapticButton) {
 
 updateVolumeUI();
 updateHapticUI();
-  closeMenu.addEventListener("click", async () => {
-    if (!menu.open || menu.classList.contains("menu-closing-comic")) {
-      return;
-    }
+  let menuCloseInProgress = false;
+
+  async function closeMenuAnimated() {
+    if (!menu.open || menuCloseInProgress) return;
 
     const card = menu.querySelector(".menu-card");
+    menuCloseInProgress = true;
     menu.classList.add("menu-closing-comic");
 
     await new Promise((resolve) => {
+      if (!card) {
+        resolve();
+        return;
+      }
+
       let finished = false;
       const finish = () => {
         if (finished) return;
@@ -996,17 +1011,21 @@ updateHapticUI();
         resolve();
       };
       const onAnimationEnd = (event) => {
-        if (event.target === card && event.animationName === "menuComicClose") {
-          finish();
-        }
+        if (event.target === card) finish();
       };
 
       card.addEventListener("animationend", onAnimationEnd);
-      window.setTimeout(finish, 620);
+      window.setTimeout(finish, 420);
     });
 
-    menu.close();
+    if (menu.open) menu.close();
     menu.classList.remove("menu-closing-comic");
+    menuCloseInProgress = false;
+  }
+
+  closeMenu.addEventListener("click", (event) => {
+    event.preventDefault();
+    void closeMenuAnimated();
   });
 
   async function exportLegacySaveForDevice() {
