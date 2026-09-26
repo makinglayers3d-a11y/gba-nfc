@@ -40,11 +40,11 @@ const STABILITY_SECONDS = Number(process.env.SMOKE_SECONDS || 60);
 /* enum GBAKey de include/mgba/internal/gba/input.h */
 const KEY = { A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 };
 
-let failures = 0;
+const failed = [];
 
 function check(label, ok, detail) {
 	console.log(`${ok ? "  ok  " : "  FAIL"} ${label}${detail !== undefined ? " — " + detail : ""}`);
-	if (!ok) ++failures;
+	if (!ok) failed.push(label + (detail !== undefined ? " (" + detail + ")" : ""));
 }
 
 function info(label, value) {
@@ -53,6 +53,20 @@ function info(label, value) {
 
 function mib(bytes) {
 	return (bytes / 1048576).toFixed(2) + " MiB";
+}
+
+/**
+ * Bytes handed out by malloc, or null.
+ *
+ * mgbawasm_heap_used only exists in the multi shim: the upstream one is a
+ * literal copy of the published shim and must export exactly what the package
+ * exports, which is what check-exports.sh enforces. So phase 1 measures the
+ * linear memory and nothing finer.
+ */
+function heapUsed(Module) {
+	return typeof Module._mgbawasm_heap_used === "function"
+		? Module._mgbawasm_heap_used() >>> 0
+		: null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -112,8 +126,6 @@ async function smokeUpstream(rom) {
 	const Module = await loadModule();
 	console.log("\n=== Fase 1 · un nucleo, shim original ===");
 	info("memoria lineal al arrancar", mib(Module.HEAPU8.length));
-	const heapBefore = Module._mgbawasm_heap_used() >>> 0;
-	info("heap tras inicializar el modulo", mib(heapBefore));
 
 	const loaded = withRomInHeap(Module, rom, (ptr, len) =>
 		/* rom, romBytes, bios, biosBytes, platform=-1 (auto), gbModel=NULL, skipBios */
@@ -125,7 +137,7 @@ async function smokeUpstream(rom) {
 	check("plataforma detectada como GBA", platform === 0, "enum mPlatform " + platform);
 	info("sample rate", Module._mgbawasm_sample_rate() + " Hz");
 	info("framerate", (Module._mgbawasm_framerate_micro() / 1e6).toFixed(4) + " Hz");
-	info("heap con la ROM y un nucleo", mib(Module._mgbawasm_heap_used() >>> 0));
+	info("memoria lineal con la ROM y un nucleo", mib(Module.HEAPU8.length));
 
 	let audioSeen = 0;
 	for (let i = 0; i < BOOT_FRAMES; ++i) {
@@ -158,22 +170,27 @@ async function smokeMulti(rom) {
 	const Module = await loadModule();
 	console.log("\n=== Fase 2 · dos nucleos, un modulo, ROM compartida ===");
 
-	const heap0 = Module._mgbawasm_heap_used() >>> 0;
+	if (heapUsed(Module) === null) {
+		console.error("::error::este build no exporta mgbawasm_heap_used: parece la fase upstream, no multi");
+		process.exit(1);
+	}
+
+	const heap0 = heapUsed(Module);
 	info("heap con 0 nucleos y sin ROM", mib(heap0));
 
 	const shared = withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
 	check("mgbawasm_rom_share", shared === rom.length, shared + " bytes de " + rom.length);
-	const heapRom = Module._mgbawasm_heap_used() >>> 0;
+	const heapRom = heapUsed(Module);
 	info("heap con la ROM compartida y 0 nucleos", mib(heapRom));
 
 	const id0 = Module._mgbawasm_instance_open(-1, 0, 1);
 	check("abre el nucleo 0", id0 === 0, "id " + id0);
-	const heap1 = Module._mgbawasm_heap_used() >>> 0;
+	const heap1 = heapUsed(Module);
 	info("heap con 1 nucleo", mib(heap1) + `  (+${mib(heap1 - heapRom)})`);
 
 	const id1 = Module._mgbawasm_instance_open(-1, 0, 1);
 	check("abre el nucleo 1", id1 === 1, "id " + id1);
-	const heap2 = Module._mgbawasm_heap_used() >>> 0;
+	const heap2 = heapUsed(Module);
 	info("heap con 2 nucleos", mib(heap2) + `  (+${mib(heap2 - heap1)})`);
 
 	check("hay 2 instancias", Module._mgbawasm_instance_count() === 2,
@@ -229,7 +246,7 @@ async function smokeMulti(rom) {
 
 	/* Estabilidad: los dos a la vez un rato largo, vigilando fugas. */
 	console.log(`\n--- Estabilidad: ${STABILITY_SECONDS} s con los dos nucleos ---`);
-	const heapBeforeRun = Module._mgbawasm_heap_used() >>> 0;
+	const heapBeforeRun = heapUsed(Module);
 	const linearBeforeRun = Module.HEAPU8.length;
 	const startedAt = Date.now();
 	const deadline = startedAt + STABILITY_SECONDS * 1000;
@@ -244,7 +261,7 @@ async function smokeMulti(rom) {
 		frames += 60;
 	}
 	const elapsed = (Date.now() - startedAt) / 1000;
-	const heapAfterRun = Module._mgbawasm_heap_used() >>> 0;
+	const heapAfterRun = heapUsed(Module);
 
 	info("frames por nucleo", frames);
 	info("fps por nucleo (sin limite de reloj)", (frames / elapsed).toFixed(1));
@@ -269,13 +286,13 @@ async function smokeMulti(rom) {
 	Module._mgbawasm_instance_close(id0);
 	check("cierra todo", Module._mgbawasm_instance_count() === 0,
 		Module._mgbawasm_instance_count() + " instancias");
-	const heapEnd = Module._mgbawasm_heap_used() >>> 0;
+	const heapEnd = heapUsed(Module);
 	info("heap tras cerrar los dos (la ROM sigue compartida)", mib(heapEnd));
 	Module._mgbawasm_rom_release();
-	info("heap tras liberar la ROM", mib(Module._mgbawasm_heap_used() >>> 0));
+	info("heap tras liberar la ROM", mib(heapUsed(Module)));
 	check("volver al punto de partida no deja mas de 1 MiB suelto",
-		(Module._mgbawasm_heap_used() >>> 0) - heap0 < 1048576,
-		"delta " + mib((Module._mgbawasm_heap_used() >>> 0) - heap0));
+		heapUsed(Module) - heap0 < 1048576,
+		"delta " + mib(heapUsed(Module) - heap0));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -296,8 +313,10 @@ async function smokeMulti(rom) {
 	}
 
 	console.log();
-	if (failures) {
-		console.error(`::error::smoke ${STAGE}: ${failures} comprobacion(es) fallida(s)`);
+	if (failed.length) {
+		/* Las etiquetas van dentro del ::error:: porque una anotacion de Actions
+		   se lee sin autenticacion y el log completo no. */
+		console.error(`::error::smoke ${STAGE}: ${failed.length} fallo(s) — ${failed.join(" | ")}`);
 		process.exit(1);
 	}
 	console.log(`smoke ${STAGE}: OK`);

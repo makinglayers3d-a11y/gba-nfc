@@ -47,7 +47,9 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinado, no ubuntu-latest: la etiqueta migra a Ubuntu 26 en octubre de 2026
+    # y este build existe para no depender del entorno.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     container: emscripten/emsdk:${{ inputs.emsdk_tag || 'latest' }}
 
@@ -122,11 +124,15 @@ jobs:
           set -euo pipefail
           bash link-mgba/scripts/check-exports.sh "${STAGE}"
 
+      # La salida se guarda y se vuelca al resumen del run: los logs de Actions
+      # piden autenticacion, el resumen y el artifact no hace falta abrirlos a
+      # ciegas. Con pipefail, el fallo de node sigue siendo el fallo del paso.
       - name: Prueba headless (node)
         shell: bash
         run: |
           set -euo pipefail
-          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}"
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/smoke.log"
 
       - name: Resumen
         if: always()
@@ -152,6 +158,17 @@ jobs:
             else
               echo "El build no ha producido artefactos."
             fi
+            if [ -f "${DIST}/smoke.log" ]; then
+              echo
+              echo "### Prueba headless"
+              echo
+              echo '```'
+              cat "${DIST}/smoke.log"
+              echo '```'
+            else
+              echo
+              echo "La prueba headless no llego a escribir salida."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::mgba.wasm = $( [ -f "${DIST}/mgba.wasm" ] && wc -c < "${DIST}/mgba.wasm" || echo 0 ) bytes"
 
@@ -163,4 +180,5 @@ jobs:
           path: |
             link-mgba/dist/${{ env.STAGE }}/mgba.js
             link-mgba/dist/${{ env.STAGE }}/mgba.wasm
+            link-mgba/dist/${{ env.STAGE }}/smoke.log
           if-no-files-found: error
