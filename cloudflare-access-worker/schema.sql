@@ -159,3 +159,49 @@ CREATE TABLE IF NOT EXISTS device_game_usage (
 
 CREATE INDEX IF NOT EXISTS idx_game_usage_device
   ON device_game_usage(device_id, active_seconds DESC);
+
+
+CREATE TABLE IF NOT EXISTS demo_links (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  label TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','revoked')),
+  created_at TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS demo_visitors (
+  id TEXT PRIMARY KEY,
+  demo_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  instagram TEXT NOT NULL,
+  user_agent TEXT,
+  terms_version TEXT,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  active_seconds INTEGER NOT NULL DEFAULT 0,
+  session_count INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(demo_id, client_id),
+  FOREIGN KEY(demo_id) REFERENCES demo_links(id)
+);
+
+CREATE TABLE IF NOT EXISTS demo_sessions (
+  id TEXT PRIMARY KEY,
+  demo_id TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  last_heartbeat_ms INTEGER NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  active_seconds INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY(demo_id) REFERENCES demo_links(id),
+  FOREIGN KEY(visitor_id) REFERENCES demo_visitors(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_demo_links_expires
+  ON demo_links(expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_demo_visitors_demo
+  ON demo_visitors(demo_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_demo_sessions_visitor
+  ON demo_sessions(visitor_id, last_seen_at DESC);
