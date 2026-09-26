@@ -103,6 +103,9 @@ let localRomLoading = false;
 let menuOpen = false;
 let opening = false;
 
+let gameListLoaded = false;
+let gameListPromise = null;
+
 let menuAudioContext = null;
 
 function setLoadButtonSelected(selected) {
@@ -1955,10 +1958,14 @@ item.textContent =
   }
 
   async function loadGameList() {
-    gameList.innerHTML =
-      '<div class="game-list-status">Cargando juegos…</div>';
+    if (gameListLoaded) return;
+    if (gameListPromise) return gameListPromise;
 
-    try {
+    gameListPromise = (async () => {
+      gameList.innerHTML =
+        '<div class="game-list-status">Cargando juegos…</div>';
+
+      try {
       const [response, managementResponse] = await Promise.all([
         fetch(REPO_API, { cache: "no-store" }),
         fetch(GAME_MANAGEMENT_URL + "?t=" + Date.now(), { cache: "no-store" })
@@ -2020,14 +2027,22 @@ item.textContent =
       if (!games.length) {
         gameList.innerHTML =
           '<div class="game-list-status">No hay juegos disponibles.</div>';
+        gameListLoaded = true;
         return;
       }
+
+      gameListLoaded = true;
     } catch (error) {
       console.error("No se pudo cargar la lista de juegos:", error);
       gameList.innerHTML =
         '<div class="game-list-status">No hay juegos compatibles.</div>';
       return;
+    } finally {
+      gameListPromise = null;
     }
+    })();
+
+    return gameListPromise;
   }
 
   async function closeMenuIntoScreen() {
@@ -2100,9 +2115,12 @@ item.textContent =
     opening = true;
     setGameAudioDucked(true);
 
-    await loadGameList();
-
-    await closeMenuIntoScreen();
+    // Load the catalog while the menu is animating instead of waiting for
+    // those two operations one after the other.
+    await Promise.all([
+      loadGameList(),
+      closeMenuIntoScreen()
+    ]);
 
     buildOverlay();
 
@@ -2451,5 +2469,16 @@ item.textContent =
    * el selector vive directamente sobre .screen-frame.
    */
  window.gbaOpenGameSelector =
-  openScreenSelector; 
+  openScreenSelector;
+
+  // Warm the catalog in the background so opening the selector from the menu
+  // normally does not have to wait on the GitHub API.
+  const preloadGameList = () => {
+    loadGameList().catch(() => {});
+  };
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(preloadGameList, { timeout: 1500 });
+  } else {
+    window.setTimeout(preloadGameList, 250);
+  }
 })();
