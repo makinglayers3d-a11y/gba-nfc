@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 34,
-  "versionName": "0.11.16",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.16/ml3d-nfc-writer-0.11.16.apk",
-  "sha256": "87399dfdd7ead1a41de6e155cd1c20b38a64c59575bbdb71ac349a7e7ab08dc0",
-  "sizeBytes": 7845526,
+  "versionCode": 35,
+  "versionName": "0.11.17",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.17/ml3d-nfc-writer-0.11.17.apk",
+  "sha256": "643715faeb5cb2004d115894b35e5adca2db7cb9f3bef5663e232035fb84bcd0",
+  "sizeBytes": 7861910,
   "changelog": [
-    "Android 0.11.16: enlarged precision workspace for notice editor"
+    "Añadir gestión de demos temporales"
   ]
 }
