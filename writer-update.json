@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 30,
-  "versionName": "0.11.12",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.12/ml3d-nfc-writer-0.11.12.apk",
-  "sha256": "cd18bb245aaeafa64b3e8355248bf604d751efa2b2d522c2c165d39017200556",
+  "versionCode": 31,
+  "versionName": "0.11.13",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.13/ml3d-nfc-writer-0.11.13.apk",
+  "sha256": "89fa425b89990385bbaff1e699395ee0533c765f1f964a30f9237adef6bf3649",
   "sizeBytes": 7828922,
   "changelog": [
-    "Android 0.11.12: exact emulator preview and locked horizontal movement"
+    "Android 0.11.13: faster loading and clean exact notice preview"
   ]
 }
