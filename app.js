@@ -1329,6 +1329,17 @@ async function startApplication() {
     return;
   }
 
+  if (params.get("demo")) {
+    if (!window.ml3dDemoGate || typeof window.ml3dDemoGate.ensureAccess !== "function") {
+      status.hidden = false;
+      status.style.display = "";
+      status.textContent = "No se pudo iniciar el control de la demo.";
+      return;
+    }
+    const demoGranted = await window.ml3dDemoGate.ensureAccess(params);
+    if (!demoGranted) return;
+  }
+
   if (params.get("dev") === "1") {
     if (!window.ml3dDevAccess || typeof window.ml3dDevAccess.ensureAccess !== "function") {
       status.hidden = false;
