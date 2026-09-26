@@ -636,6 +636,41 @@ window.addEventListener(
     }
   }
 
+  function applyCalibratedGbaPace(legacySpeedValue) {
+    if (!emulator) return;
+
+    const legacySpeed = Number(legacySpeedValue);
+    const safeLegacySpeed =
+      Number.isFinite(legacySpeed) && legacySpeed > 0
+        ? legacySpeed
+        : 0.9;
+
+    /*
+     * Compatibility clocking:
+     * Keep the core/audio clock at true 1.0x so games see the expected GBA
+     * audio timing. Preserve ML3Demuler's historical perceived pace by moving
+     * the former speed multiplier into the iteration span instead.
+     *
+     * Old behavior: setSpeed(S) with the core's 16 ms iteration span.
+     * New behavior: setSpeed(1.0), setIntervalRate(16 * S).
+     * CPU work per callback remains equivalent, while audio resampling runs
+     * against the native GBA clock.
+     */
+    emulator.setSpeed(1);
+    emulator.setIntervalRate(16 * safeLegacySpeed);
+  }
+
+  function forceOriginalGraphicsForKnownCompatibilityGame(filename) {
+    const lower = String(filename || "").toLowerCase();
+    const needsNativeFrame =
+      lower.includes("sonic advance 2") ||
+      lower.includes("tomb raider");
+
+    if (needsNativeFrame && window.ML3DGraphics?.setMode) {
+      window.ML3DGraphics.setMode("original", false);
+    }
+  }
+
   async function startRomFromBytes(bytes, filename, options = {}) {
     const requestId = ++romStartRequest;
     const rom = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -662,6 +697,7 @@ window.addEventListener(
       rom: options.romPath || ""
     };
     title.textContent = selected.name;
+    forceOriginalGraphicsForKnownCompatibilityGame(filename);
 
     currentLocalRom = currentSource === "local"
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
@@ -702,7 +738,7 @@ window.addEventListener(
         localStorage.setItem("gba-speed", "0.9");
       }
 
-      emulator.setSpeed(savedSpeed);
+      applyCalibratedGbaPace(savedSpeed);
       if (speedSelect) speedSelect.value = String(savedSpeed);
       emulator.attachPlayStatusHandler(() => {});
       emulator.settings.offthreadGfxEnabled = false;
@@ -855,7 +891,7 @@ window.addEventListener(
     }
 
      if (emulator) {
-      emulator.setSpeed(speed);
+      applyCalibratedGbaPace(speed);
     }
 
     localStorage.setItem("gba-speed", String(speed));
