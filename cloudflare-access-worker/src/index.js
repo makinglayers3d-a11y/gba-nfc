@@ -1503,8 +1503,8 @@ function demoState(row) {
   if (!row) return "missing";
   const raw = cleanText(row.status, 24) || "active";
   if (raw === "revoked") return "revoked";
-  if (raw === "paused") return "paused";
   if (Number(row.expires_at || row.expiresAt || 0) <= Date.now()) return "expired";
+  if (raw === "paused") return "paused";
   return "active";
 }
 
