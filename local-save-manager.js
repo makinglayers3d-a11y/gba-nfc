@@ -292,6 +292,19 @@
   }
 
   async function chooseMode() {
+    if (!supportsDirectoryAccess()) {
+      await promptDialog(
+        "Respaldo en iPhone/iPad",
+        "Safari no permite que una web vuelva a abrir y sobrescribir automáticamente un archivo de la app Archivos. En iOS se mantendrá el guardado automático en el navegador y el .sav será un respaldo manual en la carpeta ML3Demuler.",
+        [
+          { label: "Entendido", value: "backup", primary: true }
+        ]
+      );
+      localStorage.setItem(MODE_KEY, "backup");
+      restartAutoTimer();
+      return "backup";
+    }
+
     const choice = await promptDialog(
       "¿Cómo quieres usar este archivo?",
       "Puedes mantener el guardado automático en el navegador y usar el .sav como respaldo manual, o usar el archivo externo como guardado principal. Incluso en modo archivo principal se mantendrá una copia interna de seguridad.",
