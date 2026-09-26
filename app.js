@@ -733,6 +733,7 @@ window.addEventListener(
       await window.ML3DMgbaCompat.start({
         rom,
         filename,
+        displayName: selected.name,
         saveId: currentSaveId,
         canvas,
         system,
@@ -1004,35 +1005,74 @@ updateHapticUI();
     menu.classList.remove("menu-closing-comic");
   });
 
-  if (saveGameButton) {
-  saveGameButton.addEventListener("click", () => {
+  async function exportLegacySaveForDevice() {
+  try {
     const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
-    try {
-      if (window.ML3DMgbaCompat?.isActive?.()) {
-        window.ML3DMgbaCompat.save?.();
-        console.log("Partida mGBA guardada.");
-        return;
-      }
-
-      if (isGBFamily) {
-        if (
-          window.gbaGB &&
-          typeof window.gbaGB.save === "function"
-        ) {
-          window.gbaGB.save();
-          console.log("Partida GB/GBC guardada.");
-        }
-      } else if (emulator) {
-        emulator.exportSave();
-        console.log("Partida GBA guardada.");
-      }
-    } catch (error) {
-      console.error(
-        "Error guardando la partida:",
-        error
-      );
+    if (isGBFamily) {
+      window.gbaGB?.save?.();
+      const encoded = localStorage.getItem("gba-gb-save:" + currentSaveId);
+      return encoded ? new Uint8Array(JSON.parse(encoded)) : null;
     }
+
+    if (emulator) {
+      emulator.exportSave();
+      const prefix = "gba-save:" + currentSaveId + ":";
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key || !key.startsWith(prefix)) continue;
+        const encoded = localStorage.getItem(key);
+        if (encoded) return base64ToBytes(encoded);
+      }
+    }
+  } catch (error) {
+    console.warn("No se pudo preparar el save para exportación:", error);
+  }
+  return null;
+}
+
+function currentLocalSaveContext() {
+  return {
+    running: Boolean(
+      window.ML3DMgbaCompat?.isActive?.() ||
+      emulator ||
+      (window.gbaGB && typeof window.gbaGB.isRunning === "function" && window.gbaGB.isRunning())
+    ),
+    core: window.ML3DMgbaCompat?.isActive?.() ? "mgba" : "legacy",
+    system: currentSystem,
+    displayName: selected?.name || currentGbaRomFilename || "partida",
+    filename: currentGbaRomFilename || selected?.rom || "",
+    saveId: currentSaveId,
+    mgbaNamespace: window.ML3DMgbaCompat?.getNamespace?.() || "",
+    exportLegacySave: exportLegacySaveForDevice
+  };
+}
+
+window.ML3DLocalSave?.setContextProvider?.(currentLocalSaveContext);
+
+async function manualSaveToDevice() {
+  try {
+    // Keep the browser save first, regardless of the external-backup choice.
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      await window.ML3DMgbaCompat.flushSave?.();
+    } else if (currentSystem === "gb" || currentSystem === "gbc") {
+      window.gbaGB?.save?.();
+    } else if (emulator) {
+      emulator.exportSave();
+    }
+
+    return await window.ML3DLocalSave?.manualSave?.();
+  } catch (error) {
+    console.error("Error guardando la partida:", error);
+    return false;
+  }
+}
+
+window.gbaManualSaveToDevice = manualSaveToDevice;
+
+if (saveGameButton) {
+  saveGameButton.addEventListener("click", async () => {
+    await manualSaveToDevice();
   });
 }
   
