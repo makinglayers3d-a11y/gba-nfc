@@ -93,7 +93,7 @@
       '<div class="ml3d-demo-card" role="dialog" aria-modal="true">' +
       '<div class="ml3d-demo-brand">ML3DEMULER · DEMO</div>' +
       '<h1>Acceso a la demo</h1>' +
-      '<p>Introduce tu usuario de Instagram para entrar. El usuario se mostrará en el historial de esta demo.</p>' +
+      '<p>Introduce tu usuario de Instagram para entrar. Tras aceptar las condiciones se iniciará el emulador completo con su arranque normal. El usuario se mostrará en el historial de esta demo.</p>' +
       '<p class="ml3d-demo-expiry">Disponible hasta ' + fmtExpiry(expiresAt) + '</p>' +
       '<label for="ml3d-demo-instagram">Usuario de Instagram</label>' +
       '<input id="ml3d-demo-instagram" type="text" maxlength="31" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@usuario">' +
@@ -109,7 +109,7 @@
       '<p>Se guardan el usuario de Instagram facilitado, fecha y hora de acceso, un identificador aleatorio de este navegador, información técnica básica del navegador, número de sesiones y tiempo efectivo de uso. Se utilizan para gestionar la demo y mantener su historial. El historial puede ser eliminado por el administrador. Para consultas sobre estos datos, utiliza el mismo canal por el que recibiste el enlace.</p>' +
       '</div>' +
       '<p class="ml3d-demo-message ml3d-demo-note">No se solicitará tu contraseña de Instagram.</p>' +
-      '<div class="ml3d-demo-actions"><button class="ml3d-demo-primary" type="button">Entrar en la demo</button></div>' +
+      '<div class="ml3d-demo-actions"><button class="ml3d-demo-primary" type="button">Aceptar e iniciar emulador</button></div>' +
       '</div>';
     return overlay;
   }
