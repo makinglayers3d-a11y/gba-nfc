@@ -233,6 +233,11 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.press(keyName);
+    return;
+  }
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -261,6 +266,11 @@ function loadGameType(name, callback) {
 }
 
  function releaseKey(keyName) {
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.release(keyName);
+    return;
+  }
+
   const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
   if (isGBFamily) {
@@ -341,6 +351,10 @@ function updateEmulatorAudioOutput() {
 
   if (window.gbaGB) {
     window.gbaGB.setVolume(effectiveVolume);
+  }
+
+  if (window.ML3DMgbaCompat?.isActive?.()) {
+    window.ML3DMgbaCompat.setVolume(effectiveVolume);
   }
 }
 
@@ -614,6 +628,15 @@ window.addEventListener(
   async function stopCurrentEmulator() {
     stopGbaTimers();
 
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      try {
+        await window.ML3DMgbaCompat.stop();
+      } catch (error) {
+        console.warn("No se pudo detener mGBA compat limpiamente:", error);
+      }
+      window.__gba = null;
+    }
+
     if (emulator) {
       try {
         window.ML3DLinkCable?.detachEmulator?.(emulator);
@@ -634,6 +657,25 @@ window.addEventListener(
         console.warn("No se pudo detener GB/GBC limpiamente:", error);
       }
     }
+  }
+
+  function applyCalibratedGbaPace(legacySpeedValue) {
+    if (!emulator) return;
+
+    const legacySpeed = Number(legacySpeedValue);
+    const safeLegacySpeed =
+      Number.isFinite(legacySpeed) && legacySpeed > 0
+        ? legacySpeed
+        : 0.9;
+
+    emulator.setSpeed(1);
+    emulator.setIntervalRate(16 * safeLegacySpeed);
+  }
+
+  function shouldUseMgbaCompat() {
+    // Single-player uses mGBA. Active Cable Link sessions keep the
+    // existing IodineGBA implementation unchanged.
+    return !linkRoomActive;
   }
 
   async function startRomFromBytes(bytes, filename, options = {}) {
@@ -667,7 +709,40 @@ window.addEventListener(
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
       : null;
 
-    if (system === "gb" || system === "gbc") {
+    if (shouldUseMgbaCompat()) {
+      if (!window.ML3DMgbaCompat?.start) {
+        throw new Error("Falta el núcleo mGBA de compatibilidad.");
+      }
+
+      canvas.width = system === "gba" ? 240 : 160;
+      canvas.height = system === "gba" ? 160 : 144;
+
+      const effectiveVolume =
+        audioMuted
+          ? 0
+          : audioVolume * (gameMenuAudioDucked ? GAME_MENU_VOLUME_FACTOR : 1);
+
+      const storedSpeedRaw = localStorage.getItem("gba-speed");
+      let savedSpeed = Number(storedSpeedRaw == null ? "0.9" : storedSpeedRaw);
+      if (!Number.isFinite(savedSpeed) || savedSpeed <= 0) {
+        savedSpeed = 0.9;
+        localStorage.setItem("gba-speed", "0.9");
+      }
+      if (speedSelect) speedSelect.value = String(savedSpeed);
+
+      await window.ML3DMgbaCompat.start({
+        rom,
+        filename,
+        saveId: currentSaveId,
+        canvas,
+        system,
+        volume: effectiveVolume,
+        speed: savedSpeed
+      });
+
+      emulator = null;
+      window.__gba = system === "gba" ? { compatCore: "mgba" } : null;
+    } else if (system === "gb" || system === "gbc") {
       canvas.width = 160;
       canvas.height = 144;
       if (!window.gbaGB || typeof window.gbaGB.startBuffer !== "function") {
@@ -690,8 +765,14 @@ window.addEventListener(
       });
       emulator.attachSaveImportHandler((name, callback, errorCallback) => errorCallback());
 
-      const savedSpeed = Number(localStorage.getItem("gba-speed") || "0.95");
-      emulator.setSpeed(savedSpeed);
+      const storedSpeedRaw = localStorage.getItem("gba-speed");
+      let savedSpeed = Number(storedSpeedRaw == null ? "0.9" : storedSpeedRaw);
+      if (!Number.isFinite(savedSpeed) || savedSpeed <= 0) {
+        savedSpeed = 0.9;
+        localStorage.setItem("gba-speed", "0.9");
+      }
+
+      applyCalibratedGbaPace(savedSpeed);
       if (speedSelect) speedSelect.value = String(savedSpeed);
       emulator.attachPlayStatusHandler(() => {});
       emulator.settings.offthreadGfxEnabled = false;
@@ -843,8 +924,10 @@ window.addEventListener(
       return;
     }
 
-     if (emulator) {
-      emulator.setSpeed(speed);
+     if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.setSpeed(speed);
+    } else if (emulator) {
+      applyCalibratedGbaPace(speed);
     }
 
     localStorage.setItem("gba-speed", String(speed));
@@ -926,6 +1009,12 @@ updateHapticUI();
     const isGBFamily = currentSystem === "gb" || currentSystem === "gbc";
 
     try {
+      if (window.ML3DMgbaCompat?.isActive?.()) {
+        window.ML3DMgbaCompat.save?.();
+        console.log("Partida mGBA guardada.");
+        return;
+      }
+
       if (isGBFamily) {
         if (
           window.gbaGB &&
@@ -989,6 +1078,10 @@ if (reloadButton) {
 
     backgroundSuspended = true;
 
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.pause();
+    }
+
     if (emulator) {
       resumeGbaAfterBackground = emulator.emulatorStatus < 0x10;
 
@@ -1022,6 +1115,10 @@ if (reloadButton) {
     if (!backgroundSuspended && !force) return;
 
     backgroundSuspended = false;
+
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.resume();
+    }
 
     const dualLinkRunning =
       linkRoomActive &&
@@ -1085,6 +1182,10 @@ if (reloadButton) {
 
   function shutdownEmulator() {
     stopGbaTimers();
+
+    if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.stop();
+    }
 
     if (emulator) {
       try {
