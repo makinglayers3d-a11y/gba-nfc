@@ -3,9 +3,9 @@
   "versionCode": 27,
   "versionName": "0.11.9",
   "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.9/ml3d-nfc-writer-0.11.9.apk",
-  "sha256": "d1062a80f7d0e2fecbfec38ea4ce516e0b6bb9557fd65bfcf05f7228b2096d1f",
+  "sha256": "9ba3173f07113929293b83a7f759159921ff5db10dae472d164b35a5b6f05d08",
   "sizeBytes": 7812538,
   "changelog": [
-    "Android 0.11.9: stabilize message editor on mobile"
+    "Windows 0.1.5: direct drag/resize message editor"
   ]
 }
