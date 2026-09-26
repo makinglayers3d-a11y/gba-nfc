@@ -2040,3 +2040,40 @@ line-height: 1;
 @media (orientation: landscape) {
   .sp-top-labels { display:none; }
 }
+
+
+/* ML3D save-data row and tighter menu modules */
+#menu .save-actions-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+#menu .save-actions-row > button {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid #ffffff12;
+  background: var(--button);
+  color: var(--text);
+  font: inherit;
+  font-size: clamp(.72rem, 2.8vw, .92rem);
+  font-weight: 800;
+  line-height: 1.05;
+  text-align: center;
+}
+#menu .save-actions-row > button:active {
+  background: var(--button-active);
+  transform: scale(.985);
+}
+#menu .audio-control {
+  margin-top: 10px;
+  padding-top: 12px;
+}
+#menu .appearance-control {
+  margin-top: 10px;
+  padding-top: 12px;
+}
