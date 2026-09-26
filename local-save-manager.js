@@ -1,11 +1,11 @@
 (() => {
   "use strict";
 
-  const MODE_KEY = "ml3d-save-file-mode";
-  const INTRO_KEY = "ml3d-save-file-intro-v1";
-  const DB_NAME = "ml3d-local-save";
+  const MODE_KEY = "ml3d-save-file-mode-v2";
+  const INTRO_KEY = "ml3d-save-file-intro-v2";
+  const DB_NAME = "ml3d-local-save-v2";
   const STORE = "handles";
-  const ROOT_HANDLE_KEY = "root-directory";
+  const ROOT_HANDLE_KEY = "root-directory-v2";
   const FOLDER_NAME = "ML3Demuler";
   const AUTO_INTERVAL_MS = 15000;
 
