@@ -2077,3 +2077,18 @@ line-height: 1;
   margin-top: 10px;
   padding-top: 12px;
 }
+
+
+/* Force both save-row buttons onto exactly the same baseline. */
+#menu .save-actions-row > #save-game,
+#menu .save-actions-row > #save-data-folder {
+  margin: 0 !important;
+  margin-top: 0 !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  align-self: stretch !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+}
