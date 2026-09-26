@@ -7,7 +7,7 @@ name: Build mGBA Link core
 # comprueba que exporta exactamente lo mismo que @wasm-gaming/mgba-wasm@0.1.1.
 # Fase 2 (`multi`): shim multi-instancia con ROM compartida, todavia sin SIO.
 #
-# La fase 2 no se lanza sola: hay que pedirla con workflow_dispatch.
+# Temporalmente, los push de esta rama lanzan fase 2 multi durante 180 s para validar el prototipo.
 
 on:
   push:
@@ -41,9 +41,9 @@ permissions:
 env:
   # El commit del que salio @wasm-gaming/mgba-wasm@0.1.1: mgba master, 2026-07-21.
   MGBA_REF: c034660f007c543233f1cadeb0ca13c71afd8f41
-  STAGE: ${{ inputs.stage || 'upstream' }}
+  STAGE: ${{ inputs.stage || 'multi' }}
   ROM: ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
-  SMOKE_SECONDS: ${{ inputs.smoke_seconds || '60' }}
+  SMOKE_SECONDS: ${{ inputs.smoke_seconds || '180' }}
 
 jobs:
   build:
