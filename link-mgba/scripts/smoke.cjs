@@ -74,6 +74,10 @@ function heapUsed(Module) {
 
 /* -------------------------------------------------------------------------- */
 
+/* Lo que el nucleo escribe por printf: el shim enruta mLog ahi, asi que un
+   warning de mGBA aparece en esta lista y no solo perdido en el log del paso. */
+const coreLog = [];
+
 async function loadModule() {
 	const glue = path.join(DIST, "mgba.js");
 	if (!fs.existsSync(glue)) {
@@ -81,9 +85,17 @@ async function loadModule() {
 		process.exit(1);
 	}
 	const factory = require(glue);
-	const Module = await factory({ locateFile: (p) => path.join(DIST, p) });
+	const capture = (line) => {
+		coreLog.push(String(line));
+		console.log("       [core] " + line);
+	};
+	const Module = await factory({
+		locateFile: (p) => path.join(DIST, p),
+		print: capture,
+		printErr: capture
+	});
 	Module._mgbawasm_init();
-	Module._mgbawasm_set_log_level(1);
+	Module._mgbawasm_set_log_level(1);   /* solo FATAL, ERROR y WARN */
 	return Module;
 }
 
@@ -247,12 +259,37 @@ async function smokeMulti(rom) {
 		Module._mgbawasm_video_ptr(id0) !== Module._mgbawasm_video_ptr(id1),
 		"0x" + Module._mgbawasm_video_ptr(id0).toString(16) + " / 0x" + Module._mgbawasm_video_ptr(id1).toString(16));
 
+	/* Audio. En una sesion Link solo suena una consola, asi que hay tres cosas
+	   que comprobar: que el nucleo visible produce muestras, que drop_audio
+	   vacia de verdad, y —la que importa— que un buffer que nadie drena no
+	   acaba atascando a su nucleo. Ese era el riesgo anotado en LINK-MGBA.md. */
+	for (let i = 0; i < 60; ++i) Module._mgbawasm_run_frame(id0);
+	const pending = Module._mgbawasm_audio_available(id0);
+	check("el nucleo visible produce audio", pending > 0, pending + " muestras en cola");
+	info("sample rate", Module._mgbawasm_sample_rate(id0) + " Hz");
+
+	const dropped = Module._mgbawasm_drop_audio(id0);
+	check("drop_audio vacia la cola", dropped === pending && Module._mgbawasm_audio_available(id0) === 0,
+		"descartadas " + dropped + ", quedan " + Module._mgbawasm_audio_available(id0));
+
+	const silentBefore = Module._mgbawasm_frame_counter(id1);
+	for (let i = 0; i < 300; ++i) Module._mgbawasm_run_frame(id1);   /* sin drenar nada */
+	const silentAdvance = Module._mgbawasm_frame_counter(id1) - silentBefore;
+	check("un nucleo al que nadie le drena el audio sigue avanzando", silentAdvance === 300,
+		silentAdvance + " frames de 300");
+	info("cola del nucleo sin drenar tras 300 frames", Module._mgbawasm_audio_available(id1) + " muestras");
+	Module._mgbawasm_drop_audio(id1);
+
 	/* Estabilidad: los dos a la vez un rato largo, vigilando fugas. */
 	console.log(`\n--- Estabilidad: ${STABILITY_SECONDS} s con los dos nucleos ---`);
 	const heapBeforeRun = heapUsed(Module);
 	const linearBeforeRun = Module.HEAPU8.length;
 	const startedAt = Date.now();
 	const deadline = startedAt + STABILITY_SECONDS * 1000;
+	/* Muestreado cada 10 s en vez de solo al principio y al final: una fuga
+	   lenta y una meseta se distinguen por el recorrido, no por los extremos. */
+	const samples = [];
+	let nextSample = startedAt;
 	let frames = 0;
 	while (Date.now() < deadline) {
 		for (let i = 0; i < 60; ++i) {
@@ -262,17 +299,33 @@ async function smokeMulti(rom) {
 			Module._mgbawasm_drop_audio(id1);
 		}
 		frames += 60;
+		const now = Date.now();
+		if (now >= nextSample) {
+			samples.push({ t: Math.round((now - startedAt) / 1000), heap: heapUsed(Module), frames });
+			nextSample = now + 10000;
+		}
 	}
 	const elapsed = (Date.now() - startedAt) / 1000;
 	const heapAfterRun = heapUsed(Module);
+	samples.push({ t: Math.round(elapsed), heap: heapAfterRun, frames });
 
 	info("frames por nucleo", frames);
 	info("fps por nucleo (sin limite de reloj)", (frames / elapsed).toFixed(1));
 	info("heap antes / despues", mib(heapBeforeRun) + " / " + mib(heapAfterRun));
 	info("memoria lineal antes / despues", mib(linearBeforeRun) + " / " + mib(Module.HEAPU8.length));
 
-	check("el heap no crece durante la ejecucion", heapAfterRun - heapBeforeRun < 1048576,
-		"delta " + mib(heapAfterRun - heapBeforeRun));
+	const heaps = samples.map((s) => s.heap);
+	const spread = Math.max(...heaps) - Math.min(...heaps);
+	info("heap min / max durante la ejecucion", mib(Math.min(...heaps)) + " / " + mib(Math.max(...heaps)));
+	info("recorrido del heap", mib(spread));
+	console.log("       muestras (s, heap, frames):");
+	for (const s of samples) {
+		console.log(`         ${String(s.t).padStart(4)}s  ${mib(s.heap)}  ${s.frames}`);
+	}
+	/* El recorrido cubre tambien el antes-contra-despues: spread >= |delta|. */
+	check("el heap se mantiene plano durante la ejecucion", spread < 1048576,
+		"recorrido " + mib(spread));
+
 	check("los dos siguen avanzando al final",
 		Module._mgbawasm_frame_counter(id0) > BOOT_FRAMES + 900
 			&& Module._mgbawasm_frame_counter(id1) > BOOT_FRAMES + 900,
@@ -316,9 +369,23 @@ async function smokeMulti(rom) {
 	}
 
 	console.log();
+	/* Item aparte: lo que el nucleo haya gritado. Con logLevel 1 solo salen
+	   FATAL, ERROR y WARN, asi que cualquier linea aqui merece una mirada. */
+	console.log(`=== Log del nucleo (${coreLog.length} linea(s), solo FATAL/ERROR/WARN) ===`);
+	if (!coreLog.length) {
+		console.log("       ninguna");
+	} else {
+		for (const line of coreLog.slice(0, 40)) console.log("       " + line);
+		if (coreLog.length > 40) console.log(`       ... y ${coreLog.length - 40} mas`);
+		console.log(`::warning title=Log del nucleo ${STAGE}::` +
+			coreLog.length + " linea(s): " + coreLog.slice(0, 6).join(" | "));
+	}
+
+	console.log();
 	/* Las medidas van tambien como ::notice::. El log del paso y el resumen del
 	   run piden autenticacion para leerse por API; las anotaciones no, asi que
 	   esta es la unica via por la que los numeros salen del run sin credenciales. */
+	measured.push("lineas de log del nucleo = " + coreLog.length);
 	if (measured.length) {
 		console.log(`::notice title=Medidas ${STAGE}::` + measured.join(" · "));
 	}
