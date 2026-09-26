@@ -569,6 +569,10 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         titleBox.style.width = `${Math.max(35, Math.min(100, Number(design.titleBoxWidthPct) || 100))}%`;
         titleBox.style.height = `${Math.max(38, Math.min(180, Number(design.titleBoxHeightPx) || 64))}px`;
         titleBox.style.transform = `translate(${Number(design.titleOffsetX) || 0}px,${Number(design.titleOffsetY) || 0}px)`;
+        if (design.titleBoxFrameEnabled === false) {
+          titleBox.style.border = "0";
+          titleBox.style.background = "transparent";
+        }
         heading.parentNode.insertBefore(titleBox, heading);
         titleBox.appendChild(heading);
         heading.style.color = String(design.titleColor || "#ffffff");
@@ -591,6 +595,10 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
         bodyBox.style.width = `${Math.max(35, Math.min(100, Number(design.bodyBoxWidthPct) || 100))}%`;
         bodyBox.style.height = `${Math.max(60, Math.min(360, Number(design.bodyBoxHeightPx) || 140))}px`;
         bodyBox.style.transform = `translate(${Number(design.bodyOffsetX) || 0}px,${Number(design.bodyOffsetY) || 0}px)`;
+        if (design.bodyBoxFrameEnabled === false) {
+          bodyBox.style.border = "0";
+          bodyBox.style.background = "transparent";
+        }
         const text = document.createElement("div");
         text.className = "ml3d-tools-message";
         const bodyMax = Math.max(10, Math.min(34, Number(design.bodyFontSize) || 14));
@@ -1183,6 +1191,7 @@ textarea::placeholder{color:#9aabba}</style></head><body><textarea id="${id}" ma
 
   window.ml3dEmulatorTools = {
     showStartupMessages,
+    previewNotice: showNotice,
     openReportDialog,
     openHelpChat,
     refreshChatStatus
