@@ -512,6 +512,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       saveWithCapture();
+      window.gbaManualSaveToDevice?.();
     }
   }, true);
 
@@ -523,7 +524,10 @@
 
   function radialAction(action) {
     closeRadial();
-    if (action === "save") saveWithCapture();
+    if (action === "save") {
+      saveWithCapture();
+      window.gbaManualSaveToDevice?.();
+    }
     if (action === "sound" && muteButton) muteButton.click();
     if (action === "haptic" && hapticButton) hapticButton.click();
     if (action === "games" && typeof window.gbaOpenGameSelector === "function") window.gbaOpenGameSelector();
