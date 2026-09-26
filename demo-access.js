@@ -6,6 +6,7 @@
   const SESSION_KEY = "ml3d-demo-session-id";
   const HEARTBEAT_MS = 30000;
   let trackingTimer = null;
+  let expiryTimer = null;
 
   function id(storage, key) {
     let value = storage.getItem(key);
@@ -113,6 +114,21 @@
     return overlay;
   }
 
+  function scheduleExpiry(expiresAt) {
+    if (expiryTimer) clearTimeout(expiryTimer);
+    const target = Number(expiresAt || 0);
+    if (!target) return;
+    const check = () => {
+      const remaining = target - Date.now();
+      if (remaining <= 0) {
+        blocked("expired", target);
+        return;
+      }
+      expiryTimer = window.setTimeout(check, Math.min(remaining, 2147480000));
+    };
+    check();
+  }
+
   function publish(info) {
     window.ml3dDemoAccess = {
       active: true,
@@ -126,6 +142,7 @@
   function startTracking(cfg, token, clientId, sessionId, info) {
     if (trackingTimer) clearInterval(trackingTimer);
     publish(info);
+    scheduleExpiry(info.expiresAt);
 
     const heartbeat = async (force = false, resetBaseline = false) => {
       if (!force && document.visibilityState !== "visible") return;
@@ -133,11 +150,14 @@
         const result = await api(cfg, "/v1/demo/heartbeat", { token, clientId, sessionId, resetBaseline });
         if (result && result.ok) {
           window.ml3dDemoAccess.expiresAt = Number(result.expiresAt || window.ml3dDemoAccess.expiresAt || 0);
+          scheduleExpiry(window.ml3dDemoAccess.expiresAt);
         }
       } catch (error) {
         if (error.status === 403 || error.status === 404) {
           if (trackingTimer) clearInterval(trackingTimer);
+          if (expiryTimer) clearTimeout(expiryTimer);
           trackingTimer = null;
+          expiryTimer = null;
           blocked(error.data && error.data.state || "unavailable", error.data && error.data.expiresAt || info.expiresAt);
         }
       }
