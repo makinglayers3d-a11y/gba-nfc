@@ -7,7 +7,7 @@
   const STORE = "handles";
   const ROOT_HANDLE_KEY = "root-directory";
   const FOLDER_NAME = "ML3Demuler";
-  const AUTO_INTERVAL_MS = 10000;
+  const AUTO_INTERVAL_MS = 15000;
 
   let contextProvider = null;
   let autoTimer = null;
@@ -244,6 +244,16 @@
     const file = new File([bytes], filename, { type: "application/octet-stream" });
 
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      const open = await promptDialog(
+        "Guardar en Archivos",
+        "Pulsa el botón y en la hoja de iOS elige Guardar en Archivos. Selecciona o crea la carpeta ML3Demuler.",
+        [
+          { label: "Cancelar", value: false },
+          { label: "Abrir Archivos", value: true, primary: true }
+        ]
+      );
+      if (!open) throw new DOMException("Guardado cancelado", "AbortError");
+
       await navigator.share({
         files: [file],
         title: "Guardar partida de ML3Demuler",
@@ -287,6 +297,15 @@
     );
     if (!answer) return false;
 
+    if (supportsDirectoryAccess()) {
+      try {
+        await chooseRootDirectory();
+      } catch (error) {
+        if (error?.name !== "AbortError") console.warn("ML3D: selección de carpeta:", error);
+        return false;
+      }
+    }
+
     localStorage.setItem(INTRO_KEY, "1");
     return true;
   }
@@ -329,6 +348,13 @@
 
       const ctx = currentContext();
       const filename = sanitizeFilename(ctx.displayName || ctx.filename || "partida");
+
+      // Permission prompts must happen directly from the user's save action.
+      if (supportsDirectoryAccess()) {
+        const root = await getRootDirectory(true);
+        if (!root) return false;
+      }
+
       const progress = showProgress("Guardando partida", "Preparando " + filename + "…");
       let bytes = null;
       try {
@@ -369,7 +395,16 @@
     if (!ctx?.running) return;
 
     try {
-      const bytes = await getCurrentSaveBytes();
+      let bytes = null;
+      if (ctx.core === "mgba") {
+        // mGBA already persists SRAM in the browser every ~15 s. Mirror that
+        // copy without pausing the emulator, so automatic external backups do
+        // not introduce gameplay stutter.
+        bytes = await readMgbaBrowserSram(ctx.mgbaNamespace);
+      } else if (typeof ctx.exportLegacySave === "function") {
+        const value = await ctx.exportLegacySave();
+        bytes = value instanceof Uint8Array ? value : value ? new Uint8Array(value) : null;
+      }
       if (!bytes?.length) return;
       const filename = sanitizeFilename(ctx.displayName || ctx.filename || "partida");
       await saveExternal(bytes, filename, false);
