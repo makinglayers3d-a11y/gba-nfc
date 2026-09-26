@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 35,
-  "versionName": "0.11.17",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.17/ml3d-nfc-writer-0.11.17.apk",
-  "sha256": "643715faeb5cb2004d115894b35e5adca2db7cb9f3bef5663e232035fb84bcd0",
+  "versionCode": 36,
+  "versionName": "0.11.18",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.18/ml3d-nfc-writer-0.11.18.apk",
+  "sha256": "671f616ff83911296eb42c6c181582d56f6516514821b1e5d53a9dca1ec13768",
   "sizeBytes": 7861910,
   "changelog": [
-    "Añadir gestión de demos temporales"
+    "Mejorar selector y cuenta atrás de demos"
   ]
 }
