@@ -138,7 +138,7 @@
     for await (const [name, handle] of dir.entries()) {
       if (handle.kind !== "file" || !/\.sav$/i.test(name)) continue;
       const file = await handle.getFile();
-      rows.push({ name, size: file.size, modified: file.lastModified });
+      rows.push({ name, size: file.size, modified: file.lastModified, source: "internal" });
     }
     rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     return rows;
@@ -280,6 +280,42 @@
     await writable.close();
   }
 
+  async function readExternalSave(filename, requestPermission = false) {
+    const dir = await getMl3dDirectory(requestPermission);
+    if (!dir) return null;
+    try {
+      const handle = await dir.getFileHandle(filename, { create: false });
+      const file = await handle.getFile();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return bytes.length ? bytes : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function listExternalSaves(requestPermission = false) {
+    const dir = await getMl3dDirectory(requestPermission);
+    if (!dir) return [];
+    const rows = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== "file" || !/\.sav$/i.test(name)) continue;
+      const file = await handle.getFile();
+      rows.push({ name, size: file.size, modified: file.lastModified, source: "external" });
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    return rows;
+  }
+
+  async function migrateInternalToExternal() {
+    const files = await listInternalSaves();
+    for (const file of files) {
+      try {
+        const bytes = await readInternalSave(file.name);
+        if (bytes?.length) await writeToDirectory(bytes, file.name, false);
+      } catch (_) {}
+    }
+  }
+
   async function exportIOS(bytes, filename) {
     const file = new File([bytes], filename, { type: "application/octet-stream" });
 
@@ -323,11 +359,13 @@
   }
 
   async function firstTimeFlow() {
-    const platformText = "Se creará automáticamente una carpeta interna llamada ML3Demuler dentro del almacenamiento del emulador. Ahí se guardarán los archivos .sav.";
+    const platformText = supportsDirectoryAccess()
+      ? "Después de aceptar, el sistema te pedirá elegir una ubicación del almacenamiento. Elige el almacenamiento principal o una carpeta padre; ML3Demuler creará dentro una carpeta física llamada ML3Demuler."
+      : "En iPhone/iPad, Safari abrirá Archivos al exportar cada .sav para que lo guardes en una carpeta ML3Demuler.";
 
     const answer = await promptDialog(
       "Crear respaldo de partidas",
-      "ML3Demuler puede crear un archivo .sav en tu dispositivo como respaldo por si se borra el navegador o quieres usar la partida en otro emulador. " + platformText,
+      "ML3Demuler puede guardar archivos .sav fuera de los datos del navegador para que sobrevivan aunque borres los datos del sitio y puedas usarlos en otro navegador, emulador o futura app. " + platformText,
       [
         { label: "No", value: false, secondary: true },
         { label: "Sí", value: true, primary: true }
@@ -336,6 +374,20 @@
     if (!answer) return false;
 
     await getInternalMl3dDirectory(true);
+
+    if (supportsDirectoryAccess()) {
+      try {
+        await chooseRootDirectory();
+        await getMl3dDirectory(false);
+        await migrateInternalToExternal();
+      } catch (error) {
+        if (error?.name !== "AbortError") {
+          console.warn("ML3D: no se pudo crear la carpeta física:", error);
+        }
+        return false;
+      }
+    }
+
     localStorage.setItem(INTRO_KEY, "1");
     return true;
   }
@@ -356,7 +408,7 @@
 
     const choice = await promptDialog(
       "¿Cómo quieres usar este archivo?",
-      "Puedes mantener el guardado automático en el navegador y usar el .sav como respaldo manual, o usar el archivo externo como guardado principal. Incluso en modo archivo principal se mantendrá una copia interna de seguridad.",
+      "La carpeta física ML3Demuler ya está vinculada. Puedes mantener el autosave principal en el navegador y actualizar el .sav físico solo al pulsar Guardar, o usar el .sav físico como guardado principal y actualizarlo automáticamente. En ambos casos se mantiene una copia interna de seguridad.",
       [
         { label: "Respaldo manual", value: "backup", primary: true },
         { label: "Archivo principal", value: "external" }
@@ -384,19 +436,28 @@
       try {
         bytes = await getCurrentSaveBytes();
         if (!bytes?.length) throw new Error("Todavía no hay datos de guardado disponibles.");
+
+        // Internal mirror remains as a safety copy.
         await writeInternalSave(bytes, filename);
 
         if (supportsDirectoryAccess()) {
-          const root = await getRootDirectory(false);
-          if (root) {
-            await saveExternal(bytes, filename, false);
+          let root = await getRootDirectory(true);
+          if (!root) {
+            root = await chooseRootDirectory();
           }
+          await writeToDirectory(bytes, filename, false);
+        } else {
+          await exportIOS(bytes, filename);
         }
       } finally {
         if (progress.open) progress.close();
       }
 
-      await showDone("Se ha guardado " + filename + " dentro de la carpeta interna ML3Demuler del emulador.");
+      await showDone(
+        supportsDirectoryAccess()
+          ? "Se ha guardado " + filename + " en la carpeta física ML3Demuler del dispositivo. También se conserva una copia interna de seguridad."
+          : "Se ha preparado " + filename + " para guardarlo en Archivos. Conserva una copia dentro de tu carpeta ML3Demuler."
+      );
 
       if (!localStorage.getItem(MODE_KEY)) {
         await chooseMode();
@@ -432,13 +493,23 @@
 
       if (localStorage.getItem(MODE_KEY) === "external" && supportsDirectoryAccess()) {
         const root = await getRootDirectory(false);
-        if (root) await saveExternal(bytes, filename, false);
+        if (root) await writeToDirectory(bytes, filename, false);
       }
     } catch (_) {}
   }
 
   async function prepareMgbaNamespace(namespace, displayName) {
     const filename = sanitizeFilename(displayName || "partida");
+
+    if (localStorage.getItem(MODE_KEY) === "external" && supportsDirectoryAccess()) {
+      try {
+        const external = await readExternalSave(filename, false);
+        if (external?.length) {
+          await writeInternalSave(external, filename);
+          return writeMgbaBrowserSram(namespace, external);
+        }
+      } catch (_) {}
+    }
 
     try {
       const internal = await readInternalSave(filename);
@@ -447,20 +518,7 @@
       }
     } catch (_) {}
 
-    if (localStorage.getItem(MODE_KEY) !== "external" || !supportsDirectoryAccess()) return false;
-
-    try {
-      const dir = await getMl3dDirectory(false);
-      if (!dir) return false;
-      const handle = await dir.getFileHandle(filename, { create: false });
-      const file = await handle.getFile();
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (!bytes.length) return false;
-      await writeInternalSave(bytes, filename);
-      return writeMgbaBrowserSram(namespace, bytes);
-    } catch (_) {
-      return false;
-    }
+    return false;
   }
 
   function restartAutoTimer() {
@@ -508,7 +566,14 @@
         const file = input.files?.[0];
         if (!file) return resolve(false);
         const bytes = new Uint8Array(await file.arrayBuffer());
-        await writeInternalSave(bytes, sanitizeFilename(file.name));
+        const filename = sanitizeFilename(file.name);
+        await writeInternalSave(bytes, filename);
+        if (supportsDirectoryAccess()) {
+          try {
+            const root = await getRootDirectory(false);
+            if (root) await writeToDirectory(bytes, filename, false);
+          } catch (_) {}
+        }
         resolve(true);
       }, { once: true });
       input.click();
@@ -566,9 +631,12 @@
         }
         try {
           await chooseRootDirectory();
-          localStorage.setItem(MODE_KEY, "external");
+          await getMl3dDirectory(false);
+          await migrateInternalToExternal();
+          localStorage.setItem(MODE_KEY, localStorage.getItem(MODE_KEY) || "backup");
           restartAutoTimer();
-          await promptDialog("Carpeta vinculada", "Se usará una carpeta ML3Demuler dentro de la ubicación elegida como copia externa.", [{ label: "Aceptar", value: true, primary: true }]);
+          await renderDataFolder(dialog);
+          await promptDialog("Carpeta vinculada", "ML3Demuler ya está vinculada. Los .sav internos existentes se han copiado a la carpeta física.", [{ label: "Aceptar", value: true, primary: true }]);
         } catch (_) {}
       });
     }
@@ -578,12 +646,40 @@
 
   async function renderDataFolder(dialog) {
     const host = dialog.querySelector(".ml3d-save-data-list");
-    const files = await listInternalSaves();
+    let files = [];
+    let usingExternal = false;
+
+    if (supportsDirectoryAccess()) {
+      try {
+        const root = await getRootDirectory(false);
+        if (root) {
+          files = await listExternalSaves(false);
+          usingExternal = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!usingExternal) {
+      files = await listInternalSaves();
+    }
+
     host.innerHTML = "";
+
+    const source = document.createElement("div");
+    source.style.cssText = "padding:0 2px 8px;color:#9ca8ba;font-size:.78rem";
+    source.textContent = usingExternal
+      ? "Carpeta física: ML3Demuler"
+      : "Copia interna del emulador";
+    host.appendChild(source);
+
     if (!files.length) {
-      host.innerHTML = '<div style="padding:18px;text-align:center;color:#aeb8c8">Todavía no hay archivos .sav.</div>';
+      const empty = document.createElement("div");
+      empty.style.cssText = "padding:18px;text-align:center;color:#aeb8c8";
+      empty.textContent = "Todavía no hay archivos .sav.";
+      host.appendChild(empty);
       return;
     }
+
     files.forEach((file) => {
       const row = document.createElement("div");
       row.className = "ml3d-save-data-row";
@@ -594,16 +690,45 @@
       `;
       row.querySelector("strong").textContent = file.name;
       row.querySelector("small").textContent = humanSize(file.size) + " · " + new Date(file.modified).toLocaleString("es-ES");
-      row.querySelector("[data-export]").addEventListener("click", () => exportInternalFile(file.name));
+
+      row.querySelector("[data-export]").addEventListener("click", async () => {
+        let bytes = null;
+        if (usingExternal) bytes = await readExternalSave(file.name, true);
+        else bytes = await readInternalSave(file.name);
+        if (!bytes?.length) return;
+
+        if (isIOS()) {
+          await exportIOS(bytes, file.name);
+          return;
+        }
+
+        const blob = new Blob([bytes], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      });
+
       row.querySelector("[data-delete]").addEventListener("click", async () => {
         const ok = await promptDialog("Eliminar guardado", "¿Quieres eliminar " + file.name + " de ML3Demuler?", [
           { label: "No", value: false, secondary: true },
           { label: "Sí", value: true, primary: true }
         ]);
         if (!ok) return;
-        await deleteInternalFile(file.name);
+
+        if (usingExternal) {
+          const dir = await getMl3dDirectory(true);
+          await dir?.removeEntry(file.name);
+        } else {
+          await deleteInternalFile(file.name);
+        }
         await renderDataFolder(dialog);
       });
+
       host.appendChild(row);
     });
   }
