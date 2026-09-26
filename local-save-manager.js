@@ -408,10 +408,10 @@
 
     const choice = await promptDialog(
       "¿Cómo quieres usar este archivo?",
-      "La carpeta física ML3Demuler ya está vinculada. Puedes mantener el autosave principal en el navegador y actualizar el .sav físico solo al pulsar Guardar, o usar el .sav físico como guardado principal y actualizarlo automáticamente. En ambos casos se mantiene una copia interna de seguridad.",
+      "La carpeta física ML3Demuler ya está vinculada. Puedes mantener el autosave del navegador y actualizar el .sav físico solo al pulsar Guardar, o activar el respaldo automático para actualizar también el .sav físico periódicamente. En ambos casos se mantiene una copia interna de seguridad.",
       [
         { label: "Respaldo manual", value: "backup", primary: true },
-        { label: "Archivo principal", value: "external" }
+        { label: "Respaldo automático", value: "external", secondary: true }
       ]
     );
     localStorage.setItem(MODE_KEY, choice);
