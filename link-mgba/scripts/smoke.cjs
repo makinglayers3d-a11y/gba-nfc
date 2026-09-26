@@ -47,8 +47,11 @@ function check(label, ok, detail) {
 	if (!ok) failed.push(label + (detail !== undefined ? " (" + detail + ")" : ""));
 }
 
+const measured = [];
+
 function info(label, value) {
 	console.log(`       ${label}: ${value}`);
+	measured.push(label + " = " + value);
 }
 
 function mib(bytes) {
@@ -313,6 +316,12 @@ async function smokeMulti(rom) {
 	}
 
 	console.log();
+	/* Las medidas van tambien como ::notice::. El log del paso y el resumen del
+	   run piden autenticacion para leerse por API; las anotaciones no, asi que
+	   esta es la unica via por la que los numeros salen del run sin credenciales. */
+	if (measured.length) {
+		console.log(`::notice title=Medidas ${STAGE}::` + measured.join(" · "));
+	}
 	if (failed.length) {
 		/* Las etiquetas van dentro del ::error:: porque una anotacion de Actions
 		   se lee sin autenticacion y el log completo no. */
