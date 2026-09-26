@@ -1,11 +1,11 @@
 {
   "enabled": true,
-  "versionCode": 27,
-  "versionName": "0.11.9",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.9/ml3d-nfc-writer-0.11.9.apk",
-  "sha256": "9ba3173f07113929293b83a7f759159921ff5db10dae472d164b35a5b6f05d08",
-  "sizeBytes": 7812538,
+  "versionCode": 28,
+  "versionName": "0.11.10",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.10/ml3d-nfc-writer-0.11.10.apk",
+  "sha256": "36eee7c43b192d115e62f33d925e2f07ad04efa4324bea7e477eddef8fe4bdd6",
+  "sizeBytes": 7828926,
   "changelog": [
-    "Windows 0.1.5: direct drag/resize message editor"
+    "Android 0.11.10: fix preview box movement, resize and auto-fit"
   ]
 }
