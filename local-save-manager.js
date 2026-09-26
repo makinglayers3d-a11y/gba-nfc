@@ -613,6 +613,16 @@
     restartAutoTimer();
   }
 
+
+  const dataButton = document.getElementById("save-data-folder");
+  if (dataButton) {
+    dataButton.addEventListener("click", () => {
+      openDataFolder().catch((error) => {
+        console.error("ML3D save data:", error);
+      });
+    });
+  }
+
   window.ML3DLocalSave = {
     manualSave,
     autoExternalSave,
