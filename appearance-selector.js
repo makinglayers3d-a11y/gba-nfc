@@ -18,6 +18,14 @@
 
   const UPDATE_ITEMS = [
     [
+      "Sistema de guardado portable",
+      "Nuevo sistema de respaldo con archivos .sav reales. Mantiene el guardado automático del navegador y permite crear una carpeta física ML3Demuler para conservar partidas fuera del navegador, reutilizarlas en otros navegadores o emuladores e importarlas en una futura app móvil. Incluye respaldo manual o automático, explorador de datos de guardado e importación/exportación de .sav."
+    ],
+    [
+      "Compatibilidad de imagen y audio",
+      "Mejorada la compatibilidad de varios juegos mediante el nuevo núcleo mGBA para juego normal. Se han corregido fallos de imagen, audio y arranque que aparecían con el núcleo anterior en distintos títulos, manteniendo IodineGBA para las sesiones de Cable Link."
+    ],
+    [
       "Mejora gráfica ULTRA",
       "Nuevo modo ULTRA con ScaleFX acelerado por GPU: reconstruye contornos y diagonales hasta nivel 6, conserva detalles finos y utiliza únicamente colores presentes en la imagen original. Incluye ORIGINAL, NÍTIDO, HD y ULTRA con fallback automático."
     ]
