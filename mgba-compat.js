@@ -101,8 +101,10 @@
       jsUrl: CORE_JS,
       wasmUrl: CORE_WASM,
       options: {
-        system: system === "gba" ? "gba" : "gb",
-        gbModel: system === "gbc" ? "cgb" : "auto",
+        // Let mGBA inspect GB/GBC cartridge headers itself. Forcing CGB
+        // hardware can break titles that depend on model-specific startup.
+        system: system === "gba" ? "gba" : "auto",
+        gbModel: "auto",
         skipBios: true,
         renderFilter: "pixelated",
         aspect: "native",
