@@ -3,9 +3,9 @@
   "versionCode": 26,
   "versionName": "0.11.8",
   "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.8/ml3d-nfc-writer-0.11.8.apk",
-  "sha256": "b1ed1daddbf1965d35d39bf160a972655b6b72ff3a73d8d4dae990a52774cd23",
+  "sha256": "f09c403e2e906e18307644130a1365b829dac8ab1b3e151a904b8ae2c96ba72b",
   "sizeBytes": 7812538,
   "changelog": [
-    "ML3Demu-tools Android 0.11.8: direct preview text editing"
+    "ML3Demu-tools Windows 0.1.4: Android logo and one-click updates"
   ]
 }
