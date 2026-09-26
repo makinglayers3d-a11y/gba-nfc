@@ -683,28 +683,6 @@ window.addEventListener(
     emulator.setIntervalRate(16 * safeLegacySpeed);
   }
 
-  function forceOriginalGraphicsForKnownCompatibilityGame(filename) {
-    const lower = String(filename || "").toLowerCase();
-    const needsNativeFrame =
-      lower.includes("sonic advance 2") ||
-      lower.includes("tomb raider");
-
-    if (needsNativeFrame && window.ML3DGraphics?.setMode) {
-      window.ML3DGraphics.setMode("original", false);
-    }
-  }
-
-  function shouldUseMgbaCompat(filename, displayName) {
-    if (linkRoomActive) return false;
-
-    const value = (String(filename || "") + " " + String(displayName || "")).toLowerCase();
-    return (
-      value.includes("the lion king") ||
-      value.includes("lion king") ||
-      value.includes("sonic advance 2") ||
-      value.includes("tomb raider")
-    );
-  }
 
   async function startRomFromBytes(bytes, filename, options = {}) {
     const requestId = ++romStartRequest;
@@ -732,7 +710,6 @@ window.addEventListener(
       rom: options.romPath || ""
     };
     title.textContent = selected.name;
-    forceOriginalGraphicsForKnownCompatibilityGame(filename);
 
     currentLocalRom = currentSource === "local"
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
@@ -751,13 +728,22 @@ window.addEventListener(
           ? 0
           : audioVolume * (gameMenuAudioDucked ? GAME_MENU_VOLUME_FACTOR : 1);
 
+      const storedSpeedRaw = localStorage.getItem("gba-speed");
+      let savedSpeed = Number(storedSpeedRaw == null ? "0.9" : storedSpeedRaw);
+      if (!Number.isFinite(savedSpeed) || savedSpeed <= 0) {
+        savedSpeed = 0.9;
+        localStorage.setItem("gba-speed", "0.9");
+      }
+      if (speedSelect) speedSelect.value = String(savedSpeed);
+
       await window.ML3DMgbaCompat.start({
         rom,
         filename,
         saveId: currentSaveId,
         canvas,
         system,
-        volume: effectiveVolume
+        volume: effectiveVolume,
+        speed: savedSpeed
       });
 
       emulator = null;
@@ -949,7 +935,9 @@ window.addEventListener(
       return;
     }
 
-     if (emulator) {
+     if (window.ML3DMgbaCompat?.isActive?.()) {
+      window.ML3DMgbaCompat.setSpeed(speed);
+    } else if (emulator) {
       applyCalibratedGbaPace(speed);
     }
 
@@ -1033,7 +1021,8 @@ updateHapticUI();
 
     try {
       if (window.ML3DMgbaCompat?.isActive?.()) {
-        console.log("Partida mGBA gestionada por persistencia automática.");
+        window.ML3DMgbaCompat.save?.();
+        console.log("Partida mGBA guardada.");
         return;
       }
 
