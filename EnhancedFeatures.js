@@ -676,5 +676,7 @@
     releaseInitialHandoff = resolve;
   });
   window.ml3dInitialCartridgePromise =
-    playInitialCartridge(releaseInitialHandoff);
+    Promise.resolve(window.ml3dStartupGatePromise)
+      .catch(() => {})
+      .then(() => playInitialCartridge(releaseInitialHandoff));
 })();

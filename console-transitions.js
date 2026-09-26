@@ -338,6 +338,11 @@
   }
 
   function playInitialIntro() {
+    if (window.ml3dStartupGateLocked) {
+      return Promise.resolve(window.ml3dStartupGatePromise)
+        .catch(() => {})
+        .then(() => playInitialIntro());
+    }
     if (!animationsEnabled() || new URLSearchParams(location.search).get("skipintro") === "1") {
       return Promise.resolve();
     }
