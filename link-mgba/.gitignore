@@ -1,3 +1,4 @@
-dist/*.wasm
-dist/*.js
+# dist/ es salida del build, no fuente. En subdirectorio por fase, asi que el
+# patron tiene que cubrir el arbol entero y no solo el primer nivel.
+dist/
 .tmp/
