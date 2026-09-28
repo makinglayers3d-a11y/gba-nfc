@@ -41,10 +41,10 @@ estimaciones. La ROM de prueba es Mario Kart Super Circuit (4 MiB).
 | Binario | Bytes | Contra el publicado |
 | --- | --- | --- |
 | `mgba.wasm` fase 1 (shim original) | 807 995 | −1 650 (−0,20 %) |
-| `mgba.wasm` fase 2 (shim multi) | 809 474 | −171 (−0,02 %) |
+| `mgba.wasm` fase 2 (shim multi) | 809 144 | −501 (−0,06 %) |
 | `@wasm-gaming/mgba-wasm@0.1.1` | 809 645 | — |
 
-El shim multi-instancia cuesta 1 479 bytes sobre el de una instancia. La
+El shim multi-instancia cuesta 1 149 bytes sobre el de una instancia. La
 diferencia con el publicado es la huella de otra versión de emsdk; por eso el
 criterio de la fase 1 es de comportamiento y de exports, no de hash.
 
@@ -108,8 +108,8 @@ tres consolas mudas de una sala de cuatro son seguras.
 
 | Medida | Valor |
 | --- | --- |
-| Frames por núcleo | 75 480 |
-| fps por núcleo, sin limitar el reloj | 419,2 |
+| Frames por núcleo | 91 800 |
+| fps por núcleo, sin limitar el reloj | 509,9 |
 | Heap mínimo / máximo | 6,10 MiB / 6,10 MiB |
 | **Recorrido del heap** | **0,00 MiB** sobre 18 muestras |
 | Memoria lineal antes / después | 64,00 MiB / 64,00 MiB |
@@ -160,21 +160,21 @@ reservas sin liberar.
 `calloc`/`free`, donde el tamaño de la liberación se ignora, y bajo Emscripten
 el `mmap` anónimo no aporta nada frente a `calloc`.
 
-**Residuo al cerrar (medición original, antes del arreglo)**
+*Después del arreglo,* revalidación completa con el mismo experimento:
 
-Tras cerrar los dos núcleos quedan 4,25 MiB con la ROM aún compartida, y tras
-`rom_release` quedan **0,25 MiB** contra los 0,00 MiB iniciales. La comprobación
-pasa porque el umbral era 1 MiB, pero 256 KiB no vuelven.
+| Medida | Antes | Después |
+| --- | --- | --- |
+| 1 / 2 / 3 / 4 núcleos con frames | 128 / 256 / 384 / 512 KiB | **0 / 0 / 0 / 0** |
+| 1 / 2 / 4 / 8 reaperturas | 128 / 256 / 512 / 1 024 KiB | **0 / 0 / 0 / 0** |
+| 2 núcleos, 1 800 vs 3 600 frames | 256 KiB en ambos | **0 en ambos** |
+| Peor residuo de todo el experimento | 1 024 KiB | **0 KiB** |
+| Primer frame con residuo | 30 | **nunca** |
+| Heap tras cerrar los dos (ROM viva) | 4,25 MiB | **4,00 MiB**, la ROM exacta |
+| Heap tras `rom_release` | 0,25 MiB | **0,00 MiB**, la línea base exacta |
 
-Hipótesis, encaja con los números pero **está sin comprobar**: el run abre tres
-núcleos en total y el tercero se abrió y cerró sin ejecutar un solo frame. Dos
-núcleos con frames × 128 KiB de savedata de flash dan 256 KiB exactos. Eso
-apuntaría a savedata asignada de forma perezosa al primer acceso del juego y no
-devuelta al cerrar la instancia: 128 KiB por asiento, 512 KiB en una sala llena.
-
-Lo resuelve `SMOKE_MODE=leak`, que mide 1, 2, 3 y 4 núcleos con y sin frames y
-repite dos núcleos con el doble de frames, que es donde se vería una fuga ligada
-al tiempo de ejecución en vez de al número de instancias.
+El guardado sigue funcionando: la savedata de un núcleo que ha corrido sigue
+apareciendo en el frame 30 y sigue midiendo 64 KiB. Lo único que cambia es que
+ahora se libera.
 
 **Sample rate entre fases.** La fase 1 mide 32 768 Hz y la fase 2 mide
 65 536 Hz. Es correcto y no es un fallo: la fase 1 lee justo tras el reset y la
