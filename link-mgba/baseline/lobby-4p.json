@@ -1,0 +1,88 @@
+{
+  "rama": "test/lobby-en-emulador-2026-09-23",
+  "commit": "2c13a81",
+  "ficheroSesion": "user_scripts/LocalLinkSession.js (1349 lineas, de cee9f8b)",
+  "nucleo": "IodineGBA",
+  "servidor": "http://127.0.0.1:8766/ (estatico, sin proxy /api)",
+  "fecha": "2026-09-28",
+
+  "apiExpuesta": {
+    "ML3DLinkRuntime": ["emulator", "romBytes", "romFilename", "stopTimers", "startTimers", "prepareForLink", "restartForLink", "flushAudio"],
+    "ML3DLocalLinkSession": ["handleLocalKey", "active", "status", "test"],
+    "ML3DLinkCable": "object",
+    "ML3DLobbyOverlay": "object",
+    "ML3D_LINK_TRANSPORT": "dual"
+  },
+
+  "casos": [
+    {
+      "caso": "selfTest, 2 jugadores, por URL",
+      "url": "index.html?linkSelfTest=1&linkPlayers=2",
+      "roomId": "", "mySeat": 0, "role": "guest", "seats": 2,
+      "asientosVivos": [0, 1],
+      "started": true, "wedged": false, "transfers": 0,
+      "romHash": "ab696c065639e4d7",
+      "panel": "LOCAL LINK G P0 RUN | F:1707 IN:0/0 D:4 | M:2/2 BUSY:1/1 S:88/9c R:02/07 | XFER:0 HS:0 PEND:0/0 D:0 SK:- T:280895 STALL:0"
+    },
+    {
+      "caso": "configuracion en caliente por BroadcastChannel, 4 jugadores",
+      "paquete": { "source": "lobby", "type": "gba:link:configure", "roomId": "BASE-A", "playerNumber": 2, "role": "guest", "players": 4, "game": "Mario Kart - Super Circuit" },
+      "roomId": "BASE-A", "mySeat": 2, "role": "guest", "seats": 4,
+      "asientosVivos": [0, 1, 2, 3],
+      "started": true, "wedged": false,
+      "romHashAntes": "ab696c065639e4d7", "romHashDespues": "8f942be288124bb9",
+      "nota": "prepareForLink recarga la ROM que pide la sala; el hash cambia",
+      "panel": "LOCAL LINK G P2 RUN | F:371 ..."
+    },
+    {
+      "caso": "reconfiguracion en caliente a 3 jugadores, asiento 1, host",
+      "paquete": { "source": "lobby", "type": "gba:link:configure", "roomId": "BASE-B", "playerNumber": 1, "role": "host", "players": 3, "game": "Mario Kart - Super Circuit" },
+      "roomId": "BASE-B", "mySeat": 1, "role": "host", "seats": 3,
+      "asientosVivos": [0, 1, 2],
+      "started": true, "wedged": false
+    },
+    {
+      "caso": "desconexion por BroadcastChannel",
+      "paquete": { "source": "lobby", "type": "gba:link:disconnect", "roomId": "BASE-B" },
+      "roomId": "", "active": false,
+      "nota": "el controlador se destruye y la sesion queda inactiva"
+    },
+    {
+      "caso": "configuracion por parametros de URL, 4 jugadores",
+      "url": "index.html?linkRoom=BASE-URL&linkPlayer=2&linkPlayers=4&linkRole=guest&linkSelfTest=1",
+      "roomId": "BASE-URL", "mySeat": 2, "role": "guest", "seats": 4,
+      "asientosVivos": [0, 1, 2, 3],
+      "started": true, "wedged": false, "stalls": 0, "transfers": 0,
+      "panel": "LOCAL LINK G P2 RUN | F:57 IN:0/0 D:4 | M:2/2 BUSY:1/1 S:ff/ff R:00/00 | XFER:0 HS:0 PEND:0/0 D:0 SK:- T:280893 STALL:0"
+    }
+  ],
+
+  "comoRepetir": {
+    "servidor": "py -3 -c \"import http.server as h,socketserver; h.SimpleHTTPRequestHandler.extensions_map['.wasm']='application/wasm'; socketserver.ThreadingTCPServer.allow_reuse_address=True; socketserver.ThreadingTCPServer(('127.0.0.1',8766), h.SimpleHTTPRequestHandler).serve_forever()\"",
+    "paso1": "abrir index.html?linkSelfTest=1&linkPlayers=2 y leer window.ML3DLocalLinkSession.status",
+    "paso2": "postMessage de gba:link:configure por BroadcastChannel('ml3d-gba-link-v1') con players 4 y luego 3",
+    "paso3": "postMessage de gba:link:disconnect",
+    "paso4": "abrir index.html?linkRoom=BASE-URL&linkPlayer=2&linkPlayers=4&linkRole=guest&linkSelfTest=1",
+    "campos": "roomId, mySeat, role, seats, started, wedged, stalls, romHash y coreExecution[].seat"
+  },
+
+  "invariantesAConservar": [
+    "seats sigue a players del paquete, entre 2 y 4",
+    "mySeat sigue a playerNumber, entre 0 y 3",
+    "role sigue a role del paquete",
+    "roomId se fija al configurar y se vacia al desconectar",
+    "el numero de asientos vivos (coreExecution) es igual a seats",
+    "started true tras configurar, sin wedged ni stalls",
+    "prepareForLink recarga la ROM que pide la sala",
+    "el panel de depuracion existe y muestra rol, asiento, frame, modo e input delay",
+    "los parametros linkRoom, linkPlayer, linkPlayers, linkRole y linkSelfTest siguen funcionando",
+    "ML3DLocalLinkSession expone handleLocalKey, active, status y test",
+    "al desconectar, active pasa a false y el controlador se destruye"
+  ],
+
+  "noValidado": [
+    "crear sala y entrar como invitado de verdad: necesitan el worker de salas, que este servidor estatico no hace de proxy",
+    "entrada y salida de jugadores por WebRTC: misma razon",
+    "transferencias del cable: XFER 0 porque pulsar a ciegas no entra en el menu Link, tal y como ya documenta LOBBY-EN-EMULADOR.md"
+  ]
+}
