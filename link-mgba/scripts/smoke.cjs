@@ -639,37 +639,64 @@ async function traceExperiment(rom) {
 	console.log(`[js] rom_release · heap = ${kib(afterRelease)}`);
 	console.log(`[js] residuo = ${kib(afterRelease - base)}`);
 
-	const trace = coreLog.slice(marker).filter((l) => l.includes("ML3DTRACE"));
-	console.log(`\n--- ${trace.length} linea(s) ML3DTRACE ---`);
-	for (const line of trace) console.log("  " + line);
+	const lines = coreLog.slice(marker);
+	const trace = lines.filter((l) => l.includes("ML3DTRACE"));
+	const maps = lines.filter((l) => l.includes("ML3DMAP"));
 
-	if (!trace.length) {
-		console.log("\nNinguna. El build no lleva el parche de instrumentacion.");
-		check("el build lleva el parche de traza", false, "0 lineas ML3DTRACE");
+	console.log(`\n--- ${trace.length} linea(s) ML3DTRACE (savedata) ---`);
+	for (const line of trace) console.log("  " + line);
+	console.log(`\n--- ${maps.length} linea(s) ML3DMAP (reservas anonimas) ---`);
+	for (const line of maps) console.log("  " + line);
+
+	if (!trace.length && !maps.length) {
+		console.log("\nNinguna. El build no lleva los parches de instrumentacion.");
+		check("el build lleva los parches de traza", false, "0 lineas de traza");
 		return;
 	}
 
-	/* Lo que se busca: un puntero reservado que nunca aparezca en una linea de
-	   liberacion. Ese es el bloque perdido. */
-	const allocated = new Map();
-	for (const line of trace) {
-		const ptr = /data=(0x[0-9a-f]+)/.exec(line)?.[1];
+	/* Toda reserva anonima pasa por aqui, asi que este cruce ve el bloque
+	   perdido venga del subsistema que venga. Y compara tamanos: munmap SI usa
+	   el tamano, asi que liberar con uno distinto del de la reserva no suelta
+	   el bloque aunque la linea de liberacion exista. */
+	const live = new Map();
+	const mismatched = [];
+	for (const line of maps) {
+		const ptr = /ptr=(0x[0-9a-f]+)/.exec(line)?.[1];
+		const size = Number(/size=(\d+)/.exec(line)?.[1] || 0);
 		if (!ptr || ptr === "0x0") continue;
-		if (line.includes("-alloc")) allocated.set(ptr, line);
-		if (line.includes("deinit-free") || line.includes("deinit-unmap")) allocated.delete(ptr);
+		if (line.includes("alloc")) {
+			live.set(ptr, size);
+		} else if (line.includes("free")) {
+			const allocSize = live.get(ptr);
+			if (allocSize !== undefined && allocSize !== size) {
+				mismatched.push({ ptr, allocSize, size });
+			}
+			live.delete(ptr);
+		}
 	}
 
 	console.log("\n--- veredicto ---");
-	if (!allocated.size) {
-		console.log("Toda reserva trazada aparece tambien en una liberacion.");
-		console.log("Los 128 KiB no salen de este camino: hay que instrumentar en otro sitio.");
-	} else {
-		console.log(`${allocated.size} reserva(s) sin liberacion correspondiente:`);
-		for (const [ptr, line] of allocated) console.log(`  ${ptr}  <-  ${line}`);
+	if (mismatched.length) {
+		console.log("Reservas liberadas con un tamano distinto del reservado:");
+		for (const m of mismatched) {
+			console.log(`  ${m.ptr}: reservado ${kib(m.allocSize)}, liberado ${kib(m.size)}` +
+				`  -> se pierden ${kib(m.allocSize - m.size)}`);
+		}
+		const lost = mismatched.reduce((a, m) => a + (m.allocSize - m.size), 0);
+		console.log(`Total perdido por desajuste de tamano: ${kib(lost)}`);
+		info("perdido por desajuste de tamano", kib(lost));
+	}
+	if (live.size) {
+		console.log(`${live.size} reserva(s) sin liberacion correspondiente:`);
+		for (const [ptr, size] of live) console.log(`  ${ptr}  ${kib(size)}`);
+	}
+	if (!mismatched.length && !live.size) {
+		console.log("Reservas y liberaciones cuadran en puntero y en tamano.");
 	}
 
 	info("residuo del ciclo trazado", kib(afterRelease - base));
-	info("reservas sin liberar", allocated.size);
+	info("reservas sin liberar", live.size);
+	info("liberaciones con tamano desajustado", mismatched.length);
 }
 
 /* -------------------------------------------------------------------------- */
