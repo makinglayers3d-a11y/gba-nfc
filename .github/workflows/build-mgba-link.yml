@@ -88,6 +88,17 @@ jobs:
             fi
           done
 
+      # Los ficheros del runtime solo se ejecutan en el navegador, asi que un
+      # error de sintaxis no saldria hasta abrir la pagina. Esto lo caza antes.
+      - name: Sintaxis de los scripts JS
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in link-mgba/scripts/smoke.cjs link-mgba/runtime/*.js; do
+            node --check "$f"
+            echo "ok  $f"
+          done
+
       - name: Cache del checkout y el build de mGBA
         uses: actions/cache@v4
         with:

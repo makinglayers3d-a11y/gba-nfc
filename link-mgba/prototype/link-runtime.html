@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runtime Link mGBA</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --line: #2d323c;
+    --text: #e6e8ec; --dim: #9aa2af; --ok: #6fcf97; --bad: #eb5757; --warn: #f2c94c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: var(--dim); max-width: 78ch; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+  canvas {
+    display: block; width: 480px; max-width: 100%; height: auto;
+    image-rendering: pixelated; background: #000;
+    border: 1px solid var(--line); border-radius: 4px;
+  }
+  button, select, input[type=file] {
+    font: inherit; color: var(--text); background: #262b34;
+    border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px;
+  }
+  button:hover:not(:disabled) { background: #30363f; }
+  button:disabled { opacity: .45; }
+  button.on { border-color: var(--ok); color: var(--ok); }
+  #controls, #seatbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  table { border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 2px 12px 2px 0; white-space: nowrap; }
+  th { color: var(--dim); font-weight: 400; }
+  #log {
+    margin-top: 16px; padding: 10px; background: #0f1114; border: 1px solid var(--line);
+    border-radius: 6px; max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap;
+  }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .keys { color: var(--dim); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Runtime Link mGBA · validación aislada</h1>
+<p class="lead">
+  Capa propia conduciendo el módulo multi-instancia: vídeo desde
+  <code>mgbawasm_video_ptr</code>, audio solo de la consola visible por
+  AudioWorklet, y el resto corriendo sin pintar ni sonar. Sin el SDK publicado,
+  sin lobby y sin red.
+</p>
+
+<div id="controls">
+  <select id="library"><option value="">— biblioteca del repo —</option></select>
+  <input type="file" id="file" accept=".gba">
+  <select id="seats">
+    <option value="2">2 consolas</option>
+    <option value="3">3 consolas</option>
+    <option value="4">4 consolas</option>
+  </select>
+  <button id="start" disabled>Arrancar</button>
+  <button id="stop" disabled>Parar</button>
+  <button id="detach" disabled>Soltar cable</button>
+  <button id="destroy" disabled>Cerrar todo</button>
+</div>
+
+<div id="seatbar"></div>
+
+<div class="row">
+  <div class="card">
+    <h2>Consola visible</h2>
+    <canvas id="screen" width="240" height="160"></canvas>
+    <div class="keys">flechas · X=A · Z=B · A=L · S=R · Enter=START · Shift=SELECT</div>
+  </div>
+  <div class="card">
+    <h2>Estado</h2>
+    <table>
+      <tr><th>fps</th><td id="mFps">—</td></tr>
+      <tr><th>Cable</th><td id="mLink">—</td></tr>
+      <tr><th>Audio en cola</th><td id="mAudio">—</td></tr>
+      <tr><th>Sample rate</th><td id="mRate">—</td></tr>
+      <tr><th>Heap</th><td id="mHeap">—</td></tr>
+      <tr><th>Memoria lineal</th><td id="mLinear">—</td></tr>
+    </table>
+    <h2 style="margin-top:12px">Consolas</h2>
+    <table id="mSeats"></table>
+  </div>
+  <div class="card">
+    <h2>Comprobaciones</h2>
+    <button id="checkSram">Volcar y comparar savedata</button>
+    <button id="checkHidden">Medir avance de las ocultas</button>
+    <table id="mChecks" style="margin-top:10px"></table>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script src="../runtime/ml3d-mgba-link.js"></script>
+<script>
+const el = (id) => document.getElementById(id);
+const logBox = el("log");
+function log(message, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = message;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+const mib = (n) => (n / 1048576).toFixed(2) + " MiB";
+
+let runtime = null;
+let romBytes = null;
+let romName = "";
+const checks = [];
+
+function renderChecks() {
+  el("mChecks").innerHTML = checks.map((c) =>
+    `<tr><td class="${c.ok ? "ok" : "bad"}">${c.ok ? "ok" : "FALLA"}</td><td>${c.label}</td><td>${c.detail || ""}</td></tr>`
+  ).join("");
+}
+function addCheck(label, ok, detail) {
+  checks.unshift({ label, ok, detail });
+  renderChecks();
+  log(`${ok ? "ok  " : "FALLA"} ${label}${detail ? " — " + detail : ""}`, ok ? "ok" : "bad");
+}
+
+/* ------------------------------------------------------------------ teclado */
+
+const LAYOUT = {
+  ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT",
+  KeyX: "A", KeyZ: "B", KeyA: "L", KeyS: "R",
+  Enter: "START", ShiftLeft: "SELECT", ShiftRight: "SELECT"
+};
+/* El input va solo a la consola visible: es lo que hace el jugador de verdad. */
+function onKey(event, down) {
+  if (!runtime) return;
+  const key = LAYOUT[event.code];
+  if (!key) return;
+  runtime.press(runtime.visible, key, down);
+  event.preventDefault();
+}
+window.addEventListener("keydown", (e) => onKey(e, true));
+window.addEventListener("keyup", (e) => onKey(e, false));
+
+/* -------------------------------------------------------------------- UI */
+
+function renderSeatBar() {
+  const bar = el("seatbar");
+  bar.innerHTML = "";
+  if (!runtime) return;
+  const label = document.createElement("span");
+  label.style.color = "var(--dim)";
+  label.textContent = "Ver consola:";
+  bar.appendChild(label);
+  runtime.seats.forEach((s, i) => {
+    const button = document.createElement("button");
+    button.textContent = `#${i} (asiento ${s.seat})`;
+    if (i === runtime.visible) button.className = "on";
+    button.onclick = () => {
+      const before = runtime.status().seats.map((x) => x.frames);
+      runtime.setVisible(i);
+      renderSeatBar();
+      /* Cambiar de consola visible no debe reiniciar ni parar a nadie. */
+      setTimeout(() => {
+        const after = runtime.status().seats.map((x) => x.frames);
+        addCheck("cambiar de consola visible no reinicia ninguna",
+          after.every((f, k) => f >= before[k]),
+          `frames ${before.join("/")} → ${after.join("/")}`);
+      }, 250);
+    };
+    bar.appendChild(button);
+  });
+}
+
+function renderStatus(status) {
+  el("mFps").textContent = status.fps.toFixed(1);
+  el("mLink").textContent = status.linked ? `sí, ${status.attached} consolas` : "no";
+  el("mAudio").textContent = status.audioQueued + " muestras";
+  el("mRate").textContent = status.sampleRate + " Hz";
+  el("mHeap").textContent = mib(status.heap);
+  el("mLinear").textContent = mib(status.linear);
+  el("mSeats").innerHTML =
+    "<tr><th>#</th><th>asiento</th><th>frames</th><th>ciclos</th><th></th></tr>" +
+    status.seats.map((s, i) => `<tr><td>${i}${i === status.visible ? " 👁" : ""}</td>` +
+      `<td>${s.seat}</td><td>${s.frames}</td><td>${s.cycles}</td>` +
+      `<td>${s.asleep ? "dormida" : ""}</td></tr>`).join("");
+
+  if (status.fps > 0 && status.fps < 55) {
+    log(`fps bajo: ${status.fps.toFixed(1)}`, "warn");
+  }
+}
+
+/* ---------------------------------------------------------------- arranque */
+
+async function boot() {
+  if (runtime) { runtime.destroy(); runtime = null; }
+  checks.length = 0;
+  renderChecks();
+
+  const seats = Number(el("seats").value);
+  runtime = await window.ML3DMgbaLink.create({
+    wasmDir: "../dist/multi/",
+    rom: romBytes,
+    seats,
+    canvas: el("screen"),
+    onStatus: renderStatus
+  });
+  log(`${seats} consolas abiertas sobre ${romName}`, "ok");
+
+  addCheck("el cable engancha todas las consolas",
+    runtime.status().attached === seats, `${runtime.status().attached} de ${seats}`);
+  addCheck("los asientos salen consecutivos desde 0",
+    runtime.seats.every((s, i) => s.seat === i),
+    runtime.seats.map((s) => s.seat).join(", "));
+
+  /* El AudioContext necesita un gesto del usuario, y arrancar lo es. */
+  await runtime.startAudio();
+  runtime.start();
+  renderSeatBar();
+
+  el("start").disabled = false;
+  el("stop").disabled = false;
+  el("detach").disabled = false;
+  el("destroy").disabled = false;
+}
+
+el("start").onclick = () => boot().catch((e) => log("fallo al arrancar: " + e.message, "bad"));
+el("stop").onclick = () => { runtime?.stop(); log("parado"); };
+
+el("detach").onclick = () => {
+  if (!runtime) return;
+  const before = runtime.status().seats.map((s) => s.frames);
+  runtime.detachAll();
+  addCheck("soltar el cable deja el coordinador vacío",
+    runtime.status().attached === 0, runtime.status().attached + " enganchadas");
+  setTimeout(() => {
+    const after = runtime.status().seats.map((s) => s.frames);
+    addCheck("las consolas siguen corriendo sin cable",
+      after.every((f, i) => f > before[i]), `frames ${before.join("/")} → ${after.join("/")}`);
+  }, 500);
+};
+
+el("destroy").onclick = () => {
+  if (!runtime) return;
+  const heapBefore = runtime.status().heap;
+  runtime.destroy();
+  runtime = null;
+  el("seatbar").innerHTML = "";
+  log(`cerrado todo (heap antes: ${mib(heapBefore)})`, "ok");
+  el("stop").disabled = true;
+  el("detach").disabled = true;
+  el("destroy").disabled = true;
+};
+
+/* Savedata por instancia: cada consola tiene su cartucho aunque la ROM sea una. */
+el("checkSram").onclick = () => {
+  if (!runtime) return;
+  const dumps = runtime.seats.map((s, i) => runtime.sram(i));
+  const sizes = dumps.map((d) => (d ? d.length : 0));
+  addCheck("cada consola tiene su propia savedata",
+    dumps.every((d) => d && d.length > 0), sizes.join(" / ") + " bytes");
+  if (dumps[0]) {
+    const reloaded = runtime.loadSram(0, dumps[0]);
+    addCheck("la savedata se puede volver a cargar", reloaded);
+  }
+};
+
+/* Las ocultas tienen que avanzar igual que la visible. */
+el("checkHidden").onclick = () => {
+  if (!runtime) return;
+  const before = runtime.status().seats.map((s) => s.frames);
+  setTimeout(() => {
+    const after = runtime.status().seats.map((s) => s.frames);
+    const delta = after.map((f, i) => f - before[i]);
+    const hidden = delta.filter((_, i) => i !== runtime.visible);
+    addCheck("las consolas ocultas avanzan como la visible",
+      hidden.every((d) => d > 0 && Math.abs(d - delta[runtime.visible]) <= 4),
+      "frames en 2 s: " + delta.join(" / "));
+  }, 2000);
+  log("midiendo 2 s…");
+};
+
+/* -------------------------------------------------------------- biblioteca */
+
+el("file").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  romBytes = new Uint8Array(await file.arrayBuffer());
+  romName = file.name;
+  el("start").disabled = false;
+  log("ROM lista: " + romName);
+});
+
+el("library").addEventListener("change", async (e) => {
+  const name = e.target.value;
+  if (!name) return;
+  const response = await fetch("../../games/" + encodeURIComponent(name));
+  if (!response.ok) { log("HTTP " + response.status + " al leer " + name, "bad"); return; }
+  romBytes = new Uint8Array(await response.arrayBuffer());
+  romName = name;
+  el("start").disabled = false;
+  log("ROM lista: " + romName);
+});
+
+fetch("../../games-catalog.json", { cache: "no-store" })
+  .then((r) => r.json())
+  .then((entries) => {
+    const names = (Array.isArray(entries) ? entries : [])
+      .map((entry) => String(entry?.name || entry || ""))
+      .filter((name) => /\.gba$/i.test(name)).sort();
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = option.textContent = name;
+      el("library").appendChild(option);
+    }
+    log("Biblioteca: " + names.length + " juegos");
+  })
+  .catch(() => log("Sin biblioteca (sirve el repo con dev-server.ps1 para tenerla)"));
+
+log("Necesita link-mgba/dist/multi/ compilado. Descarga el artifact del workflow y descomprímelo ahí.");
+</script>
+</body>
+</html>
