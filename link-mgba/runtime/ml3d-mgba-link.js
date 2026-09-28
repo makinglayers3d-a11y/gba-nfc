@@ -17,6 +17,7 @@
 	"use strict";
 
 	const FRAME_CYCLES = 280896;
+	const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
 	const MAX_SEATS = 4;
 
 	/* enum GBAKey de include/mgba/internal/gba/input.h */
@@ -253,19 +254,24 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			if (!this.linked) {
 				for (const s of this.seats) this.M._mgbawasm_run_frame(s.id);
 			} else {
-				const target = Math.min(...this.ran) + FRAME_CYCLES;
+				const start = this.ran.slice();
+				const done = (i) => this.ran[i] - start[i];
 				let guard = 0;
-				while (++guard < 4096) {
+				while (++guard < 8192) {
+					if (this.ran.every((_, i) => done(i) >= FRAME_CYCLES)) break;
+					/* Se elige al despierto que menos ha avanzado EN ESTA vuelta,
+					   sin impedirle pasar del frame. Atarlo al objetivo bloquea:
+					   una consola que ya cumplio su frame todavia tiene que poder
+					   correr para que el lockstep despierte a la que espera por
+					   ella, y si no se la deja, se quedan las dos paradas. */
 					let pick = -1;
 					let least = Infinity;
 					for (let i = 0; i < this.seats.length; ++i) {
-						if (this.ran[i] >= target) continue;
 						if (this.M._mgbawasm_link_asleep(this.seats[i].id)) continue;
-						if (this.ran[i] < least) { least = this.ran[i]; pick = i; }
+						if (done(i) < least) { least = done(i); pick = i; }
 					}
-					if (pick < 0) break;
-					this.ran[pick] += this.M._mgbawasm_link_run(
-						this.seats[pick].id, target - this.ran[pick]);
+					if (pick < 0) break;   /* todas dormidas: bloqueo de verdad */
+					this.ran[pick] += this.M._mgbawasm_link_run(this.seats[pick].id, LINK_SLICE);
 				}
 			}
 			/* Las ocultas no suenan: su cola se descarta para que no sature. */

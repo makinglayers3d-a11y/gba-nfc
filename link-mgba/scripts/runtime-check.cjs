@@ -106,8 +106,11 @@ function makeCanvas() {
 
 		info("frames por consola en 600 vueltas", delta.join(" / "));
 		info("velocidad del conjunto", (600 / elapsed).toFixed(1) + " frames/s de reloj real");
+		/* Un umbral de verdad, no "mas de cero": con el planificador roto salia
+		   2 / 0 y la comprobacion de desviacion lo daba por bueno porque 2 y 0
+		   se parecen. Cada consola tiene que hacer casi los 600 frames. */
 		check("todas las consolas avanzan, visible y ocultas",
-			delta.every((d) => d > 0), delta.join(" / "));
+			delta.every((d) => d >= 540), delta.join(" / ") + " de 600");
 		check("ninguna consola se queda atras",
 			Math.max(...delta) - Math.min(...delta) <= 4,
 			"desviacion " + (Math.max(...delta) - Math.min(...delta)) + " frames");
