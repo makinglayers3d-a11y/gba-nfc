@@ -105,3 +105,29 @@ body.ml3d-custom-skin #menu #haptic-button[aria-pressed="true"]{
 }
 @media (orientation:portrait){body.sp-skin-test #ml3d-radial-menu{left:50%!important;right:auto!important;top:auto!important;bottom:calc(39.25dvh + 22px)!important;transform-origin:50% 100%;margin-left:-110px;animation:spHoloRadialIn .34s cubic-bezier(.18,.9,.2,1.25) both}}
 @keyframes spHoloRadialIn{0%{opacity:0;transform:translateY(82px) scale(.03);filter:brightness(3)}45%{opacity:.65;transform:translateY(18px) scale(.82) skewX(-2deg)}65%{opacity:.35;filter:brightness(2.3)}100%{opacity:1;transform:translateY(0) scale(1);filter:brightness(1)}}@keyframes spHoloMenuBuild{0%{opacity:0;transform:translate(var(--sp-menu-x,0px),var(--sp-menu-y,80px)) scale(.01,.006);filter:brightness(10) blur(1px)}12%{opacity:1;transform:translate(calc(var(--sp-menu-x,0px)*.78),calc(var(--sp-menu-y,80px)*.78)) scale(.05,.009);filter:brightness(12)}25%{opacity:.95;transform:translate(calc(var(--sp-menu-x,0px)*.42),calc(var(--sp-menu-y,80px)*.42)) scale(.88,.012);filter:brightness(8);box-shadow:0 0 16px #fff,0 0 42px #5ff4ff}39%{opacity:.45;transform:translate(calc(var(--sp-menu-x,0px)*.12),calc(var(--sp-menu-y,80px)*.12)) scale(1,.2);filter:brightness(3)}51%{opacity:.9;transform:translate(0,0) scale(1,.58);filter:brightness(2.2)}61%{opacity:.38;transform:scale(1,.72);filter:brightness(3.4)}70%{opacity:.88;transform:scale(1,.9);filter:brightness(1.6)}78%{opacity:.52;transform:scale(1,.96);filter:brightness(2.2)}88%{opacity:1;transform:scale(1,1.012);filter:brightness(1.25)}100%{opacity:1;transform:none;filter:none}}@keyframes spHoloMenuOff{0%{opacity:1;transform:scaleY(1);filter:brightness(1)}45%{opacity:.8;transform:scaleY(.38);filter:brightness(1.8)}76%{opacity:1;transform:scaleY(.018);filter:brightness(7);box-shadow:0 0 9px #fff,0 0 30px #7df5ff,0 0 58px #19dfff}90%{opacity:1;transform:scaleY(.006) scaleX(1.04);filter:brightness(12);box-shadow:0 0 14px #fff,0 0 42px #8cffff}100%{opacity:0;transform:scaleY(.001) scaleX(.18);filter:brightness(14)}}@keyframes spProjectorFlicker{0%,100%{opacity:.72;filter:blur(.2px) drop-shadow(0 0 7px #56efff)}18%{opacity:.42}20%{opacity:.9}52%{opacity:.68}54%{opacity:.28}57%{opacity:.78}82%{opacity:.58}}@keyframes spHoloScan{0%{background-position:0 0}100%{background-position:0 90px}}@keyframes spHoloSweep{0%,65%{transform:translateX(-75%);opacity:.15}78%{opacity:.8}100%{transform:translateX(75%);opacity:.1}}@media (prefers-reduced-motion:reduce){body.sp-skin-test #ml3d-radial-menu,body.sp-skin-test #menu .menu-card,body.sp-skin-test #ml3d-radial-menu::before,body.sp-skin-test #menu .menu-card::before,body.sp-skin-test #menu .menu-card::after,body.sp-skin-test #menu button::after{animation:none!important}}
+
+
+/* iOS/WebKit menu touch stability.
+   Keep the menu geometry unchanged while avoiding transformed hit-test layers. */
+html.ml3d-ios #menu[open] .menu-card{
+  animation:none!important;
+  transform:none!important;
+  will-change:auto!important;
+}
+html.ml3d-ios body.sp-skin-test #menu[open] .menu-card{
+  animation:none!important;
+  transform:none!important;
+  filter:none!important;
+}
+html.ml3d-ios #menu button,
+html.ml3d-ios #menu select,
+html.ml3d-ios #menu input,
+html.ml3d-ios #menu label{
+  touch-action:manipulation!important;
+  -webkit-tap-highlight-color:transparent;
+}
+html.ml3d-ios #menu button,
+html.ml3d-ios #menu select,
+html.ml3d-ios #menu input{
+  pointer-events:auto;
+}
