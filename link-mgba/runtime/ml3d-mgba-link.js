@@ -226,6 +226,10 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 		blit() {
 			if (!this.ctx2d) return;
 			const visible = this.seats[this.visible];
+			/* Con cable, link_run no empaqueta el framebuffer —eso vivia dentro
+			   de run_frame—, asi que hay que pedirlo aqui. Solo para la visible:
+			   a las ocultas no hay que empaquetarles nada. */
+			if (this.linked) this.M._mgbawasm_present(visible.id);
 			const width = this.M._mgbawasm_video_width(visible.id);
 			const height = this.M._mgbawasm_video_height(visible.id);
 			if (!width || !height) return;

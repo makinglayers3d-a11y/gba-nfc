@@ -48,13 +48,25 @@ global.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 1
 global.cancelAnimationFrame = (handle) => clearTimeout(handle);
 
 let blits = 0;
+let lastColours = 0;
+/* Contar volcados no vale: con el empaquetado a RGBA fuera del camino del
+   cable, putImageData se llamaba igual y la pantalla salia negra. Lo que hay
+   que mirar es el contenido. */
+function distinctColours(data) {
+	const seen = new Set();
+	for (let i = 0; i < data.length; i += 4) {
+		seen.add(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
+		if (seen.size > 64) break;
+	}
+	return seen.size;
+}
 function makeCanvas() {
 	return {
 		width: 0,
 		height: 0,
 		getContext: () => ({
 			createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-			putImageData: () => { ++blits; }
+			putImageData: (image) => { ++blits; lastColours = distinctColours(image.data); }
 		})
 	};
 }
@@ -114,7 +126,10 @@ function makeCanvas() {
 		check("ninguna consola se queda atras",
 			Math.max(...delta) - Math.min(...delta) <= 4,
 			"desviacion " + (Math.max(...delta) - Math.min(...delta)) + " frames");
-		check("la consola visible se pinta", blits > 0, blits + " volcados");
+		check("la consola visible se pinta con imagen de verdad",
+			blits > 0 && lastColours > 4,
+			`${blits} volcados, ${lastColours} colores distintos en el ultimo`);
+		info("colores distintos en el framebuffer", lastColours);
 
 		/* Input: solo a la visible, y tiene que llegar solo a ella. */
 		runtime.press(0, "START", true);

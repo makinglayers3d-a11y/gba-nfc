@@ -438,13 +438,7 @@ EXPORT int mgbawasm_has_bios(void) {
  * (Super Game Boy border) to 240x160 (GBA), so this repacks to a tight
  * `width * height` RGBA block and sets the alpha the core leaves at zero.
  */
-EXPORT void mgbawasm_run_frame(int id) {
-	struct Instance* inst = _instance(id);
-	if (!inst) {
-		return;
-	}
-
-	inst->core->runFrame(inst->core);
+static void _present(struct Instance* inst) {
 	inst->core->currentVideoSize(inst->core, &inst->videoWidth, &inst->videoHeight);
 
 	unsigned width = inst->videoWidth > VIDEO_WIDTH_MAX ? VIDEO_WIDTH_MAX : inst->videoWidth;
@@ -456,6 +450,31 @@ EXPORT void mgbawasm_run_frame(int id) {
 		for (unsigned x = 0; x < width; ++x) {
 			dst[x] = (uint32_t) src[x] | 0xFF000000u;
 		}
+	}
+}
+
+EXPORT void mgbawasm_run_frame(int id) {
+	struct Instance* inst = _instance(id);
+	if (!inst) {
+		return;
+	}
+	inst->core->runFrame(inst->core);
+	_present(inst);
+}
+
+/**
+ * Reempaqueta el framebuffer sin avanzar la emulacion.
+ *
+ * El empaquetado a RGBA vivia dentro de run_frame, que es justo lo que el cable
+ * NO usa: link_run solo llama a core->runLoop, asi que rgbaBuffer se quedaba a
+ * cero y la pantalla salia negra aunque la consola estuviera corriendo. Con el
+ * cable hay que llamar a esto una vez por frame, y solo para la consola que se
+ * ve: las ocultas no necesitan que se les empaquete nada.
+ */
+EXPORT void mgbawasm_present(int id) {
+	struct Instance* inst = _instance(id);
+	if (inst) {
+		_present(inst);
 	}
 }
 

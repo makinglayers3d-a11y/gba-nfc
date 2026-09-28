@@ -175,8 +175,28 @@ function renderSeatBar() {
   });
 }
 
+/* fps emulados, que es lo que importa: status.fps cuenta llamadas a rAF, y un
+   monitor a 144 Hz las dispara mucho mas rapido que los 59,7275 Hz del GBA. */
+let lastFrames = null;
+let lastFramesAt = 0;
+function emulatedFps(status) {
+  const now = performance.now();
+  const current = status.seats.map((s) => s.frames);
+  let out = null;
+  if (lastFrames && now > lastFramesAt) {
+    const secs = (now - lastFramesAt) / 1000;
+    out = current.map((f, i) => (f - lastFrames[i]) / secs);
+  }
+  lastFrames = current;
+  lastFramesAt = now;
+  return out;
+}
+
 function renderStatus(status) {
-  el("mFps").textContent = status.fps.toFixed(1);
+  const emu = emulatedFps(status);
+  el("mFps").textContent = emu
+    ? emu.map((f) => f.toFixed(1)).join(" / ") + `  (rAF ${status.fps.toFixed(0)}/s)`
+    : status.fps.toFixed(1);
   el("mLink").textContent = status.linked ? `sí, ${status.attached} consolas` : "no";
   el("mAudio").textContent = status.audioQueued + " muestras";
   el("mRate").textContent = status.sampleRate + " Hz";
@@ -208,6 +228,7 @@ async function boot() {
     canvas: el("screen"),
     onStatus: renderStatus
   });
+  window.__rt = runtime;   /* gancho para medir desde fuera sin pasar por el DOM */
   log(`${seats} consolas abiertas sobre ${romName}`, "ok");
 
   addCheck("el cable engancha todas las consolas",
