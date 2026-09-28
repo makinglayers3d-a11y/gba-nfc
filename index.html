@@ -522,6 +522,9 @@
   window.ML3D_LINK_TRANSPORT = "dual";
 </script>
 <script src="user_scripts/LinkCableBridge.js?v=link-final-1"></script>
+<!-- Runtime mGBA multi-instancia: las cuatro consolas del cable viven en un
+     solo módulo WASM, que es lo que exige el coordinador de lockstep. -->
+<script src="link-mgba/runtime/ml3d-mgba-link.js?v=mgba-link-1"></script>
 <script src="user_scripts/LocalLinkSession.js?v=lobby-4p-1"></script>
 <script src="dev-access.js?v=dev-access-2"></script>
 <script src="emulator-tools.js?v=notice-preview-2"></script>

@@ -62,6 +62,10 @@ jobs:
         with:
           sparse-checkout: |
             link-mgba
+            app.js
+            index.html
+            user_scripts/LocalLinkSession.js
+            user_scripts/LinkCableBridge.js
             ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
           sparse-checkout-cone-mode: false
 
@@ -94,7 +98,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in link-mgba/scripts/smoke.cjs link-mgba/runtime/*.js; do
+          for f in link-mgba/scripts/*.cjs link-mgba/runtime/*.js                    app.js user_scripts/LocalLinkSession.js user_scripts/LinkCableBridge.js; do
             node --check "$f"
             echo "ok  $f"
           done

@@ -526,6 +526,19 @@ window.ML3DLinkRuntime = {
       skipSaveRestore: true
     });
   },
+  /* Devuelve la pantalla al camino normal cuando la sesión Link termina: el
+     runtime multi-instancia se la ha quedado y hay que recuperar el núcleo de
+     siempre, esta vez restaurando la partida guardada. */
+  async resumeNormal() {
+    if (currentSystem !== "gba" || !currentGbaRomBytes || !currentGbaRomFilename) return false;
+    return startRomFromBytes(currentGbaRomBytes.slice(), currentGbaRomFilename, {
+      system: "gba",
+      saveId: currentSaveId,
+      displayName: selected.name,
+      source: currentSource,
+      romPath: selected.rom
+    });
+  },
   /* Reinicia la ROM actual sin partida guardada, que es como debe empezar una
      sesión Link: LocalLinkSession lo llama al configurarse desde el lobby. */
   async restartForLink() {
@@ -784,6 +797,14 @@ window.addEventListener(
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
       : null;
 
+    /* Antes de bifurcar por núcleo: la sesión Link pide la ROM por
+       ML3DLinkRuntime.romBytes, y solo se guardaba en la rama de IodineGBA.
+       Con el juego normal en mGBA salía null y el enlace no llegaba a armarse. */
+    if (system === "gba") {
+      currentGbaRomBytes = rom.slice();
+      currentGbaRomFilename = filename;
+    }
+
     if (shouldUseMgbaCompat()) {
       if (!window.ML3DMgbaCompat?.start) {
         throw new Error("Falta el núcleo mGBA de compatibilidad.");
@@ -856,8 +877,6 @@ window.addEventListener(
       const blitter = new GfxGlueCode(240, 160);
       blitter.attachCanvas(canvas);
       emulator.attachGraphicsFrameHandler(blitter);
-      currentGbaRomBytes = rom.slice();
-      currentGbaRomFilename = filename;
       emulator.attachROM(rom);
       if (audioInput) {
         emulator.attachAudioHandler(audioInput);

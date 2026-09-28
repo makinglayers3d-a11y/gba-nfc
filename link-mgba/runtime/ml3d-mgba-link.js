@@ -118,12 +118,30 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			return shared;
 		}
 
+		/** Abre una consola más y devuelve su índice, o -1 si no cabe. */
 		openSeat() {
+			if (this.seats.length >= MAX_SEATS) return -1;
 			const id = this.M._mgbawasm_instance_open(-1, 0, 1);
-			if (id < 0) throw new Error("no se pudo abrir otra consola");
+			if (id < 0) return -1;
 			this.seats.push({ id, mask: 0, seat: -1 });
 			this.ran.push(0);
-			return id;
+			return this.seats.length - 1;
+		}
+
+		/** Cierra una consola concreta, sin tocar las demás. */
+		closeSeat(index) {
+			const s = this.seats[index];
+			if (!s) return false;
+			this.detachSeat(index);
+			this.M._mgbawasm_instance_close(s.id);
+			this.seats.splice(index, 1);
+			this.ran.splice(index, 1);
+			if (this.visible >= this.seats.length) this.visible = Math.max(0, this.seats.length - 1);
+			return true;
+		}
+
+		maxSeats() {
+			return MAX_SEATS;
 		}
 
 		attachAll() {
@@ -133,6 +151,91 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 				}
 			});
 			this.refreshSeats();
+		}
+
+		/* --- primitivas por índice, para quien lleve su propio planificador --- */
+
+		/** Engancha una sola consola pidiendo asiento. Devuelve true si entra. */
+		attachSeat(index, requestedSeat) {
+			const s = this.seats[index];
+			if (!s) return false;
+			const ok = this.M._mgbawasm_link_attach(s.id, requestedSeat) === 1;
+			if (ok) s.seat = this.M._mgbawasm_link_seat(s.id);
+			return ok;
+		}
+
+		detachSeat(index) {
+			const s = this.seats[index];
+			if (!s) return;
+			this.M._mgbawasm_link_detach(s.id);
+			s.seat = -1;
+		}
+
+		/** Asiento que confirma el coordinador, que no tiene por qué ser el pedido. */
+		seatOf(index) {
+			const s = this.seats[index];
+			return s ? this.M._mgbawasm_link_seat(s.id) : -1;
+		}
+
+		attachedCount() {
+			return this.M._mgbawasm_link_attached();
+		}
+
+		isAsleep(index) {
+			const s = this.seats[index];
+			return s ? Boolean(this.M._mgbawasm_link_asleep(s.id)) : false;
+		}
+
+		/** Avanza una consola hasta agotar ciclos o hasta que el cable la duerma. */
+		runCycles(index, cycles) {
+			const s = this.seats[index];
+			return s ? this.M._mgbawasm_link_run(s.id, cycles) : 0;
+		}
+
+		coordinatorState() {
+			const out = { attached: 0, transferActive: 0, transferMode: 0, cycle: 0, multiData: [0, 0, 0, 0], waiting: 0 };
+			const ptr = this.M._malloc(9 * 4);
+			try {
+				this.M._mgbawasm_link_coordinator_state(ptr);
+				const v = this.M.HEAP32.subarray(ptr >> 2, (ptr >> 2) + 9);
+				out.attached = v[0]; out.transferActive = v[1]; out.transferMode = v[2];
+				out.cycle = v[3]; out.multiData = [v[4], v[5], v[6], v[7]]; out.waiting = v[8];
+			} finally {
+				this.M._free(ptr);
+			}
+			return out;
+		}
+
+		/** Registros SIO de una consola, para el panel de depuración. */
+		coreState(index) {
+			const s = this.seats[index];
+			if (!s) return null;
+			const ptr = this.M._malloc(11 * 4);
+			try {
+				this.M._mgbawasm_link_core_state(s.id, ptr);
+				const v = this.M.HEAP32.subarray(ptr >> 2, (ptr >> 2) + 11);
+				return {
+					linked: !!v[0], asleep: !!v[1], seat: v[2], mode: v[3],
+					siocnt: v[4] & 0xffff, rcnt: v[5] & 0xffff,
+					multi: [v[6] & 0xffff, v[7] & 0xffff, v[8] & 0xffff, v[9] & 0xffff],
+					send: v[10] & 0xffff,
+					frames: this.M._mgbawasm_frame_counter(s.id)
+				};
+			} finally {
+				this.M._free(ptr);
+			}
+		}
+
+		/**
+		 * Pinta la visible y saca su audio; a las demás se les descarta la cola.
+		 * Lo llama quien lleve el planificador, una vez por frame.
+		 */
+		present() {
+			this.seats.forEach((s, i) => {
+				if (i !== this.visible) this.M._mgbawasm_drop_audio(s.id);
+			});
+			this.pumpAudio();
+			this.blit();
 		}
 
 		detachAll() {
