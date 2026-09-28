@@ -78,13 +78,22 @@ fi
 printf '%s\n' "${ACTUAL}" | sed 's/^/  /'
 echo
 
-# --- lockstep must not be linked yet ---------------------------------------
-# Stage 3 flips this to a positive check. Until then, the coordinator being in
-# the binary would mean something is referencing it by accident.
+# --- lockstep: fuera en la fase 1, dentro en la 2+ -------------------------
+# El objeto entra en libmgba.a de todas formas; lo que decide si acaba en el
+# binario es que alguien lo referencie. En `upstream` nadie lo hace y su
+# ausencia es la prueba de que el shim original no toca SIO. En `multi` el shim
+# llama al coordinador, asi que su ausencia significaria que el enlazador lo ha
+# tirado y el cable no existe.
 if grep -aq 'GBA SIO Lockstep' "${WASM}"; then
-	echo "::warning::sio/lockstep.c esta enlazado; no deberia estarlo hasta la fase 3"
+	if [ "${STAGE}" = "upstream" ]; then
+		fail "sio/lockstep.c esta enlazado en la fase 1, donde nadie deberia referenciarlo"
+	fi
+	echo "sio/lockstep.c: enlazado (correcto en la fase ${STAGE})"
 else
-	echo "sio/lockstep.c: no enlazado (correcto en las fases 1 y 2)"
+	if [ "${STAGE}" != "upstream" ]; then
+		fail "sio/lockstep.c NO esta enlazado: el cable no existe en este binario"
+	fi
+	echo "sio/lockstep.c: no enlazado (correcto en la fase 1)"
 fi
 
 # Control: sio.c must be there, or the grep above proves nothing.

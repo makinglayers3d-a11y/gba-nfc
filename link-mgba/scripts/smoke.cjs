@@ -680,6 +680,9 @@ async function linkExperiment(rom, seats) {
 	let agreed = 0;
 	let sample = null;
 	let stalls = 0;
+	let emptySeatsIdle = 0;
+	let emptySeatsBusy = 0;
+	const payloads = new Set();
 
 	const totalCycles = FRAME_CYCLES * Number(process.env.SMOKE_LINK_FRAMES || 2400);
 	const coordN = 9;
@@ -725,11 +728,23 @@ async function linkExperiment(rom, seats) {
 
 					/* La prueba de fuego: SIOMULTI0..3 iguales en todas las
 					   consolas y con algo distinto de la linea en reposo. */
-					const words = states.map((s) => s.slice(6, 10).join(","));
+					const multi = states.map((s) => s.slice(6, 10).map((w) => w & 0xffff));
+					const words = multi.map((m) => m.join(","));
 					const same = words.every((w) => w === words[0]);
-					const live = states[0].slice(6, 10).some((w) => (w & 0xffff) !== 0xffff);
+					const live = multi[0].slice(0, seats).some((w) => w !== 0xffff);
 					if (same && live && inMulti === seats) {
 						++agreed;
+						/* Los asientos que no existen tienen que leerse como la
+						   linea en reposo, igual que un cable real sin nadie
+						   enchufado en esa punta. */
+						if (multi[0].slice(seats).every((w) => w === 0xffff)) {
+							++emptySeatsIdle;
+						} else {
+							++emptySeatsBusy;
+						}
+						/* Variedad de la carga util: si el juego solo esta
+						   saludando, todas las muestras seran iguales. */
+						payloads.add(multi[0].slice(0, seats).join(","));
 						if (!sample) {
 							sample = { coord: coord.slice(), states: states.map((s) => s.slice()) };
 						}
@@ -756,6 +771,13 @@ async function linkExperiment(rom, seats) {
 	check("las consolas entran en modo MULTI", bothInMulti > 0, bothInMulti + " muestras");
 	check("hay transferencias por el cable", transfers > 0, transfers + " transferencias");
 	check("SIOMULTI coincide entre consolas con datos vivos", agreed > 0, agreed + " muestras");
+
+	info("asientos vacios en reposo / ocupados", emptySeatsIdle + " / " + emptySeatsBusy);
+	info("cargas utiles distintas observadas", payloads.size);
+	if (seats < 4) {
+		check("los asientos vacios se leen como linea en reposo (0xFFFF)",
+			emptySeatsBusy === 0, emptySeatsBusy + " muestras con un asiento vacio ocupado");
+	}
 
 	if (sample) {
 		console.log("\n--- muestra de un intercambio real ---");
@@ -802,11 +824,233 @@ async function linkExperiment(rom, seats) {
 	const sram = ids.map((id) => Module._mgbawasm_sram_save(id));
 	check("la savedata sobrevive al cable", sram.every((s) => s > 0), sram.map(kib).join(" / "));
 
+	/* Soltar el ultimo asiento deja un aviso de mGBA por diseño: _removePlayer
+	   llama a _reconfigPlayers DESPUES de quitar al jugador, y con la tabla ya
+	   vacia ese avisa. Es inherente a la API, no de nuestro orden de detach, y
+	   no se silencia: se espera exactamente ese y cualquier otro falla. */
+	const KNOWN_DETACH_WARNING = "Reconfiguring player IDs with no players attached";
+	const known = coreLog.filter((l) => l.includes(KNOWN_DETACH_WARNING)).length;
+	const unexpected = coreLog.filter((l) => !l.includes(KNOWN_DETACH_WARNING));
+	info("avisos conocidos al soltar el ultimo asiento", known);
+	check("no hay avisos del nucleo mas alla del conocido de detach",
+		unexpected.length === 0,
+		unexpected.length ? unexpected.slice(0, 3).join(" | ") : "ninguno");
+
 	for (const id of ids) Module._mgbawasm_instance_close(id);
 	Module._mgbawasm_rom_release();
 	const residue = heapUsed(Module);
 	info("residuo tras cerrar todo", kib(residue));
 	check("el cable no deja residuo", residue < 65536, kib(residue));
+}
+
+/* --------------------------------------- residuo del coordinador --------- */
+
+/**
+ * Un ciclo completo de cable sobre nucleos que ya existen: enganchar, correr,
+ * soltar. Los nucleos se abren una vez y se cierran al final, para que lo que
+ * se mida sea el coste del cable y no el de las instancias.
+ */
+async function linkLeakCycle(rom, seats, cycles) {
+	const Module = await loadModule();
+	const base = heapUsed(Module);
+	withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+
+	const ids = [];
+	for (let i = 0; i < seats; ++i) ids.push(Module._mgbawasm_instance_open(-1, 0, 1));
+	const opened = heapUsed(Module);
+
+	let peak = opened;
+	for (let c = 0; c < cycles; ++c) {
+		for (const id of ids) Module._mgbawasm_link_attach(id, id);
+		const ran = {};
+		for (const id of ids) ran[id] = 0;
+		for (let s = 0; s < 400; ++s) {
+			if (linkStep(Module, ids, ran) < 0) break;
+			for (const id of ids) Module._mgbawasm_drop_audio(id);
+		}
+		peak = Math.max(peak, heapUsed(Module));
+		for (const id of ids) Module._mgbawasm_link_detach(id);
+	}
+
+	const afterDetach = heapUsed(Module);
+	for (const id of ids) Module._mgbawasm_instance_close(id);
+	Module._mgbawasm_rom_release();
+	const afterRelease = heapUsed(Module);
+
+	return {
+		seats, cycles, peak,
+		linkResidue: afterDetach - opened,     /* lo que deja el cable con los nucleos vivos */
+		residue: afterRelease - base           /* lo que queda al final de todo */
+	};
+}
+
+async function linkLeakExperiment(rom) {
+	console.log("\n=== Residuo del coordinador · ciclos de enganche y suelta ===");
+
+	const rows = [];
+	for (const seats of [2, 4]) {
+		for (const cycles of [1, 2, 4, 8]) {
+			rows.push(await linkLeakCycle(rom, seats, cycles));
+		}
+	}
+
+	console.log("asientos | ciclos | heap pico | residuo del cable | residuo final");
+	console.log("-------- | ------ | --------- | ----------------- | -------------");
+	for (const r of rows) {
+		console.log(
+			`${String(r.seats).padStart(8)} | ${String(r.cycles).padStart(6)} | ` +
+			`${mib(r.peak).padStart(9)} | ${kib(r.linkResidue).padStart(17)} | ` +
+			`${kib(r.residue).padStart(13)}`);
+		measured.push(`residuo ${r.seats}c/${r.cycles}ciclos = ${kib(r.residue)}`);
+	}
+	console.log();
+
+	const two = rows.filter((r) => r.seats === 2);
+	const four = rows.filter((r) => r.seats === 4);
+	const growthCycles = two[two.length - 1].residue - two[0].residue;
+	const growthSeats = four[0].residue - two[0].residue;
+
+	info("crecimiento de 1 a 8 ciclos (2 asientos)", kib(growthCycles));
+	info("crecimiento de 2 a 4 asientos (1 ciclo)", kib(growthSeats));
+
+	console.log("--- veredicto ---");
+	if (growthCycles < 1024 && growthSeats < 1024) {
+		console.log("El residuo no depende ni de los ciclos ni de los asientos:");
+		console.log("es la reserva unica de la Table del coordinador, que se crea");
+		console.log("una vez por modulo en el primer attach y no se deshace.");
+	} else {
+		console.log("El residuo crece: hay que soltarlo antes de seguir.");
+	}
+
+	check("el residuo del coordinador no crece con los ciclos de enganche",
+		growthCycles < 1024,
+		`${kib(two[0].residue)} con 1 ciclo, ${kib(two[two.length - 1].residue)} con 8`);
+	check("el residuo del coordinador no crece con los asientos",
+		growthSeats < 1024,
+		`${kib(two[0].residue)} con 2 asientos, ${kib(four[0].residue)} con 4`);
+	check("el residuo del coordinador esta acotado por debajo de 8 KiB",
+		Math.max(...rows.map((r) => r.residue)) < 8192,
+		"peor caso " + kib(Math.max(...rows.map((r) => r.residue))));
+}
+
+/* ------------------------------------ trafico Link mas alla del saludo --- */
+
+/**
+ * El handshake de arranque intercambia siempre lo mismo, asi que probar que el
+ * cable mueve datos no prueba que mueva datos *de partida*. Para eso hay que
+ * llegar al modo Link del juego, y eso pide navegar su menu.
+ *
+ * Sin ver la pantalla no se puede navegar a ciegas con garantias, asi que esto
+ * prueba unas pocas secuencias cortas y se queda con la primera que produzca
+ * cargas utiles distintas entre si. Es lo minimo que hace falta: no intenta
+ * entender el menu, solo reconocer cuando el trafico deja de ser constante.
+ */
+async function trafficExperiment(rom) {
+	console.log("\n=== Trafico Link real · busqueda acotada de secuencia ===");
+
+	const CANDIDATES = [
+		{ name: "START A", keys: ["START", "A"] },
+		{ name: "START A A", keys: ["START", "A", "A"] },
+		{ name: "START A DOWN A", keys: ["START", "A", "DOWN", "A"] },
+		{ name: "START A DOWN DOWN A", keys: ["START", "A", "DOWN", "DOWN", "A"] },
+		{ name: "START A DOWN DOWN DOWN A", keys: ["START", "A", "DOWN", "DOWN", "DOWN", "A"] },
+		{ name: "START A UP A", keys: ["START", "A", "UP", "A"] },
+	];
+
+	const BOOT_FRAMES_TRAFFIC = 240;
+	const HOLD = 8;
+	const GAP = 24;
+	const MEASURE_FRAMES = Number(process.env.SMOKE_TRAFFIC_FRAMES || 900);
+	const seats = 2;
+
+	const results = [];
+	for (const candidate of CANDIDATES) {
+		const Module = await loadModule();
+		withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+		const ids = [];
+		for (let i = 0; i < seats; ++i) ids.push(Module._mgbawasm_instance_open(-1, 0, 1));
+		for (const id of ids) Module._mgbawasm_link_attach(id, id);
+
+		const ran = {};
+		for (const id of ids) ran[id] = 0;
+		const payloads = new Set();
+		let transfers = 0;
+		let prevActive = 0;
+		let held = -1;
+
+		/* La secuencia arranca tras el boot y cada tecla se mantiene HOLD frames
+		   con GAP de separacion; despues se mide sin tocar nada. */
+		const totalFrames = BOOT_FRAMES_TRAFFIC + candidate.keys.length * (HOLD + GAP) + MEASURE_FRAMES;
+
+		withInts(Module, 9, (coordPtr, readCoord) => {
+			withInts(Module, 11, (corePtr, readCore) => {
+				let slice = 0;
+				const deadline = Date.now() + 120000;
+				while (Math.min(...ids.map((id) => ran[id])) < totalFrames * FRAME_CYCLES) {
+					if (Date.now() > deadline) break;
+
+					const frame = Math.floor(Math.min(...ids.map((id) => ran[id])) / FRAME_CYCLES);
+					const into = frame - BOOT_FRAMES_TRAFFIC;
+					let mask = 0;
+					if (into >= 0) {
+						const index = Math.floor(into / (HOLD + GAP));
+						if (index < candidate.keys.length && into % (HOLD + GAP) < HOLD) {
+							mask = 1 << KEY[candidate.keys[index]];
+						}
+					}
+					if (mask !== held) {
+						for (const id of ids) Module._mgbawasm_set_keys(id, mask);
+						held = mask;
+					}
+
+					if (linkStep(Module, ids, ran) < 0) break;
+					for (const id of ids) Module._mgbawasm_drop_audio(id);
+
+					Module._mgbawasm_link_coordinator_state(coordPtr);
+					const coord = readCoord();
+					if (coord[1] && !prevActive) ++transfers;
+					prevActive = coord[1];
+
+					if (++slice % 16 === 0 && frame > BOOT_FRAMES_TRAFFIC) {
+						const states = ids.map((id) => {
+							Module._mgbawasm_link_core_state(id, corePtr);
+							return readCore();
+						});
+						if (states.every((s) => s[3] === GBA_SIO_MULTI)) {
+							const multi = states[0].slice(6, 10).map((w) => w & 0xffff);
+							const same = states.every((s) =>
+								s.slice(6, 10).map((w) => w & 0xffff).join(",") === multi.join(","));
+							if (same && multi.slice(0, seats).some((w) => w !== 0xffff)) {
+								payloads.add(multi.slice(0, seats).join(","));
+							}
+						}
+					}
+				}
+			});
+		});
+
+		const sampleValues = Array.from(payloads).slice(0, 6);
+		console.log(`  ${candidate.name.padEnd(26)} cargas distintas=${String(payloads.size).padStart(3)} ` +
+			`transferencias=${String(transfers).padStart(5)}  ${sampleValues.join(" | ")}`);
+		results.push({ name: candidate.name, payloads: payloads.size, transfers, sampleValues });
+
+		for (const id of ids) Module._mgbawasm_link_detach(id);
+		for (const id of ids) Module._mgbawasm_instance_close(id);
+		Module._mgbawasm_rom_release();
+	}
+
+	const best = results.reduce((a, b) => (b.payloads > a.payloads ? b : a), results[0]);
+	console.log();
+	info("mejor secuencia", best.name);
+	info("cargas utiles distintas con la mejor secuencia", best.payloads);
+	info("transferencias con la mejor secuencia", best.transfers);
+	if (best.sampleValues.length) {
+		info("muestras de carga util", best.sampleValues.join(" | "));
+	}
+
+	check("el trafico Link va mas alla de una sola carga util constante",
+		best.payloads > 1,
+		`${best.payloads} carga(s) distinta(s) con "${best.name}"`);
 }
 
 /* --------------------------------------------- traza de un solo core ----- */
@@ -933,6 +1177,10 @@ async function traceExperiment(rom) {
 		await smokeUpstream(rom);
 	} else if (MODE === "link") {
 		await linkExperiment(rom, Number(process.env.SMOKE_LINK_SEATS || 2));
+	} else if (MODE === "linkleak") {
+		await linkLeakExperiment(rom);
+	} else if (MODE === "traffic") {
+		await trafficExperiment(rom);
 	} else if (MODE === "trace") {
 		await traceExperiment(rom);
 	} else if (MODE === "leak") {

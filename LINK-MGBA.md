@@ -545,6 +545,40 @@ Y el planificador de JS no compara relojes emulados sino los ciclos que devuelve
 `link_run`: `mTiming` es un `int32` que el propio mGBA reajusta, así que comparar
 valores absolutos entre dos núcleos no es de fiar.
 
+### El aviso al soltar el último asiento
+
+```
+[mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+```
+
+Sale una vez por sesión de cable y **no es de nuestro orden de detach**. Es
+inherente a la API de mGBA:
+
+```c
+void _removePlayer(struct GBASIOLockstepCoordinator* coordinator, struct GBASIOLockstepPlayer* player) {
+	...
+	TableRemove(&coordinator->players, player->driver->lockstepId);
+	_reconfigPlayers(coordinator);
+	...
+}
+
+void _reconfigPlayers(struct GBASIOLockstepCoordinator* coordinator) {
+	size_t players = TableSize(&coordinator->players);
+	...
+	if (players == 0) {
+		mLOG(GBA_SIO, WARN, "Reconfiguring player IDs with no players attached somehow?");
+	}
+```
+
+`_removePlayer` reconfigura **después** de quitar al jugador, así que al soltar
+el último la tabla está vacía por definición y el aviso salta. Cualquier
+frontend que desenganche todas sus consolas lo produce; evitarlo exigiría no
+soltar nunca el último asiento, que no es una opción.
+
+No se silencia. La prueba exige que sea **exactamente ese**: cuenta los avisos
+conocidos aparte y falla si aparece cualquier otro. Así el ruido esperado no
+tapa uno nuevo.
+
 ## Partes reutilizables de LocalLinkSession.js
 
 De 1 349 líneas, sobreviven unas 620.

@@ -161,16 +161,44 @@ jobs:
       # Fase 3: dos mGBA hablando por SIO con el coordinador nativo, dentro del
       # mismo modulo y sin lobby ni red. La evidencia no es que ambos avancen,
       # sino que SIOMULTI0..3 coincide en las dos con datos vivos.
-      - name: Cable Link nativo (2 consolas)
+      - name: Cable Link nativo (2, 3 y 4 consolas)
+        if: env.STAGE == 'multi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > "link-mgba/dist/${STAGE}/link.log"
+          for seats in 2 3 4; do
+            echo "::group::Cable Link con ${seats} consolas"
+            SMOKE_MODE=link SMOKE_LINK_SEATS="${seats}" SMOKE_LINK_FRAMES=1800 \
+              node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+              | tee -a "link-mgba/dist/${STAGE}/link.log"
+            echo "::endgroup::"
+          done
+
+      # El coordinador reserva su Table en el primer attach y no la deshace.
+      # Esto mide si eso es una vez por modulo o crece con ciclos o asientos.
+      - name: Residuo del coordinador
         if: env.STAGE == 'multi'
         shell: bash
         env:
-          SMOKE_MODE: link
-          SMOKE_LINK_SEATS: '2'
+          SMOKE_MODE: linkleak
         run: |
           set -euo pipefail
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
-            | tee "link-mgba/dist/${STAGE}/link.log"
+            | tee "link-mgba/dist/${STAGE}/linkleak.log"
+
+      # Que el cable mueva datos no prueba que mueva datos de partida: el
+      # handshake de arranque intercambia siempre lo mismo. Esto busca una
+      # secuencia de botones que lleve al modo Link del juego.
+      - name: Trafico Link real
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: traffic
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/traffic.log"
 
       - name: Resumen
         if: always()
@@ -223,6 +251,22 @@ jobs:
               cat "${DIST}/link.log"
               echo '```'
             fi
+            if [ -f "${DIST}/traffic.log" ]; then
+              echo
+              echo "### Trafico Link real"
+              echo
+              echo '```'
+              cat "${DIST}/traffic.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/linkleak.log" ]; then
+              echo
+              echo "### Residuo del coordinador"
+              echo
+              echo '```'
+              cat "${DIST}/linkleak.log"
+              echo '```'
+            fi
             if [ -f "${DIST}/leak.log" ]; then
               echo
               echo "### Experimento de residuo"
@@ -246,4 +290,6 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/leak.log
             link-mgba/dist/${{ env.STAGE }}/trace.log
             link-mgba/dist/${{ env.STAGE }}/link.log
+            link-mgba/dist/${{ env.STAGE }}/linkleak.log
+            link-mgba/dist/${{ env.STAGE }}/traffic.log
           if-no-files-found: error
