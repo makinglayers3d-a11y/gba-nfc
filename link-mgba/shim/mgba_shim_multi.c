@@ -20,9 +20,20 @@
 #include <mgba/core/core.h>
 #include <mgba/core/config.h>
 #include <mgba/core/log.h>
+#include <mgba/core/lockstep.h>
+#include <mgba/core/timing.h>
 #include <mgba-util/audio-buffer.h>
 #include <mgba-util/image.h>
 #include <mgba-util/vfs.h>
+
+/* Cabeceras internas. El cable vive por debajo de struct mCore: el coordinador
+ * de lockstep es del nucleo GBA, no de la fachada comun, asi que aqui no hay
+ * forma de llegar a el sin bajar un piso. El build ya pasa -I sobre include/,
+ * de donde cuelgan tanto las publicas como estas. */
+#include <mgba/internal/gba/gba.h>
+#include <mgba/internal/gba/io.h>
+#include <mgba/internal/gba/sio.h>
+#include <mgba/internal/gba/sio/lockstep.h>
 
 #include <malloc.h>
 #include <stdarg.h>
@@ -54,8 +65,32 @@ enum {
 	LOG_DEBUG = 2,
 };
 
+/**
+ * El lado nuestro de mLockstepUser.
+ *
+ * mLockstepUser es un puñado de punteros a funcion, no una clase con hilos
+ * detras: la unica implementacion de mGBA que usa mCoreThread esta detras de
+ * #ifndef DISABLE_THREADING y es una entre varias posibles. Esta es cooperativa:
+ * `sleep` no bloquea, solo levanta una bandera. Funciona porque
+ * GBASIOLockstepPlayerSleep, justo despues de llamarla, pone cpu->nextEvent a 0
+ * y llama a GBAInterrupt, que activa gba->earlyExit y saca al nucleo del bucle
+ * de CPU. El planificador de JS mira la bandera y deja de darle tiempo.
+ */
+struct LinkUser {
+	struct mLockstepUser d;   /* primero: los callbacks castean a este tipo */
+	int requestedSeat;
+	int seat;                 /* el que confirma el coordinador, -1 sin asiento */
+	bool asleep;
+};
+
 struct Instance {
 	struct mCore* core;
+
+	/* Cable. El driver lo posee la instancia porque el coordinador guarda
+	 * punteros a el mientras dure el enlace. */
+	struct GBASIOLockstepDriver driver;
+	struct LinkUser user;
+	bool linked;
 
 	/* The core's own framebuffer: mColor, which without COLOR_16_BIT is a
 	 * uint32 laid out by M_RGB5_TO_BGR8 — bytes R, G, B, 0 in memory. */
@@ -207,7 +242,35 @@ EXPORT int mgbawasm_rom_size(void) {
 
 /* -------------------------------------------------------------- instances */
 
+/* ---------------------------------------------------------------- cable ---
+ *
+ * Un solo coordinador por modulo, y tiene que serlo: GBASIOLockstepCoordinator
+ * guarda a sus jugadores en una Table propia, asi que las consolas de una misma
+ * sala tienen que compartir espacio de direcciones. Cuatro modulos wasm
+ * separados no se verian entre si.
+ */
+static struct GBASIOLockstepCoordinator coordinator;
+static bool coordinatorReady = false;
+
+static void _detachLink(struct Instance* inst) {
+	if (!inst->linked) {
+		return;
+	}
+	struct GBA* gba = inst->core->board;
+	/* Primero el driver, porque su deinit saca al jugador de la Table usando el
+	 * coordinador que todavia cuelga de el; soltarlo antes lo dejaria sin a
+	 * quien preguntar. */
+	GBASIOSetDriver(&gba->sio, NULL);
+	GBASIOLockstepCoordinatorDetach(&coordinator, &inst->driver);
+	inst->linked = false;
+	inst->user.seat = -1;
+	inst->user.asleep = false;
+}
+
 static void _closeInstance(struct Instance* inst) {
+	if (inst->core) {
+		_detachLink(inst);
+	}
 	if (inst->core) {
 		inst->core->unloadROM(inst->core);
 		mCoreConfigDeinit(&inst->core->config);
@@ -587,6 +650,198 @@ EXPORT void mgbawasm_set_allow_opposing_directions(int id, int allow) {
 	}
 	mCoreConfigSetIntValue(&inst->core->config, "allowOpposingDirections", allow ? 1 : 0);
 	_reload(inst, "allowOpposingDirections");
+}
+
+/* ------------------------------------------------------------------ cable */
+
+static void _linkSleep(struct mLockstepUser* user) {
+	((struct LinkUser*) user)->asleep = true;
+}
+
+static void _linkWake(struct mLockstepUser* user) {
+	((struct LinkUser*) user)->asleep = false;
+}
+
+static int _linkRequestedId(struct mLockstepUser* user) {
+	return ((struct LinkUser*) user)->requestedSeat;
+}
+
+static void _linkPlayerIdChanged(struct mLockstepUser* user, int seat) {
+	((struct LinkUser*) user)->seat = seat;
+}
+
+/**
+ * Engancha una consola al cable pidiendo un asiento.
+ *
+ * El coordinador recoge el `requestedId` de todos, los ordena y confirma el
+ * definitivo por `playerIdChanged`, asi que el asiento que se pide es una
+ * preferencia y no una imposicion. El 0 es el dueño del reloj.
+ *
+ * Solo GBA: el lockstep que se usa aqui es el del nucleo GBA.
+ * Devuelve 1 si queda enganchada.
+ */
+EXPORT int mgbawasm_link_attach(int id, int requestedSeat) {
+	struct Instance* inst = _instance(id);
+	if (!inst || inst->linked) {
+		return 0;
+	}
+	if (inst->core->platform(inst->core) != mPLATFORM_GBA) {
+		return 0;
+	}
+	if (!coordinatorReady) {
+		GBASIOLockstepCoordinatorInit(&coordinator);
+		coordinatorReady = true;
+	}
+
+	memset(&inst->user, 0, sizeof(inst->user));
+	inst->user.d.sleep = _linkSleep;
+	inst->user.d.wake = _linkWake;
+	inst->user.d.requestedId = _linkRequestedId;
+	inst->user.d.playerIdChanged = _linkPlayerIdChanged;
+	inst->user.requestedSeat = requestedSeat < 0 ? 0 : requestedSeat;
+	inst->user.seat = -1;
+
+	GBASIOLockstepDriverCreate(&inst->driver, &inst->user.d);
+	GBASIOLockstepCoordinatorAttach(&coordinator, &inst->driver);
+
+	/* GBASIOSetDriver rellena driver->p y llama a init, y es ahi donde el
+	 * driver se da de alta como jugador. Antes de esto el coordinador solo
+	 * sabe que existe el driver, no que hay una consola detras. */
+	struct GBA* gba = inst->core->board;
+	GBASIOSetDriver(&gba->sio, &inst->driver.d);
+	inst->linked = true;
+	return 1;
+}
+
+EXPORT void mgbawasm_link_detach(int id) {
+	struct Instance* inst = _instance(id);
+	if (inst) {
+		_detachLink(inst);
+	}
+}
+
+/**
+ * Avanza una consola hasta `targetCycles` o hasta que el cable la duerma.
+ *
+ * Esto es lo que `mgbawasm_run_frame` no puede hacer: `_GBACoreRunFrame` itera
+ * hasta el cambio de frame sin mirar `gba->earlyExit`, asi que una consola
+ * dormida por el lockstep seguiria corriendo y se saldria de sincronia. Aqui se
+ * usa `core->runLoop`, que es un ARMRunLoop —vuelve en el proximo evento de
+ * timing— y entre vuelta y vuelta se mira la bandera.
+ *
+ * El bucle va en C y no en JS a proposito: desde JavaScript cruzaria la
+ * frontera wasm miles de veces por frame.
+ *
+ * Devuelve los ciclos realmente consumidos, que pueden ser menos de los
+ * pedidos si la consola se ha dormido.
+ */
+EXPORT int32_t mgbawasm_link_run(int id, int32_t targetCycles) {
+	struct Instance* inst = _instance(id);
+	if (!inst || targetCycles <= 0) {
+		return 0;
+	}
+	struct GBA* gba = inst->core->board;
+	int32_t start = mTimingCurrentTime(&gba->timing);
+	while (!inst->user.asleep) {
+		if (mTimingCurrentTime(&gba->timing) - start >= targetCycles) {
+			break;
+		}
+		inst->core->runLoop(inst->core);
+	}
+	return mTimingCurrentTime(&gba->timing) - start;
+}
+
+/* ------------------------------------------------- diagnostico del cable -- */
+
+/** Consolas dadas de alta en el coordinador. */
+EXPORT int mgbawasm_link_attached(void) {
+	return coordinatorReady ? (int) GBASIOLockstepCoordinatorAttached(&coordinator) : 0;
+}
+
+EXPORT int mgbawasm_link_asleep(int id) {
+	struct Instance* inst = _instance(id);
+	return (inst && inst->user.asleep) ? 1 : 0;
+}
+
+/** Asiento confirmado por el coordinador, o -1 si aun no tiene. */
+EXPORT int mgbawasm_link_seat(int id) {
+	struct Instance* inst = _instance(id);
+	return inst ? inst->user.seat : -1;
+}
+
+/** Reloj emulado de la consola, que es con lo que el planificador decide. */
+EXPORT int32_t mgbawasm_link_time(int id) {
+	struct Instance* inst = _instance(id);
+	if (!inst) {
+		return 0;
+	}
+	struct GBA* gba = inst->core->board;
+	return mTimingCurrentTime(&gba->timing);
+}
+
+#define MGBAWASM_COORDINATOR_STATE 9
+#define MGBAWASM_CORE_STATE 11
+
+/**
+ * Estado del coordinador, para probar que el intercambio es real y no que las
+ * dos consolas simplemente avanzan.
+ *
+ * out[0] consolas, [1] transferencia en curso, [2] modo de la transferencia,
+ * [3] ciclo del coordinador, [4..7] multiData de cada asiento, [8] mascara de
+ * a quien esta esperando.
+ */
+EXPORT int mgbawasm_link_coordinator_state(int32_t* out) {
+	if (!out) {
+		return 0;
+	}
+	if (!coordinatorReady) {
+		memset(out, 0, MGBAWASM_COORDINATOR_STATE * sizeof(int32_t));
+		return 0;
+	}
+	out[0] = (int32_t) GBASIOLockstepCoordinatorAttached(&coordinator);
+	out[1] = coordinator.transferActive ? 1 : 0;
+	out[2] = (int32_t) coordinator.transferMode;
+	out[3] = coordinator.cycle;
+	int i;
+	for (i = 0; i < 4; ++i) {
+		out[4 + i] = coordinator.multiData[i];
+	}
+	out[8] = (int32_t) coordinator.waiting;
+	return MGBAWASM_COORDINATOR_STATE;
+}
+
+/**
+ * Estado del cable visto desde una consola.
+ *
+ * out[0] enganchada, [1] dormida, [2] asiento, [3] modo SIO (enum GBASIOMode),
+ * [4] SIOCNT, [5] RCNT, [6..9] SIOMULTI0..3, [10] lo que esta consola envia.
+ *
+ * SIOMULTI0..3 son la prueba de fuego: tras una transferencia multijugador las
+ * cuatro palabras tienen que coincidir en las dos consolas, y eso no puede
+ * pasar si el coordinador no ha movido datos de una a otra.
+ */
+EXPORT int mgbawasm_link_core_state(int id, int32_t* out) {
+	if (!out) {
+		return 0;
+	}
+	struct Instance* inst = _instance(id);
+	if (!inst || inst->core->platform(inst->core) != mPLATFORM_GBA) {
+		memset(out, 0, MGBAWASM_CORE_STATE * sizeof(int32_t));
+		return 0;
+	}
+	struct GBA* gba = inst->core->board;
+	out[0] = inst->linked ? 1 : 0;
+	out[1] = inst->user.asleep ? 1 : 0;
+	out[2] = inst->user.seat;
+	out[3] = (int32_t) gba->sio.mode;
+	out[4] = gba->sio.siocnt;
+	out[5] = gba->sio.rcnt;
+	out[6] = gba->memory.io[GBA_REG(SIOMULTI0)];
+	out[7] = gba->memory.io[GBA_REG(SIOMULTI1)];
+	out[8] = gba->memory.io[GBA_REG(SIOMULTI2)];
+	out[9] = gba->memory.io[GBA_REG(SIOMULTI3)];
+	out[10] = gba->memory.io[GBA_REG(SIOMLT_SEND)];
+	return MGBAWASM_CORE_STATE;
 }
 
 /* ------------------------------------------------------------ diagnostics */

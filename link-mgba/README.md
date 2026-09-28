@@ -12,7 +12,7 @@ paquete de jsdelivr y las páginas de `prototype/` se abren a mano.
 | --- | --- | --- |
 | 1 | Reproducir el build oficial, shim original sin tocar | **en CI, pendiente de la primera ejecución** |
 | 2 | Shim multi-instancia con ROM compartida, sin cable | escrita, se lanza a mano tras la fase 1 |
-| 3 | `GBASIOLockstepCoordinator` | no empezada |
+| 3 | `GBASIOLockstepCoordinator` | en curso: 2 consolas en el mismo modulo |
 
 Nada se ha compilado todavía. El build va por GitHub Actions, no por el PC: en la
 máquina donde se escribió esto no hay `docker`, `emcc`, `cmake`, `make` ni

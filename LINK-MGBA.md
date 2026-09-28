@@ -20,7 +20,7 @@ emulador principal y `mgba-compat.js` no se tocan.
 | --- | --- | --- |
 | 1 | Reproducir el build oficial con el shim original | **validada** (run 3) |
 | 2 | Shim multi-instancia con ROM compartida, sin cable | **validada** (run 5) |
-| 3 | `GBASIOLockstepCoordinator` | no empezada |
+| 3 | `GBASIOLockstepCoordinator` | en curso: 2 consolas en el mismo modulo |
 
 Los números están en «Resultados medidos».
 
@@ -508,6 +508,42 @@ int      mgbawasm_link_seat(int id);
 
 Unos 5 exports nuevos imprescindibles y 3 de diagnóstico, más el `id` en los 20
 existentes.
+
+### Exports del cable, ya implementados (fase 3)
+
+Nueve, sobre los 33 de la fase 2. Total: **42**.
+
+| Export | Qué hace |
+| --- | --- |
+| `int mgbawasm_link_attach(int id, int requestedSeat)` | Engancha una consola al coordinador pidiendo asiento. Crea el `GBASIOLockstepDriver`, lo asocia al coordinador y lo instala con `GBASIOSetDriver`, que es lo que da de alta al jugador. Solo GBA. Devuelve 1 si queda enganchada |
+| `void mgbawasm_link_detach(int id)` | Suelta el cable. Primero `GBASIOSetDriver(NULL)`, cuyo `deinit` saca al jugador de la tabla, y después `GBASIOLockstepCoordinatorDetach`: al revés dejaría al driver sin coordinador a quien preguntar |
+| `int32_t mgbawasm_link_run(int id, int32_t targetCycles)` | Avanza una consola hasta agotar los ciclos **o hasta que el cable la duerma**. Usa `core->runLoop`, no `runFrame`. Devuelve los ciclos consumidos |
+| `int mgbawasm_link_attached(void)` | Consolas dadas de alta en el coordinador |
+| `int mgbawasm_link_asleep(int id)` | Si el cable la tiene dormida. Es lo que mira el planificador |
+| `int mgbawasm_link_seat(int id)` | Asiento confirmado por el coordinador, o −1 |
+| `int32_t mgbawasm_link_time(int id)` | Reloj emulado de la consola |
+| `int mgbawasm_link_coordinator_state(int32_t* out)` | 9 enteros: consolas, transferencia activa, modo, ciclo, `multiData[0..3]`, máscara de espera |
+| `int mgbawasm_link_core_state(int id, int32_t* out)` | 11 enteros: enganchada, dormida, asiento, modo SIO, SIOCNT, RCNT, `SIOMULTI0..3`, `SIOMLT_SEND` |
+
+`mgbawasm_link_run` es el punto que hace falta explicar, porque es donde el
+diseño se juega la sincronía. `mgbawasm_run_frame` no sirve para el cable:
+`_GBACoreRunFrame` itera hasta el cambio de frame **sin mirar `gba->earlyExit`**,
+así que una consola dormida por el lockstep seguiría corriendo y se saldría de
+sincronía. `core->runLoop` es un `ARMRunLoop` que vuelve en el siguiente evento
+de timing, y entre vuelta y vuelta se consulta la bandera de dormida. El bucle
+va en C y no en JS a propósito: desde JavaScript cruzaría la frontera wasm miles
+de veces por frame.
+
+El `mLockstepUser` cooperativo son cuatro funciones de tres líneas. `sleep` no
+bloquea: levanta una bandera y vuelve. Funciona porque `GBASIOLockstepPlayerSleep`,
+justo después de llamarla, pone `cpu->nextEvent` a 0 y llama a `GBAInterrupt`,
+que activa `gba->earlyExit` y saca al núcleo del bucle de CPU. `requestedId`
+devuelve el asiento que pide el lobby y `playerIdChanged` anota el que el
+coordinador confirma.
+
+Y el planificador de JS no compara relojes emulados sino los ciclos que devuelve
+`link_run`: `mTiming` es un `int32` que el propio mGBA reajusta, así que comparar
+valores absolutos entre dos núcleos no es de fiar.
 
 ## Partes reutilizables de LocalLinkSession.js
 

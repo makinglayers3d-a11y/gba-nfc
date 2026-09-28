@@ -158,6 +158,20 @@ jobs:
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
             | tee "link-mgba/dist/${STAGE}/leak.log"
 
+      # Fase 3: dos mGBA hablando por SIO con el coordinador nativo, dentro del
+      # mismo modulo y sin lobby ni red. La evidencia no es que ambos avancen,
+      # sino que SIOMULTI0..3 coincide en las dos con datos vivos.
+      - name: Cable Link nativo (2 consolas)
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: link
+          SMOKE_LINK_SEATS: '2'
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/link.log"
+
       - name: Resumen
         if: always()
         shell: bash
@@ -201,6 +215,14 @@ jobs:
               cat "${DIST}/trace.log"
               echo '```'
             fi
+            if [ -f "${DIST}/link.log" ]; then
+              echo
+              echo "### Cable Link nativo"
+              echo
+              echo '```'
+              cat "${DIST}/link.log"
+              echo '```'
+            fi
             if [ -f "${DIST}/leak.log" ]; then
               echo
               echo "### Experimento de residuo"
@@ -223,4 +245,5 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/smoke.log
             link-mgba/dist/${{ env.STAGE }}/leak.log
             link-mgba/dist/${{ env.STAGE }}/trace.log
+            link-mgba/dist/${{ env.STAGE }}/link.log
           if-no-files-found: error

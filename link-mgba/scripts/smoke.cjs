@@ -16,6 +16,10 @@
  *   SMOKE_FRAMES       frames of the boot run (default 600, ~10 s emulated)
  *   SMOKE_MODE=leak    run the memory-residue experiment instead of phase 2
  *   SMOKE_LEAK_FRAMES  frames per core in that experiment (default 1800)
+ *   SMOKE_MODE=link    run the native SIO lockstep test (phase 3)
+ *   SMOKE_LINK_SEATS   consoles on the cable in that test (default 2)
+ *   SMOKE_LINK_FRAMES  frames per console in that test (default 2400, ~40 s)
+ *   SMOKE_MODE=trace   memory-residue trace; needs patches/diagnostics/ applied
  */
 
 "use strict";
@@ -597,6 +601,214 @@ async function leakExperiment(rom) {
 	info("peor residuo de todo el experimento", kib(worst));
 }
 
+/* ------------------------------------------------------ cable Link ------- */
+
+const FRAME_CYCLES = 280896;          /* un frame de GBA */
+const LINK_SLICE = 16384;             /* rodaja por vuelta del planificador */
+const GBA_SIO_MULTI = 2;              /* enum GBASIOMode */
+
+/** Reserva un buffer de int32 en el heap del modulo y lo lee con signo. */
+function withInts(Module, count, use) {
+	const ptr = Module._malloc(count * 4);
+	try {
+		return use(ptr, () => Array.from(Module.HEAP32.subarray(ptr >> 2, (ptr >> 2) + count)));
+	} finally {
+		Module._free(ptr);
+	}
+}
+
+/**
+ * Da tiempo a la consola despierta que menos ha corrido.
+ *
+ * No se usa el reloj emulado para decidir sino los ciclos que devuelve
+ * link_run, porque mTiming es un int32 que el propio mGBA reajusta y comparar
+ * valores absolutos entre dos nucleos no es fiable. Lo que cuenta aqui es
+ * cuanto ha corrido cada uno desde que arranco la prueba.
+ *
+ * Que siempre haya alguien despierto no es suerte: el coordinador lo garantiza
+ * —su _verifyAwake afirma que nunca duermen todos a la vez— y si aun asi
+ * ocurriera, seria un bloqueo y hay que verlo, no taparlo.
+ */
+function linkStep(Module, ids, ran) {
+	let pick = -1;
+	let least = Infinity;
+	for (const id of ids) {
+		if (Module._mgbawasm_link_asleep(id)) continue;
+		if (ran[id] < least) {
+			least = ran[id];
+			pick = id;
+		}
+	}
+	if (pick < 0) return -1;
+	ran[pick] += Module._mgbawasm_link_run(pick, LINK_SLICE);
+	return pick;
+}
+
+async function linkExperiment(rom, seats) {
+	console.log(`\n=== Cable Link nativo · ${seats} consolas en un modulo ===`);
+	const Module = await loadModule();
+
+	withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+	const ids = [];
+	for (let i = 0; i < seats; ++i) ids.push(Module._mgbawasm_instance_open(-1, 0, 1));
+	check("abre las consolas", ids.every((id) => id >= 0), "ids " + ids.join(", "));
+	if (!ids.every((id) => id >= 0)) return;
+
+	const heapBefore = heapUsed(Module);
+
+	/* --- enganche --- */
+	for (const id of ids) {
+		check(`engancha la consola ${id} al cable`,
+			Module._mgbawasm_link_attach(id, id) === 1, "asiento pedido " + id);
+	}
+	check("el coordinador ve todas las consolas",
+		Module._mgbawasm_link_attached() === seats,
+		Module._mgbawasm_link_attached() + " de " + seats);
+
+	const heapLinked = heapUsed(Module);
+	info("coste del cable en memoria", kib(heapLinked - heapBefore));
+
+	/* --- ejecucion con el patron de botones del barrido --- */
+	const KEYS = [1 << KEY.START, 1 << KEY.A, 1 << KEY.DOWN, 1 << KEY.A, 1 << KEY.RIGHT];
+	const ran = {};
+	for (const id of ids) ran[id] = 0;
+
+	let transfers = 0;
+	let prevActive = 0;
+	let multiSeen = 0;
+	let bothInMulti = 0;
+	let agreed = 0;
+	let sample = null;
+	let stalls = 0;
+
+	const totalCycles = FRAME_CYCLES * Number(process.env.SMOKE_LINK_FRAMES || 2400);
+	const coordN = 9;
+	const coreN = 11;
+
+	withInts(Module, coordN, (coordPtr, readCoord) => {
+		withInts(Module, coreN, (corePtr, readCore) => {
+			let slice = 0;
+			/* Tope de reloj real ademas del de ciclos emulados: con el cable
+			   las consolas se duermen mucho y las rodajas se multiplican, asi
+			   que sin esto una sincronia mala se comeria el timeout del job en
+			   vez de reportarse. */
+			const deadline = Date.now() + Number(process.env.SMOKE_LINK_SECONDS || 300) * 1000;
+			while (Math.min(...ids.map((id) => ran[id])) < totalCycles) {
+				if (Date.now() > deadline) {
+					console.log("[js] tope de tiempo real alcanzado, se corta aqui");
+					break;
+				}
+				/* Patron de botones, el mismo en todas: cambia cada ~30 frames. */
+				if (slice % 512 === 0) {
+					const mask = KEYS[(slice / 512) % KEYS.length];
+					for (const id of ids) Module._mgbawasm_set_keys(id, mask);
+				} else if (slice % 512 === 256) {
+					for (const id of ids) Module._mgbawasm_set_keys(id, 0);
+				}
+
+				const advanced = linkStep(Module, ids, ran);
+				if (advanced < 0) { ++stalls; break; }
+
+				Module._mgbawasm_link_coordinator_state(coordPtr);
+				const coord = readCoord();
+				if (coord[1] && !prevActive) ++transfers;   /* flanco de subida */
+				prevActive = coord[1];
+
+				if (++slice % 16 === 0) {
+					const states = ids.map((id) => {
+						Module._mgbawasm_link_core_state(id, corePtr);
+						return readCore();
+					});
+					const inMulti = states.filter((s) => s[3] === GBA_SIO_MULTI).length;
+					if (inMulti) ++multiSeen;
+					if (inMulti === seats) ++bothInMulti;
+
+					/* La prueba de fuego: SIOMULTI0..3 iguales en todas las
+					   consolas y con algo distinto de la linea en reposo. */
+					const words = states.map((s) => s.slice(6, 10).join(","));
+					const same = words.every((w) => w === words[0]);
+					const live = states[0].slice(6, 10).some((w) => (w & 0xffff) !== 0xffff);
+					if (same && live && inMulti === seats) {
+						++agreed;
+						if (!sample) {
+							sample = { coord: coord.slice(), states: states.map((s) => s.slice()) };
+						}
+					}
+				}
+				for (const id of ids) Module._mgbawasm_drop_audio(id);
+			}
+		});
+	});
+
+	info("ciclos corridos por consola", ids.map((id) => ran[id]).join(" / "));
+	info("asientos confirmados", ids.map((id) => Module._mgbawasm_link_seat(id)).join(" / "));
+	info("muestras con alguna consola en MULTI", multiSeen);
+	info("muestras con todas en MULTI", bothInMulti);
+	info("muestras con SIOMULTI coincidente y vivo", agreed);
+	info("transferencias detectadas", transfers);
+
+	check("el coordinador reparte asientos consecutivos desde el 0",
+		ids.every((id, i) => Module._mgbawasm_link_seat(id) === i),
+		ids.map((id) => Module._mgbawasm_link_seat(id)).join(", "));
+	check("nunca se bloquean todas las consolas a la vez", stalls === 0, stalls + " bloqueos");
+
+	/* Lo que separa "las dos avanzan" de "las dos hablan". */
+	check("las consolas entran en modo MULTI", bothInMulti > 0, bothInMulti + " muestras");
+	check("hay transferencias por el cable", transfers > 0, transfers + " transferencias");
+	check("SIOMULTI coincide entre consolas con datos vivos", agreed > 0, agreed + " muestras");
+
+	if (sample) {
+		console.log("\n--- muestra de un intercambio real ---");
+		console.log(`  coordinador: consolas=${sample.coord[0]} activa=${sample.coord[1]} ` +
+			`modo=${sample.coord[2]} ciclo=${sample.coord[3]} ` +
+			`multiData=[${sample.coord.slice(4, 8).map((w) => "0x" + (w & 0xffff).toString(16)).join(", ")}]`);
+		sample.states.forEach((s, i) => {
+			console.log(`  consola ${i}: asiento=${s[2]} modo=${s[3]} ` +
+				`SIOCNT=0x${(s[4] & 0xffff).toString(16)} RCNT=0x${(s[5] & 0xffff).toString(16)} ` +
+				`SIOMULTI=[${s.slice(6, 10).map((w) => "0x" + (w & 0xffff).toString(16)).join(", ")}] ` +
+				`envia=0x${(s[10] & 0xffff).toString(16)}`);
+		});
+		info("muestra SIOMULTI", sample.states[0].slice(6, 10)
+			.map((w) => "0x" + (w & 0xffff).toString(16)).join(","));
+	}
+
+	/* COMMERROR es el bit 6 de SIOCNT en multijugador. */
+	const errors = ids.filter((id) => {
+		let bad = 0;
+		withInts(Module, coreN, (ptr, read) => {
+			Module._mgbawasm_link_core_state(id, ptr);
+			bad = read()[4] & 0x40;
+		});
+		return bad;
+	});
+	check("ninguna consola termina con COMMERROR", errors.length === 0, errors.join(", ") || "ninguna");
+
+	/* --- desenganche y que todo siga en pie --- */
+	for (const id of ids) Module._mgbawasm_link_detach(id);
+	check("el coordinador se queda sin consolas", Module._mgbawasm_link_attached() === 0,
+		Module._mgbawasm_link_attached() + " enganchadas");
+
+	const framesBefore = ids.map((id) => Module._mgbawasm_frame_counter(id));
+	for (let f = 0; f < 120; ++f) {
+		for (const id of ids) {
+			Module._mgbawasm_run_frame(id);
+			Module._mgbawasm_drop_audio(id);
+		}
+	}
+	check("las consolas siguen corriendo tras soltar el cable",
+		ids.every((id, i) => Module._mgbawasm_frame_counter(id) - framesBefore[i] === 120),
+		ids.map((id, i) => Module._mgbawasm_frame_counter(id) - framesBefore[i]).join(" / "));
+
+	const sram = ids.map((id) => Module._mgbawasm_sram_save(id));
+	check("la savedata sobrevive al cable", sram.every((s) => s > 0), sram.map(kib).join(" / "));
+
+	for (const id of ids) Module._mgbawasm_instance_close(id);
+	Module._mgbawasm_rom_release();
+	const residue = heapUsed(Module);
+	info("residuo tras cerrar todo", kib(residue));
+	check("el cable no deja residuo", residue < 65536, kib(residue));
+}
+
 /* --------------------------------------------- traza de un solo core ----- */
 
 /**
@@ -719,6 +931,8 @@ async function traceExperiment(rom) {
 
 	if (STAGE === "upstream") {
 		await smokeUpstream(rom);
+	} else if (MODE === "link") {
+		await linkExperiment(rom, Number(process.env.SMOKE_LINK_SEATS || 2));
 	} else if (MODE === "trace") {
 		await traceExperiment(rom);
 	} else if (MODE === "leak") {

@@ -211,7 +211,9 @@ LDFLAGS=(
 	# so the stdio calls it makes need something real behind them even though
 	# every asset this port loads travels through memory.
 	-sEXPORTED_FUNCTIONS=_malloc,_free
-	-sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP16,HEAPU32,UTF8ToString,stringToUTF8,lengthBytesUTF8
+	# HEAP32 es nuestro: los estados del cable llevan enteros con signo, y el
+	# asiento sin confirmar es -1.
+	-sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP16,HEAP32,HEAPU32,UTF8ToString,stringToUTF8,lengthBytesUTF8
 )
 
 echo "Linking ${SHIM_REL} + libmgba with emcc..."
