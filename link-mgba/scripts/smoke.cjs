@@ -400,6 +400,38 @@ function kib(bytes) {
 	return (bytes / 1024).toFixed(0) + " KiB";
 }
 
+/**
+ * N ciclos de abrir, correr y cerrar un asiento, todos en el MISMO modulo.
+ *
+ * leakCycle mide el residuo de un modulo que abre N nucleos una vez, que no es
+ * lo que hace una sesion Link: esa abre y cierra asientos en cada partida sobre
+ * el modulo que ya esta cargado. Si lo que no vuelve al cerrar no se reaprovecha
+ * en la siguiente apertura, el residuo crece con las partidas y entonces si es
+ * una fuga acumulativa.
+ */
+async function leakReopen(rom, cycles, frames) {
+	const Module = await loadModule();
+	const base = heapUsed(Module);
+	withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+
+	let peak = base;
+	for (let c = 0; c < cycles; ++c) {
+		const id = Module._mgbawasm_instance_open(-1, 0, 1);
+		if (id < 0) throw new Error(`instance_open fallo en el ciclo ${c}`);
+		for (let f = 0; f < frames; ++f) {
+			Module._mgbawasm_run_frame(id);
+			Module._mgbawasm_drop_audio(id);
+		}
+		peak = Math.max(peak, heapUsed(Module));
+		Module._mgbawasm_instance_close(id);
+	}
+
+	const afterClose = heapUsed(Module);
+	Module._mgbawasm_rom_release();
+	const afterRelease = heapUsed(Module);
+	return { cycles, frames, base, peak, afterClose, afterRelease, residue: afterRelease - base };
+}
+
 async function leakExperiment(rom) {
 	console.log("\n=== Experimento · residuo de memoria tras cerrar ===");
 	console.log(`ROM ${mib(rom.length)} · ${LEAK_FRAMES} frames por nucleo en las vueltas "con frames"\n`);
@@ -481,6 +513,42 @@ async function leakExperiment(rom) {
 		fourCores.residue < 1048576, kib(fourCores.residue));
 
 	info("residuo con 4 nucleos (sala llena)", kib(fourCores.residue));
+
+	/* --- reapertura en el mismo modulo -------------------------------------- */
+	/* Lo de arriba mide modulos de usar y tirar. Una sesion Link abre y cierra
+	   asientos en cada partida sobre el modulo ya cargado, asi que la pregunta
+	   que decide si esto es una fuga de verdad es si el hueco se reaprovecha. */
+	console.log("\n--- Reabriendo asientos en el mismo modulo ---");
+	const reopenRows = [];
+	for (const cycles of [1, 2, 4, 8]) reopenRows.push(await leakReopen(rom, cycles, LEAK_FRAMES));
+
+	console.log("ciclos | frames | heap pico | tras cerrar | tras rom_release | residuo");
+	console.log("------ | ------ | --------- | ----------- | ---------------- | -------");
+	for (const r of reopenRows) {
+		console.log(
+			`${String(r.cycles).padStart(6)} | ${String(r.frames).padStart(6)} | ` +
+			`${mib(r.peak).padStart(9)} | ${mib(r.afterClose).padStart(11)} | ` +
+			`${mib(r.afterRelease).padStart(16)} | ${kib(r.residue).padStart(8)}`);
+	}
+	console.log();
+	for (const r of reopenRows) measured.push(`residuo ${r.cycles} reaperturas = ${kib(r.residue)}`);
+
+	const once = reopenRows[0];
+	const eight = reopenRows[reopenRows.length - 1];
+	const growth = eight.residue - once.residue;
+	info("crecimiento de 1 a 8 reaperturas", kib(growth));
+
+	if (growth < 16384) {
+		console.log("El hueco se reaprovecha: reabrir asientos no suma residuo.");
+	} else {
+		console.log(`Cada reapertura deja ~${kib(growth / 7)} mas: el residuo crece con las partidas.`);
+	}
+
+	/* Esta es la comprobacion que separa "retencion acotada" de "fuga": si
+	   reabrir asientos suma, una sesion larga crece sin techo. */
+	check("reabrir asientos en el mismo modulo no acumula residuo",
+		growth < 16384,
+		`${kib(once.residue)} con 1 reapertura, ${kib(eight.residue)} con 8`);
 }
 
 /* -------------------------------------------------------------------------- */
