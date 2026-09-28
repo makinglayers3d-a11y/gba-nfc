@@ -20,7 +20,7 @@ emulador principal y `mgba-compat.js` no se tocan.
 | --- | --- | --- |
 | 1 | Reproducir el build oficial con el shim original | **validada** (run 3) |
 | 2 | Shim multi-instancia con ROM compartida, sin cable | **validada** (run 5) |
-| 3 | `GBASIOLockstepCoordinator` | en curso: 2 consolas en el mismo modulo |
+| 3 | `GBASIOLockstepCoordinator` | **validada** hasta 4 consolas locales (run 36438372917) |
 
 Los números están en «Resultados medidos».
 
@@ -180,6 +180,67 @@ ahora se libera.
 65 536 Hz. Es correcto y no es un fallo: la fase 1 lee justo tras el reset y la
 fase 2 tras ~1 500 frames de juego. El GBA sube la resolución de audio por
 `SOUNDBIAS` sobre la marcha y mGBA reporta la del momento.
+
+### Fase 3 — el cable nativo, de dos a cuatro consolas
+
+Commit `3702aee`. Mario Kart Super Circuit, 1 800 frames por consola, todo
+dentro de un solo módulo WASM y sin lobby ni red.
+
+| Medida | 2 consolas | 3 consolas | 4 consolas |
+| --- | --- | --- | --- |
+| Asientos confirmados | 0 / 1 | 0 / 1 / 2 | 0 / 1 / 2 / 3 |
+| Muestras con **todas** en MULTI | 1 560 | 2 561 | 3 816 |
+| Muestras con `SIOMULTI` coincidente y vivo | 1 314 | 2 140 | 3 341 |
+| Transferencias | 1 670 | 1 686 | 1 726 |
+| Cargas útiles distintas | 42 | 57 | 71 |
+| Asientos vacíos ocupados indebidamente | **0** | **0** | — |
+| `SIOMULTI0..3` de muestra | `0,0,FFFF,FFFF` | `0,0,0,FFFF` | `0,0,0,0` |
+| Deriva entre consolas (sobre 505 M ciclos) | 1 520 | 855 | 3 448 |
+| Coste del cable | 1 KiB | 1 KiB | 2 KiB |
+| COMMERROR | ninguno | ninguno | ninguno |
+
+Los `SIOMULTI` de muestra son la prueba más directa de que el coordinador está
+haciendo de cable de verdad: **el número de palabras vivas sigue exactamente al
+número de consolas**, y el resto se queda en `0xFFFF`, que es la línea en reposo
+de una punta sin nadie enchufado. Con 4 consolas no queda ninguna en reposo.
+
+La deriva máxima, 3 448 ciclos sobre 505 millones, es un 0,0007 %.
+
+#### Tráfico real, más allá del saludo de arranque
+
+`SMOKE_MODE=traffic` prueba seis secuencias cortas de botones y se queda con la
+primera cuya carga útil deja de ser constante. Resultado:
+
+| Medida | Valor |
+| --- | --- |
+| Secuencia ganadora | `START A DOWN DOWN DOWN A` |
+| **Cargas útiles distintas** | **391** |
+| Transferencias | 8 100 |
+| Muestras | `0,0` · `3,16092` · `51220,4` · `51218,6` · `16092,0` · `14311,51217` |
+
+Eso ya no es el handshake: son valores de partida, distintos en cada asiento y
+cambiando con el tiempo. En hexadecimal, `16092` es `0x3EDC` y `51220` es
+`0xC814`.
+
+#### Residuo del coordinador
+
+| Asientos | 1 ciclo | 2 ciclos | 4 ciclos | 8 ciclos |
+| --- | --- | --- | --- | --- |
+| 2 | 1 KiB | 1 KiB | 1 KiB | 1 KiB |
+| 4 | 1 KiB | 1 KiB | 1 KiB | 1 KiB |
+
+Crecimiento de 1 a 8 ciclos: **0 KiB**. De 2 a 4 asientos: **0 KiB**. Es la
+reserva única de la `Table` del coordinador, creada en el primer `attach` y
+nunca deshecha, porque `GBASIOLockstepCoordinatorDeinit` no llega a llamarse
+mientras el módulo viva. Una sola vez por página, acotada, y no crece ni con las
+partidas ni con los jugadores.
+
+#### Avisos
+
+Solo el conocido de detach, y su número cuadra exactamente con el número de
+desenganches completos: 1 por ronda del cable, 30 en el experimento de residuo
+—que son `(1+2+4+8) × 2` ciclos— y 6 en la búsqueda de tráfico, una por
+secuencia probada. Ningún aviso distinto en todo el run.
 
 ## Punto de partida
 
