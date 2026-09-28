@@ -28,6 +28,35 @@ máquina donde se escribió esto no hay `docker`, `emcc`, `cmake`, `make` ni
 | `scripts/build.sh` | derivado de `upstream/build-mgba.sh` |
 | `scripts/check-exports.sh` | nuestro: compara los `EXPORT` del shim con los que quedaron enlazados |
 | `scripts/smoke.cjs` | nuestro: prueba headless en node, sin navegador |
+| `patches/*.patch` | nuestros: se aplican sobre el commit pinado de mGBA, sin commitear |
+
+## Parches sobre mGBA
+
+`scripts/build.sh` hace `reset --hard` al commit pinado y aplica encima, por
+orden alfabético, todo lo que haya en `patches/`. Un parche que no aplica **para
+el build**: compilar en silencio algo distinto de lo que dice el fichero es peor
+que no compilar.
+
+Como no se commitean, `git rev-parse HEAD` dentro del checkout de mGBA sigue
+siendo el commit de upstream, y el workflow imprime el `diff --stat` para que se
+vea exactamente qué cambia.
+
+| Parche | Qué hace | Estado |
+| --- | --- | --- |
+| `0001-diag-savedata-trace.patch` | Instrumenta `savedata.c`: registra cada reserva anónima y cada liberación con puntero, tamaño, tipo y el `struct GBASavedata*` que hace de identidad del núcleo | **temporal**, solo para diagnóstico; se retira al cerrar la fuga |
+
+El parche no está escrito a mano. Lo genera `scripts/mkpatch.py` a partir del
+fuente original:
+
+```bash
+curl -sL -o savedata.c \
+  https://raw.githubusercontent.com/mgba-emu/mgba/c034660f007c543233f1cadeb0ca13c71afd8f41/src/gba/savedata.c
+python3 scripts/mkpatch.py savedata.c patches/0001-diag-savedata-trace.patch
+```
+
+Cada punto de instrumentación se ancla a un fragmento del fuente y el script
+**exige que ese fragmento sea único**; si upstream lo cambia, falla en vez de
+producir un diff con contexto inventado que luego no aplica.
 
 mGBA y mGBA-wasm son MPL-2.0, y los ficheros derivados también. Las copias
 conservan su cabecera.

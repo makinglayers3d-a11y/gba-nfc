@@ -114,6 +114,11 @@ jobs:
             exit 1
           fi
           echo "Coincide con el commit pinado."
+          # Los parches de patches/ van encima sin commitear, asi que HEAD sigue
+          # siendo el commit de upstream y el diff dice exactamente que cambia.
+          echo
+          echo "Parches aplicados encima:"
+          git -C link-mgba/.tmp/mgba-build diff --stat || echo "  ninguno"
 
       # build.sh ya llama a check-exports.sh y falla si el enlazador ha tirado
       # algun export. Se repite aqui como paso propio para que el fallo salga
@@ -133,6 +138,19 @@ jobs:
           set -euo pipefail
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
             | tee "link-mgba/dist/${STAGE}/smoke.log"
+
+      # Escenario minimo con el fork instrumentado: un nucleo, correr hasta que
+      # la savedata existe, cerrar, soltar la ROM. De ahi sale el historial de
+      # reservas y liberaciones de los 128 KiB.
+      - name: Traza de savedata (un solo core)
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: trace
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/trace.log"
 
       # Cierra la pregunta abierta de la fase 2: los 256 KiB que no volvian al
       # cerrar los nucleos. Mide 1, 2, 3 y 4 nucleos con y sin frames, y repite
@@ -183,6 +201,14 @@ jobs:
               echo
               echo "La prueba headless no llego a escribir salida."
             fi
+            if [ -f "${DIST}/trace.log" ]; then
+              echo
+              echo "### Traza de savedata"
+              echo
+              echo '```'
+              cat "${DIST}/trace.log"
+              echo '```'
+            fi
             if [ -f "${DIST}/leak.log" ]; then
               echo
               echo "### Experimento de residuo"
@@ -204,4 +230,5 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/mgba.wasm
             link-mgba/dist/${{ env.STAGE }}/smoke.log
             link-mgba/dist/${{ env.STAGE }}/leak.log
+            link-mgba/dist/${{ env.STAGE }}/trace.log
           if-no-files-found: error

@@ -58,7 +58,32 @@ fi
 git -C "${BUILD_DIR}" fetch --quiet --depth 1 origin "${MGBA_REF}" \
 	|| git -C "${BUILD_DIR}" fetch --quiet origin
 git -C "${BUILD_DIR}" checkout --quiet "${MGBA_REF}"
+# El checkout esta cacheado entre runs y los parches se aplican encima, asi que
+# hay que volver al commit limpio antes de aplicarlos o la segunda vez fallarian
+# por estar ya puestos.
+git -C "${BUILD_DIR}" reset --hard --quiet "${MGBA_REF}"
+git -C "${BUILD_DIR}" clean -fdq
 echo "mGBA at $(git -C "${BUILD_DIR}" rev-parse HEAD)"
+
+# --- Parches propios --------------------------------------------------------
+# El commit de mGBA se queda como esta y lo nuestro va encima, en patches/, en
+# orden alfabetico. Un parche que no aplica para el build: mejor eso que
+# compilar en silencio algo distinto de lo que el fichero dice.
+PATCH_DIR="${PROJECT_DIR}/patches"
+if [ -d "${PATCH_DIR}" ] && ls "${PATCH_DIR}"/*.patch >/dev/null 2>&1; then
+	for patch in "${PATCH_DIR}"/*.patch; do
+		name="$(basename "${patch}")"
+		if ! git -C "${BUILD_DIR}" apply --check "${patch}" 2>/dev/null; then
+			echo "::error::el parche ${name} no aplica sobre ${MGBA_REF}" >&2
+			git -C "${BUILD_DIR}" apply --check "${patch}" >&2 || true
+			exit 1
+		fi
+		git -C "${BUILD_DIR}" apply "${patch}"
+		echo "Parche aplicado: ${name}"
+	done
+else
+	echo "Sin parches propios."
+fi
 
 # --- Configure --------------------------------------------------------------
 # Verbatim from upstream's script, including the two flags in CMAKE_C_FLAGS that

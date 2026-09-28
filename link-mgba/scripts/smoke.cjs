@@ -590,6 +590,88 @@ async function leakExperiment(rom) {
 		`${kib(once.residue)} con 1 reapertura, ${kib(eight.residue)} con 8`);
 }
 
+/* --------------------------------------------- traza de un solo core ----- */
+
+/**
+ * El escenario minimo, con el fork instrumentado: abrir un nucleo, correr hasta
+ * que la savedata existe, cerrar, soltar la ROM. Nada mas, para que el historial
+ * de reservas y liberaciones de esos 128 KiB se lea entero y sin ruido.
+ *
+ * Necesita patches/0001-diag-savedata-trace.patch en el build; sin el no sale
+ * ninguna linea ML3DTRACE y el modo lo dice en vez de callarse.
+ */
+async function traceExperiment(rom) {
+	console.log("\n=== Traza · un nucleo, ciclo completo ===");
+	const Module = await loadModule();
+	const marker = coreLog.length;
+
+	const base = heapUsed(Module);
+	console.log(`[js] heap base = ${kib(base)}`);
+
+	withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+	console.log(`[js] ROM compartida · heap = ${kib(heapUsed(Module))}`);
+
+	const id = Module._mgbawasm_instance_open(-1, 0, 1);
+	console.log(`[js] instance_open -> id ${id} · heap = ${kib(heapUsed(Module))}`);
+
+	/* Se corre de 10 en 10 hasta que la savedata aparece, para que la traza
+	   ancle el frame exacto en el que se reserva. */
+	let frames = 0;
+	let sram = 0;
+	while (frames < 600 && !sram) {
+		for (let i = 0; i < 10; ++i) {
+			Module._mgbawasm_run_frame(id);
+			Module._mgbawasm_drop_audio(id);
+		}
+		frames += 10;
+		sram = Module._mgbawasm_sram_save(id);
+	}
+	console.log(`[js] savedata visible en el frame ${frames} · ${sram ? kib(sram) : "no aparecio"}`);
+	const beforeClose = heapUsed(Module);
+	console.log(`[js] antes de cerrar · heap = ${kib(beforeClose)}`);
+
+	Module._mgbawasm_instance_close(id);
+	const afterClose = heapUsed(Module);
+	console.log(`[js] instance_close · heap = ${kib(afterClose)} (libera ${kib(beforeClose - afterClose)})`);
+
+	Module._mgbawasm_rom_release();
+	const afterRelease = heapUsed(Module);
+	console.log(`[js] rom_release · heap = ${kib(afterRelease)}`);
+	console.log(`[js] residuo = ${kib(afterRelease - base)}`);
+
+	const trace = coreLog.slice(marker).filter((l) => l.includes("ML3DTRACE"));
+	console.log(`\n--- ${trace.length} linea(s) ML3DTRACE ---`);
+	for (const line of trace) console.log("  " + line);
+
+	if (!trace.length) {
+		console.log("\nNinguna. El build no lleva el parche de instrumentacion.");
+		check("el build lleva el parche de traza", false, "0 lineas ML3DTRACE");
+		return;
+	}
+
+	/* Lo que se busca: un puntero reservado que nunca aparezca en una linea de
+	   liberacion. Ese es el bloque perdido. */
+	const allocated = new Map();
+	for (const line of trace) {
+		const ptr = /data=(0x[0-9a-f]+)/.exec(line)?.[1];
+		if (!ptr || ptr === "0x0") continue;
+		if (line.includes("-alloc")) allocated.set(ptr, line);
+		if (line.includes("deinit-free") || line.includes("deinit-unmap")) allocated.delete(ptr);
+	}
+
+	console.log("\n--- veredicto ---");
+	if (!allocated.size) {
+		console.log("Toda reserva trazada aparece tambien en una liberacion.");
+		console.log("Los 128 KiB no salen de este camino: hay que instrumentar en otro sitio.");
+	} else {
+		console.log(`${allocated.size} reserva(s) sin liberacion correspondiente:`);
+		for (const [ptr, line] of allocated) console.log(`  ${ptr}  <-  ${line}`);
+	}
+
+	info("residuo del ciclo trazado", kib(afterRelease - base));
+	info("reservas sin liberar", allocated.size);
+}
+
 /* -------------------------------------------------------------------------- */
 
 (async () => {
@@ -603,6 +685,8 @@ async function leakExperiment(rom) {
 
 	if (STAGE === "upstream") {
 		await smokeUpstream(rom);
+	} else if (MODE === "trace") {
+		await traceExperiment(rom);
 	} else if (MODE === "leak") {
 		await leakExperiment(rom);
 	} else {
