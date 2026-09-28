@@ -257,7 +257,9 @@ function loadGameType(name, callback) {
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby la
+     configura en caliente, así que se consulta siempre. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, true);
     if (consumed) return;
   }
@@ -290,7 +292,9 @@ function loadGameType(name, callback) {
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby la
+     configura en caliente, así que se consulta siempre. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, false);
     if (consumed) return;
   }
@@ -452,6 +456,38 @@ function startGbaTimers() {
   }, 10000);
 }
   
+/* --- Soporte para el juego que pide la sala Link ---------------------------
+   Traído de test/lobby-en-emulador-2026-09-23 (cee9f8b), que es donde vive el
+   lobby de cuatro jugadores. Solo esto: el resto de aquel app.js no sirve
+   porque se cortó antes de que mGBA llegara a main y quita sus ganchos. */
+function normalizeGameName(value) {
+  return String(value || "")
+    .replace(/\.(gba|gbc|gb)$/i, "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+let libraryCatalog = null;
+
+async function findLibraryRom(normalizedName) {
+  if (!libraryCatalog) {
+    try {
+      const response = await fetch("games-catalog.json", { cache: "no-store" });
+      const entries = await response.json();
+      libraryCatalog = (Array.isArray(entries) ? entries : [])
+        .map((entry) => String(entry?.name || entry || ""))
+        .filter((name) => /\.(gba|gbc|gb)$/i.test(name));
+    } catch (error) {
+      console.warn("ML3D Link: no se pudo leer el catálogo de juegos.", error);
+      libraryCatalog = [];
+    }
+  }
+  return libraryCatalog.find((name) => normalizeGameName(name) === normalizedName) || "";
+}
+
 window.ML3DLinkRuntime = {
   get emulator() {
     return emulator;
@@ -464,6 +500,45 @@ window.ML3DLinkRuntime = {
   },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
+  /* Abre el juego que la sala ha elegido, si no es el que ya está puesto, y si
+     lo es lo reinicia limpio. Lo llama LocalLinkSession al configurarse. */
+  async prepareForLink(game) {
+    const wanted = normalizeGameName(game);
+    if (!wanted || wanted === normalizeGameName(selected?.name)) {
+      return this.restartForLink();
+    }
+
+    const filename = await findLibraryRom(wanted);
+    if (!filename) {
+      console.warn("ML3D Link: la sala pide un juego que no está en esta biblioteca:", game);
+      return this.restartForLink();
+    }
+
+    const response = await fetch("games/" + encodeURIComponent(filename), { cache: "force-cache" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return startRomFromBytes(bytes, filename, {
+      system: systemFromFilename(filename),
+      saveId: filename.replace(/\.(gba|gbc|gb)$/i, ""),
+      displayName: filename.replace(/\.(gba|gbc|gb)$/i, ""),
+      source: "remote",
+      romPath: "games/" + filename,
+      skipSaveRestore: true
+    });
+  },
+  /* Reinicia la ROM actual sin partida guardada, que es como debe empezar una
+     sesión Link: LocalLinkSession lo llama al configurarse desde el lobby. */
+  async restartForLink() {
+    if (currentSystem !== "gba" || !currentGbaRomBytes || !currentGbaRomFilename) return false;
+    return startRomFromBytes(currentGbaRomBytes.slice(), currentGbaRomFilename, {
+      system: "gba",
+      saveId: currentSaveId,
+      displayName: selected.name,
+      source: currentSource,
+      romPath: selected.rom,
+      skipSaveRestore: true
+    });
+  },
   flushAudio() {
     try {
       emulator?.submitAudioBuffer?.();
@@ -790,7 +865,9 @@ window.addEventListener(
       }
       emulator.play();
 
-      if (!linkRoomActive) {
+      /* En una partida Link los núcleos de cada jugador arrancan desde la ROM
+         limpia: restaurar la partida guardada los desincronizaría. */
+      if (!linkRoomActive && options.skipSaveRestore !== true) {
         try {
           const gameName = emulator.getGameName();
           if (gameName) {
