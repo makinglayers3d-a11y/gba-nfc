@@ -139,18 +139,10 @@ jobs:
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
             | tee "link-mgba/dist/${STAGE}/smoke.log"
 
-      # Escenario minimo con el fork instrumentado: un nucleo, correr hasta que
-      # la savedata existe, cerrar, soltar la ROM. De ahi sale el historial de
-      # reservas y liberaciones de los 128 KiB.
-      - name: Traza de savedata (un solo core)
-        if: env.STAGE == 'multi'
-        shell: bash
-        env:
-          SMOKE_MODE: trace
-        run: |
-          set -euo pipefail
-          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
-            | tee "link-mgba/dist/${STAGE}/trace.log"
+      # SMOKE_MODE=trace sigue existiendo en smoke.cjs, pero no corre aqui: solo
+      # dice algo con los parches de instrumentacion puestos, y esos se
+      # retiraron al cerrar la fuga. Se reactiva a mano cuando haga falta
+      # diagnosticar otra cosa, junto con patches/diagnostics/.
 
       # Cierra la pregunta abierta de la fase 2: los 256 KiB que no volvian al
       # cerrar los nucleos. Mide 1, 2, 3 y 4 nucleos con y sin frames, y repite
