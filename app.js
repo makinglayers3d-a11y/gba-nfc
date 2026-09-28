@@ -680,8 +680,14 @@ window.addEventListener(
     const ua = navigator.userAgent || "";
     const platform = navigator.platform || "";
     const touchMac = platform === "MacIntel" && navigator.maxTouchPoints > 1;
-    return /iPad|iPhone|iPod/i.test(ua) || touchMac;
+    const detected = /iPad|iPhone|iPod/i.test(ua) || touchMac;
+    document.documentElement.classList.toggle("ml3d-ios", detected);
+    return detected;
   }
+
+  // Mark iOS before any menu interaction so Safari gets the stable touch path
+  // even when the menu is opened before a ROM has started.
+  isIOSWebKit();
 
   function shouldUseMgbaCompat() {
     // mGBA's browser/WASM runtime can stall shortly after startup on iOS
