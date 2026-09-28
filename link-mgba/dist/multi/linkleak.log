@@ -1,0 +1,90 @@
+ROM: Mario Kart - Super Circuit.gba (4.00 MiB)
+node v24.19.0
+
+=== Residuo del coordinador · ciclos de enganche y suelta ===
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+asientos | ciclos | heap pico | residuo del cable | residuo final
+-------- | ------ | --------- | ----------------- | -------------
+       2 |      1 |  6.10 MiB |           257 KiB |         1 KiB
+       2 |      2 |  6.10 MiB |           257 KiB |         1 KiB
+       2 |      4 |  6.10 MiB |           257 KiB |         1 KiB
+       2 |      8 |  6.10 MiB |           257 KiB |         1 KiB
+       4 |      1 |  8.20 MiB |           513 KiB |         1 KiB
+       4 |      2 |  8.20 MiB |           513 KiB |         1 KiB
+       4 |      4 |  8.20 MiB |           513 KiB |         1 KiB
+       4 |      8 |  8.20 MiB |           513 KiB |         1 KiB
+
+       crecimiento de 1 a 8 ciclos (2 asientos): 0 KiB
+       crecimiento de 2 a 4 asientos (1 ciclo): 0 KiB
+--- veredicto ---
+El residuo no depende ni de los ciclos ni de los asientos:
+es la reserva unica de la Table del coordinador, que se crea
+una vez por modulo en el primer attach y no se deshace.
+  ok   el residuo del coordinador no crece con los ciclos de enganche — 1 KiB con 1 ciclo, 1 KiB con 8
+  ok   el residuo del coordinador no crece con los asientos — 1 KiB con 2 asientos, 1 KiB con 4
+  ok   el residuo del coordinador esta acotado por debajo de 8 KiB — peor caso 1 KiB
+
+=== Log del nucleo (30 linea(s), solo FATAL/ERROR/WARN) ===
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+::warning title=Log del nucleo multi::30 linea(s): [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow? | [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow? | [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow? | [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow? | [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow? | [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+
+::notice title=Medidas multi::residuo 2c/1ciclos = 1 KiB · residuo 2c/2ciclos = 1 KiB · residuo 2c/4ciclos = 1 KiB · residuo 2c/8ciclos = 1 KiB · residuo 4c/1ciclos = 1 KiB · residuo 4c/2ciclos = 1 KiB · residuo 4c/4ciclos = 1 KiB · residuo 4c/8ciclos = 1 KiB · crecimiento de 1 a 8 ciclos (2 asientos) = 0 KiB · crecimiento de 2 a 4 asientos (1 ciclo) = 0 KiB · lineas de log del nucleo = 30
+smoke multi: OK

@@ -1,0 +1,140 @@
+ROM: Mario Kart - Super Circuit.gba (4.00 MiB)
+node v24.19.0
+
+=== Cable Link nativo · 2 consolas en un modulo ===
+  ok   abre las consolas — ids 0, 1
+  ok   engancha la consola 0 al cable — asiento pedido 0
+  ok   engancha la consola 1 al cable — asiento pedido 1
+  ok   el coordinador ve todas las consolas — 2 de 2
+       coste del cable en memoria: 1 KiB
+       ciclos corridos por consola: 505653814 / 505652294
+       asientos confirmados: 0 / 1
+       muestras con alguna consola en MULTI: 1560
+       muestras con todas en MULTI: 1560
+       muestras con SIOMULTI coincidente y vivo: 1314
+       transferencias detectadas: 1670
+  ok   el coordinador reparte asientos consecutivos desde el 0 — 0, 1
+  ok   nunca se bloquean todas las consolas a la vez — 0 bloqueos
+  ok   las consolas entran en modo MULTI — 1560 muestras
+  ok   hay transferencias por el cable — 1670 transferencias
+  ok   SIOMULTI coincide entre consolas con datos vivos — 1314 muestras
+       asientos vacios en reposo / ocupados: 1314 / 0
+       cargas utiles distintas observadas: 42
+  ok   los asientos vacios se leen como linea en reposo (0xFFFF) — 0 muestras con un asiento vacio ocupado
+
+--- muestra de un intercambio real ---
+  coordinador: consolas=2 activa=0 modo=2 ciclo=127404879 multiData=[0x0, 0x0, 0xffff, 0xffff]
+  consola 0: asiento=0 modo=2 SIOCNT=0x200b RCNT=0x3 SIOMULTI=[0x0, 0x0, 0xffff, 0xffff] envia=0x0
+  consola 1: asiento=1 modo=2 SIOCNT=0x601f RCNT=0x7 SIOMULTI=[0x0, 0x0, 0xffff, 0xffff] envia=0x3ede
+       muestra SIOMULTI: 0x0,0x0,0xffff,0xffff
+  ok   ninguna consola termina con COMMERROR — ninguna
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+  ok   el coordinador se queda sin consolas — 0 enganchadas
+  ok   las consolas siguen corriendo tras soltar el cable — 120 / 120
+  ok   la savedata sobrevive al cable — 64 KiB / 64 KiB
+       avisos conocidos al soltar el ultimo asiento: 1
+  ok   no hay avisos del nucleo mas alla del conocido de detach — ninguno
+       residuo tras cerrar todo: 1 KiB
+  ok   el cable no deja residuo — 1 KiB
+
+=== Log del nucleo (1 linea(s), solo FATAL/ERROR/WARN) ===
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+::warning title=Log del nucleo multi::1 linea(s): [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+
+::notice title=Medidas multi::coste del cable en memoria = 1 KiB · ciclos corridos por consola = 505653814 / 505652294 · asientos confirmados = 0 / 1 · muestras con alguna consola en MULTI = 1560 · muestras con todas en MULTI = 1560 · muestras con SIOMULTI coincidente y vivo = 1314 · transferencias detectadas = 1670 · asientos vacios en reposo / ocupados = 1314 / 0 · cargas utiles distintas observadas = 42 · muestra SIOMULTI = 0x0,0x0,0xffff,0xffff · avisos conocidos al soltar el ultimo asiento = 1 · residuo tras cerrar todo = 1 KiB · lineas de log del nucleo = 1
+smoke multi: OK
+ROM: Mario Kart - Super Circuit.gba (4.00 MiB)
+node v24.19.0
+
+=== Cable Link nativo · 3 consolas en un modulo ===
+  ok   abre las consolas — ids 0, 1, 2
+  ok   engancha la consola 0 al cable — asiento pedido 0
+  ok   engancha la consola 1 al cable — asiento pedido 1
+  ok   engancha la consola 2 al cable — asiento pedido 2
+  ok   el coordinador ve todas las consolas — 3 de 3
+       coste del cable en memoria: 1 KiB
+       ciclos corridos por consola: 505653804 / 505652949 / 505652949
+       asientos confirmados: 0 / 1 / 2
+       muestras con alguna consola en MULTI: 2564
+       muestras con todas en MULTI: 2561
+       muestras con SIOMULTI coincidente y vivo: 2140
+       transferencias detectadas: 1686
+  ok   el coordinador reparte asientos consecutivos desde el 0 — 0, 1, 2
+  ok   nunca se bloquean todas las consolas a la vez — 0 bloqueos
+  ok   las consolas entran en modo MULTI — 2561 muestras
+  ok   hay transferencias por el cable — 1686 transferencias
+  ok   SIOMULTI coincide entre consolas con datos vivos — 2140 muestras
+       asientos vacios en reposo / ocupados: 2140 / 0
+       cargas utiles distintas observadas: 57
+  ok   los asientos vacios se leen como linea en reposo (0xFFFF) — 0 muestras con un asiento vacio ocupado
+
+--- muestra de un intercambio real ---
+  coordinador: consolas=3 activa=0 modo=2 ciclo=122550662 multiData=[0x0, 0x0, 0x0, 0xffff]
+  consola 0: asiento=0 modo=2 SIOCNT=0x200b RCNT=0x3 SIOMULTI=[0x0, 0x0, 0x0, 0xffff] envia=0x0
+  consola 1: asiento=1 modo=2 SIOCNT=0x601f RCNT=0x7 SIOMULTI=[0x0, 0x0, 0x0, 0xffff] envia=0x0
+  consola 2: asiento=2 modo=2 SIOCNT=0x602f RCNT=0x7 SIOMULTI=[0x0, 0x0, 0x0, 0xffff] envia=0x0
+       muestra SIOMULTI: 0x0,0x0,0x0,0xffff
+  ok   ninguna consola termina con COMMERROR — ninguna
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+  ok   el coordinador se queda sin consolas — 0 enganchadas
+  ok   las consolas siguen corriendo tras soltar el cable — 120 / 120 / 120
+  ok   la savedata sobrevive al cable — 64 KiB / 64 KiB / 64 KiB
+       avisos conocidos al soltar el ultimo asiento: 1
+  ok   no hay avisos del nucleo mas alla del conocido de detach — ninguno
+       residuo tras cerrar todo: 1 KiB
+  ok   el cable no deja residuo — 1 KiB
+
+=== Log del nucleo (1 linea(s), solo FATAL/ERROR/WARN) ===
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+::warning title=Log del nucleo multi::1 linea(s): [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+
+::notice title=Medidas multi::coste del cable en memoria = 1 KiB · ciclos corridos por consola = 505653804 / 505652949 / 505652949 · asientos confirmados = 0 / 1 / 2 · muestras con alguna consola en MULTI = 2564 · muestras con todas en MULTI = 2561 · muestras con SIOMULTI coincidente y vivo = 2140 · transferencias detectadas = 1686 · asientos vacios en reposo / ocupados = 2140 / 0 · cargas utiles distintas observadas = 57 · muestra SIOMULTI = 0x0,0x0,0x0,0xffff · avisos conocidos al soltar el ultimo asiento = 1 · residuo tras cerrar todo = 1 KiB · lineas de log del nucleo = 1
+smoke multi: OK
+ROM: Mario Kart - Super Circuit.gba (4.00 MiB)
+node v24.19.0
+
+=== Cable Link nativo · 4 consolas en un modulo ===
+  ok   abre las consolas — ids 0, 1, 2, 3
+  ok   engancha la consola 0 al cable — asiento pedido 0
+  ok   engancha la consola 1 al cable — asiento pedido 1
+  ok   engancha la consola 2 al cable — asiento pedido 2
+  ok   engancha la consola 3 al cable — asiento pedido 3
+  ok   el coordinador ve todas las consolas — 4 de 4
+       coste del cable en memoria: 2 KiB
+       ciclos corridos por consola: 505653810 / 505650362 / 505650362 / 505650362
+       asientos confirmados: 0 / 1 / 2 / 3
+       muestras con alguna consola en MULTI: 3816
+       muestras con todas en MULTI: 3816
+       muestras con SIOMULTI coincidente y vivo: 3341
+       transferencias detectadas: 1726
+  ok   el coordinador reparte asientos consecutivos desde el 0 — 0, 1, 2, 3
+  ok   nunca se bloquean todas las consolas a la vez — 0 bloqueos
+  ok   las consolas entran en modo MULTI — 3816 muestras
+  ok   hay transferencias por el cable — 1726 transferencias
+  ok   SIOMULTI coincide entre consolas con datos vivos — 3341 muestras
+       asientos vacios en reposo / ocupados: 3341 / 0
+       cargas utiles distintas observadas: 71
+
+--- muestra de un intercambio real ---
+  coordinador: consolas=4 activa=0 modo=2 ciclo=111556397 multiData=[0x0, 0x0, 0x0, 0x0]
+  consola 0: asiento=0 modo=2 SIOCNT=0x6003 RCNT=0x1 SIOMULTI=[0x0, 0x0, 0x0, 0x0] envia=0x0
+  consola 1: asiento=1 modo=2 SIOCNT=0x6017 RCNT=0x5 SIOMULTI=[0x0, 0x0, 0x0, 0x0] envia=0x0
+  consola 2: asiento=2 modo=2 SIOCNT=0x6027 RCNT=0x5 SIOMULTI=[0x0, 0x0, 0x0, 0x0] envia=0x0
+  consola 3: asiento=3 modo=2 SIOCNT=0x603f RCNT=0x7 SIOMULTI=[0x0, 0x0, 0x0, 0x0] envia=0x0
+       muestra SIOMULTI: 0x0,0x0,0x0,0x0
+  ok   ninguna consola termina con COMMERROR — ninguna
+       [core] [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+  ok   el coordinador se queda sin consolas — 0 enganchadas
+  ok   las consolas siguen corriendo tras soltar el cable — 120 / 120 / 120 / 120
+  ok   la savedata sobrevive al cable — 64 KiB / 64 KiB / 64 KiB / 64 KiB
+       avisos conocidos al soltar el ultimo asiento: 1
+  ok   no hay avisos del nucleo mas alla del conocido de detach — ninguno
+       residuo tras cerrar todo: 1 KiB
+  ok   el cable no deja residuo — 1 KiB
+
+=== Log del nucleo (1 linea(s), solo FATAL/ERROR/WARN) ===
+       [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+::warning title=Log del nucleo multi::1 linea(s): [mgba:GBA Serial I/O] Reconfiguring player IDs with no players attached somehow?
+
+::notice title=Medidas multi::coste del cable en memoria = 2 KiB · ciclos corridos por consola = 505653810 / 505650362 / 505650362 / 505650362 · asientos confirmados = 0 / 1 / 2 / 3 · muestras con alguna consola en MULTI = 3816 · muestras con todas en MULTI = 3816 · muestras con SIOMULTI coincidente y vivo = 3341 · transferencias detectadas = 1726 · asientos vacios en reposo / ocupados = 3341 / 0 · cargas utiles distintas observadas = 71 · muestra SIOMULTI = 0x0,0x0,0x0,0x0 · avisos conocidos al soltar el ultimo asiento = 1 · residuo tras cerrar todo = 1 KiB · lineas de log del nucleo = 1
+smoke multi: OK

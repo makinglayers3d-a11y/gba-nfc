@@ -1,0 +1,63 @@
+ROM: Mario Kart - Super Circuit.gba (4.00 MiB)
+node v24.19.0
+
+=== Experimento · residuo de memoria tras cerrar ===
+ROM 4.00 MiB · 1800 frames por nucleo en las vueltas "con frames"
+
+cores | frames | heap pico | tras cerrar | tras rom_release | residuo
+----- | ------ | --------- | ----------- | ---------------- | -------
+    1 |   1800 |  5.05 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    2 |   1800 |  6.10 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    3 |   1800 |  7.15 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    4 |   1800 |  8.19 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    1 |      0 |  4.92 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    2 |      0 |  5.85 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    3 |      0 |  6.77 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    4 |      0 |  7.69 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+    2 |   3600 |  6.10 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+
+       residuo por nucleo añadido, con frames: 0 KiB / 0 KiB / 0 KiB
+       residuo por nucleo añadido, sin frames: 0 KiB / 0 KiB / 0 KiB
+       savedata de un nucleo que ha corrido: 64 KiB
+--- veredicto ---
+El residuo no escala con el numero de nucleos: es una asignacion unica del modulo.
+Residuo maximo observado: 0 KiB (0.00 MiB).
+  ok   el residuo no depende de cuanto corran los nucleos — 2 nucleos: 0 KiB con 1800 frames, 0 KiB con 3600
+  ok   el residuo con cuatro asientos esta acotado por debajo de 1 MiB — 0 KiB
+       residuo con 4 nucleos (sala llena): 0 KiB
+
+--- Cuando aparece el residuo, frente a cuando aparece la savedata ---
+frames | savedata | residuo
+------ | -------- | -------
+     0 |       no |    0 KiB
+    30 |   64 KiB |    0 KiB
+    60 |   64 KiB |    0 KiB
+   120 |   64 KiB |    0 KiB
+   240 |   64 KiB |    0 KiB
+   480 |   64 KiB |    0 KiB
+   960 |   64 KiB |    0 KiB
+  1800 |   64 KiB |    0 KiB
+
+       primer frame con residuo: nunca
+       primer frame con savedata: 30
+Los umbrales NO coinciden: el residuo no es la savedata.
+
+--- Reabriendo asientos en el mismo modulo ---
+ciclos | frames | heap pico | tras cerrar | tras rom_release | residuo
+------ | ------ | --------- | ----------- | ---------------- | -------
+     1 |   1800 |  5.05 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+     2 |   1800 |  5.05 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+     4 |   1800 |  5.05 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+     8 |   1800 |  5.05 MiB |    4.00 MiB |         0.00 MiB |    0 KiB
+
+       crecimiento de 1 a 8 reaperturas: 0 KiB
+El hueco se reaprovecha: reabrir asientos no suma residuo.
+  ok   reabrir asientos en el mismo modulo no acumula residuo — 0 KiB con 1 reapertura, 0 KiB con 8
+  ok   el residuo vuelve practicamente a la linea base — peor caso 0 KiB
+       peor residuo de todo el experimento: 0 KiB
+
+=== Log del nucleo (0 linea(s), solo FATAL/ERROR/WARN) ===
+       ninguna
+
+::notice title=Medidas residuo::residuo 1c/1800f = 0 KiB · residuo 2c/1800f = 0 KiB · residuo 3c/1800f = 0 KiB · residuo 4c/1800f = 0 KiB · residuo 1c/0f = 0 KiB · residuo 2c/0f = 0 KiB · residuo 3c/0f = 0 KiB · residuo 4c/0f = 0 KiB · residuo 2c/3600f = 0 KiB · residuo por nucleo añadido, con frames = 0 KiB / 0 KiB / 0 KiB · residuo por nucleo añadido, sin frames = 0 KiB / 0 KiB / 0 KiB · savedata de un nucleo que ha corrido = 64 KiB · residuo con 4 nucleos (sala llena) = 0 KiB · primer frame con residuo = nunca · primer frame con savedata = 30 · residuo 1 reaperturas = 0 KiB · residuo 2 reaperturas = 0 KiB · residuo 4 reaperturas = 0 KiB · residuo 8 reaperturas = 0 KiB · crecimiento de 1 a 8 reaperturas = 0 KiB · peor residuo de todo el experimento = 0 KiB · lineas de log del nucleo = 0
+smoke multi: OK

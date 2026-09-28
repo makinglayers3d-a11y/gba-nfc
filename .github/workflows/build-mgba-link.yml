@@ -169,6 +169,16 @@ jobs:
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
             | tee "link-mgba/dist/${STAGE}/leak.log"
 
+      # La capa de runtime, con los minimos stubs de navegador. No cubre audio
+      # ni vsync —eso solo se ve en Chrome— pero si el planificador, el avance
+      # de las ocultas, el input, la savedata, la memoria y el cierre.
+      - name: Capa de runtime (2, 3 y 4 consolas)
+        if: env.STAGE == 'multi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/runtime-check.cjs "${ROM}" 2>&1             | tee "link-mgba/dist/${STAGE}/runtime.log"
+
       # Fase 3: dos mGBA hablando por SIO con el coordinador nativo, dentro del
       # mismo modulo y sin lobby ni red. La evidencia no es que ambos avancen,
       # sino que SIOMULTI0..3 coincide en las dos con datos vivos.
@@ -278,6 +288,14 @@ jobs:
               cat "${DIST}/linkleak.log"
               echo '```'
             fi
+            if [ -f "${DIST}/runtime.log" ]; then
+              echo
+              echo "### Capa de runtime"
+              echo
+              echo '```'
+              cat "${DIST}/runtime.log"
+              echo '```'
+            fi
             if [ -f "${DIST}/leak.log" ]; then
               echo
               echo "### Experimento de residuo"
@@ -303,4 +321,5 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/link.log
             link-mgba/dist/${{ env.STAGE }}/linkleak.log
             link-mgba/dist/${{ env.STAGE }}/traffic.log
+            link-mgba/dist/${{ env.STAGE }}/runtime.log
           if-no-files-found: error
