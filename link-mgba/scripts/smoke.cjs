@@ -12,8 +12,10 @@
  *   node scripts/smoke.cjs multi    [rom]
  *
  * Env:
- *   SMOKE_SECONDS  seconds of the phase 2 stability run (default 60)
- *   SMOKE_FRAMES   frames of the boot run (default 600, ~10 s emulated)
+ *   SMOKE_SECONDS      seconds of the phase 2 stability run (default 60)
+ *   SMOKE_FRAMES       frames of the boot run (default 600, ~10 s emulated)
+ *   SMOKE_MODE=leak    run the memory-residue experiment instead of phase 2
+ *   SMOKE_LEAK_FRAMES  frames per core in that experiment (default 1800)
  */
 
 "use strict";
@@ -36,6 +38,9 @@ const ROM_PATH = process.argv[3]
 
 const BOOT_FRAMES = Number(process.env.SMOKE_FRAMES || 600);
 const STABILITY_SECONDS = Number(process.env.SMOKE_SECONDS || 60);
+/* SMOKE_MODE=leak cambia la fase 2 por el experimento de residuo de memoria. */
+const MODE = process.env.SMOKE_MODE || "full";
+const LEAK_FRAMES = Number(process.env.SMOKE_LEAK_FRAMES || 1800);
 
 /* enum GBAKey de include/mgba/internal/gba/input.h */
 const KEY = { A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 };
@@ -351,6 +356,133 @@ async function smokeMulti(rom) {
 		"delta " + mib(heapUsed(Module) - heap0));
 }
 
+/* ------------------------------------------- experimento de residuo ------ */
+
+/**
+ * Una vuelta completa: modulo nuevo, ROM compartida, N nucleos, F frames en
+ * cada uno, cerrar todo, soltar la ROM, medir lo que queda.
+ *
+ * Cada vuelta estrena modulo porque el residuo se mide contra su propia linea
+ * base: con MODULARIZE cada llamada a la factoria trae su memoria lineal y sus
+ * globales, asi que reutilizar uno arrastraria el residuo de la vuelta anterior
+ * y no habria forma de separarlos.
+ */
+async function leakCycle(rom, cores, frames) {
+	const Module = await loadModule();
+	const base = heapUsed(Module);
+
+	withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+
+	const ids = [];
+	for (let i = 0; i < cores; ++i) {
+		const id = Module._mgbawasm_instance_open(-1, 0, 1);
+		if (id < 0) throw new Error(`instance_open fallo con ${cores} nucleos (i=${i})`);
+		ids.push(id);
+	}
+
+	for (let f = 0; f < frames; ++f) {
+		for (const id of ids) {
+			Module._mgbawasm_run_frame(id);
+			Module._mgbawasm_drop_audio(id);
+		}
+	}
+
+	const peak = heapUsed(Module);
+	for (const id of ids) Module._mgbawasm_instance_close(id);
+	const afterClose = heapUsed(Module);
+	Module._mgbawasm_rom_release();
+	const afterRelease = heapUsed(Module);
+
+	return { cores, frames, base, peak, afterClose, afterRelease, residue: afterRelease - base };
+}
+
+function kib(bytes) {
+	return (bytes / 1024).toFixed(0) + " KiB";
+}
+
+async function leakExperiment(rom) {
+	console.log("\n=== Experimento · residuo de memoria tras cerrar ===");
+	console.log(`ROM ${mib(rom.length)} · ${LEAK_FRAMES} frames por nucleo en las vueltas "con frames"\n`);
+
+	const rows = [];
+	for (const cores of [1, 2, 3, 4]) rows.push(await leakCycle(rom, cores, LEAK_FRAMES));
+	for (const cores of [1, 2, 3, 4]) rows.push(await leakCycle(rom, cores, 0));
+	/* El doble de frames con los mismos nucleos: si el residuo dependiera del
+	   tiempo de ejecucion en vez del numero de instancias, seria aqui donde se
+	   veria, y seria la unica forma que tendria de ser una fuga de verdad. */
+	rows.push(await leakCycle(rom, 2, LEAK_FRAMES * 2));
+
+	console.log("cores | frames | heap pico | tras cerrar | tras rom_release | residuo");
+	console.log("----- | ------ | --------- | ----------- | ---------------- | -------");
+	for (const r of rows) {
+		console.log(
+			`${String(r.cores).padStart(5)} | ${String(r.frames).padStart(6)} | ` +
+			`${mib(r.peak).padStart(9)} | ${mib(r.afterClose).padStart(11)} | ` +
+			`${mib(r.afterRelease).padStart(16)} | ${kib(r.residue).padStart(8)}`);
+	}
+	console.log();
+
+	const withFrames = rows.filter((r) => r.frames === LEAK_FRAMES);
+	const withoutFrames = rows.filter((r) => r.frames === 0);
+	const doubleRun = rows[rows.length - 1];
+	const twoWithFrames = withFrames.find((r) => r.cores === 2);
+
+	for (const r of withFrames) measured.push(`residuo ${r.cores}c/${r.frames}f = ${kib(r.residue)}`);
+	for (const r of withoutFrames) measured.push(`residuo ${r.cores}c/0f = ${kib(r.residue)}`);
+	measured.push(`residuo 2c/${doubleRun.frames}f = ${kib(doubleRun.residue)}`);
+
+	/* Cuanto crece el residuo por cada nucleo añadido. */
+	const stepsWith = withFrames.slice(1).map((r, i) => r.residue - withFrames[i].residue);
+	const stepsWithout = withoutFrames.slice(1).map((r, i) => r.residue - withoutFrames[i].residue);
+	info("residuo por nucleo añadido, con frames", stepsWith.map(kib).join(" / "));
+	info("residuo por nucleo añadido, sin frames", stepsWithout.map(kib).join(" / "));
+
+	/* Que tamaño tiene la savedata de un nucleo que ha corrido: si el residuo
+	   por nucleo coincide, la hipotesis queda confirmada de un vistazo. */
+	const probe = await loadModule();
+	withRomInHeap(probe, rom, (ptr, len) => probe._mgbawasm_rom_share(ptr, len));
+	const probeId = probe._mgbawasm_instance_open(-1, 0, 1);
+	for (let f = 0; f < LEAK_FRAMES; ++f) {
+		probe._mgbawasm_run_frame(probeId);
+		probe._mgbawasm_drop_audio(probeId);
+	}
+	const sramBytes = probe._mgbawasm_sram_save(probeId);
+	info("savedata de un nucleo que ha corrido", sramBytes ? kib(sramBytes) : "el cartucho no tiene");
+	probe._mgbawasm_instance_close(probeId);
+	probe._mgbawasm_rom_release();
+
+	/* --- veredicto ---------------------------------------------------------- */
+	const maxResidue = Math.max(...rows.map((r) => r.residue));
+	const scalesPerCore = stepsWith.every((s) => Math.abs(s - stepsWith[0]) < 16384) && stepsWith[0] > 16384;
+	const needsFrames = withoutFrames.every((r) => r.residue < 16384);
+
+	console.log("--- veredicto ---");
+	if (maxResidue <= 0) {
+		console.log("No hay residuo: todo vuelve al punto de partida.");
+	} else if (scalesPerCore && needsFrames) {
+		console.log(`El residuo escala por nucleo (~${kib(stepsWith[0])} cada uno) y solo aparece`);
+		console.log("cuando el nucleo ha ejecutado frames, asi que va ligado al uso de savedata.");
+	} else if (scalesPerCore) {
+		console.log(`El residuo escala por nucleo (~${kib(stepsWith[0])}) haya corrido o no.`);
+	} else {
+		console.log("El residuo no escala con el numero de nucleos: es una asignacion unica del modulo.");
+	}
+	console.log(`Residuo maximo observado: ${kib(maxResidue)} (${mib(maxResidue)}).`);
+
+	/* Lo que decide si esto se puede dejar pasar: que no dependa del tiempo de
+	   ejecucion y que este acotado con los cuatro asientos de una sala llena. */
+	check("el residuo no depende de cuanto corran los nucleos",
+		Math.abs(doubleRun.residue - twoWithFrames.residue) < 16384,
+		`2 nucleos: ${kib(twoWithFrames.residue)} con ${LEAK_FRAMES} frames, ` +
+		`${kib(doubleRun.residue)} con ${LEAK_FRAMES * 2}`);
+
+	const fourCores = withFrames.find((r) => r.cores === 4);
+	check("el residuo con cuatro asientos esta acotado por debajo de 1 MiB",
+		fourCores.residue < 1048576, kib(fourCores.residue));
+
+	info("residuo con 4 nucleos (sala llena)", kib(fourCores.residue));
+}
+
 /* -------------------------------------------------------------------------- */
 
 (async () => {
@@ -364,6 +496,8 @@ async function smokeMulti(rom) {
 
 	if (STAGE === "upstream") {
 		await smokeUpstream(rom);
+	} else if (MODE === "leak") {
+		await leakExperiment(rom);
 	} else {
 		await smokeMulti(rom);
 	}
@@ -387,7 +521,8 @@ async function smokeMulti(rom) {
 	   esta es la unica via por la que los numeros salen del run sin credenciales. */
 	measured.push("lineas de log del nucleo = " + coreLog.length);
 	if (measured.length) {
-		console.log(`::notice title=Medidas ${STAGE}::` + measured.join(" · "));
+		const tag = MODE === "leak" ? "residuo" : STAGE;
+		console.log(`::notice title=Medidas ${tag}::` + measured.join(" · "));
 	}
 	if (failed.length) {
 		/* Las etiquetas van dentro del ::error:: porque una anotacion de Actions

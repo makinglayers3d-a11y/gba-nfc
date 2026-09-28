@@ -18,9 +18,11 @@ emulador principal y `mgba-compat.js` no se tocan.
 
 | Fase | Qué | Estado |
 | --- | --- | --- |
-| 1 | Reproducir el build oficial con el shim original | en CI, pendiente de la primera ejecución |
-| 2 | Shim multi-instancia con ROM compartida, sin cable | escrita, se lanza a mano tras la fase 1 |
+| 1 | Reproducir el build oficial con el shim original | **validada** (run 3) |
+| 2 | Shim multi-instancia con ROM compartida, sin cable | **validada** (run 5) |
 | 3 | `GBASIOLockstepCoordinator` | no empezada |
+
+Los números están en «Resultados medidos».
 
 El build oficial del fork es
 [`.github/workflows/build-mgba-link.yml`](.github/workflows/build-mgba-link.yml),
@@ -28,6 +30,121 @@ solo en esta rama: compila en un contenedor `emscripten/emsdk`, verifica el
 commit pinado y los exports, corre una prueba headless en node y sube
 `mgba.js` + `mgba.wasm` como artifact. Así el build no depende de lo que haya
 instalado en ningún PC, que es justo lo que se buscaba.
+
+## Resultados medidos
+
+Todo lo de esta sección sale de ejecuciones reales del workflow, no de
+estimaciones. La ROM de prueba es Mario Kart Super Circuit (4 MiB).
+
+### Tamaños
+
+| Binario | Bytes | Contra el publicado |
+| --- | --- | --- |
+| `mgba.wasm` fase 1 (shim original) | 807 995 | −1 650 (−0,20 %) |
+| `mgba.wasm` fase 2 (shim multi) | 809 474 | −171 (−0,02 %) |
+| `@wasm-gaming/mgba-wasm@0.1.1` | 809 645 | — |
+
+El shim multi-instancia cuesta 1 479 bytes sobre el de una instancia. La
+diferencia con el publicado es la huella de otra versión de emsdk; por eso el
+criterio de la fase 1 es de comportamiento y de exports, no de hash.
+
+### Fase 1 — el build propio se comporta como el publicado
+
+Run 3, commit `a10204b`. Siete comprobaciones, todas pasadas.
+
+- Exports **idénticos uno a uno** a los del paquete publicado.
+- `sio/lockstep.c` fuera del binario, con `sio.c` presente como control de que
+  la búsqueda de cadenas es fiable en ese build.
+- Arranca un cartucho real: plataforma GBA, 600 frames sin atascarse, 240×160
+  con imagen, y audio.
+- Sample rate 32 768 Hz y framerate 59,7275 Hz, ambos derivados del reloj del
+  núcleo.
+- Memoria lineal 64,00 MiB antes y después de cargar la ROM: `INITIAL_MEMORY`
+  ya reserva eso y un cartucho de 4 MiB cabe sin crecer.
+
+### Fase 2 — dos núcleos en un módulo, con la ROM compartida
+
+Run 5, commit `0fd07f6`, `smoke_seconds=180`. **19 de 19 comprobaciones
+pasadas**, job en verde en 3 m 46 s.
+
+**Memoria**
+
+| Momento | Heap en uso | Incremento |
+| --- | --- | --- |
+| 0 núcleos, sin ROM | 0,00 MiB | — |
+| ROM compartida cargada (4 MiB) | 4,00 MiB | +4,00 |
+| 1 núcleo | 4,92 MiB | +0,92 |
+| 2 núcleos | 5,85 MiB | +0,93 |
+
+**Coste real por núcleo: 0,92 MiB.** La estimación de diseño de este documento
+era ~1 MiB por instancia sin ROM, así que se sostiene.
+
+**La ROM se comparte de verdad.** Es el dato más limpio del run: el segundo
+núcleo cuesta 0,92 MiB frente a los 4,00 MiB del cartucho. Con copias privadas
+habría costado 4 MiB. Extrapolando a una sala llena con Pokémon Esmeralda
+(16 MiB): ~19,7 MiB en vez de ~68 MiB.
+
+**Determinismo e independencia**
+
+- Tras 600 frames sin entrada, los dos framebuffers son **idénticos byte a
+  byte**. No es solo que no se estorben: es que son deterministas, que es el
+  requisito real del lockstep de la fase 3.
+- Pulsando START solo en el núcleo 1 durante 900 frames, las dos pantallas
+  divergen. La entrada de un núcleo no llega al otro.
+- Cada núcleo tiene su framebuffer en una dirección distinta.
+
+**Audio**
+
+- El núcleo visible produce muestras.
+- `mgbawasm_drop_audio` vacía exactamente lo que había y deja la cola a cero.
+- Un núcleo al que **nadie** le drena el audio avanza los 300 frames completos.
+  Su cola se queda en 16 384 muestras, que es exactamente el `0x4000` que fija
+  `setAudioBufferSize`: el buffer satura y descarta, no bloquea al núcleo.
+
+Eso cierra el riesgo «audio de las consolas ocultas» que aparece más abajo: las
+tres consolas mudas de una sala de cuatro son seguras.
+
+**Estabilidad, 180 s con los dos núcleos**
+
+| Medida | Valor |
+| --- | --- |
+| Frames por núcleo | 75 480 |
+| fps por núcleo, sin limitar el reloj | 419,2 |
+| Heap mínimo / máximo | 6,10 MiB / 6,10 MiB |
+| **Recorrido del heap** | **0,00 MiB** sobre 18 muestras |
+| Memoria lineal antes / después | 64,00 MiB / 64,00 MiB |
+
+419 fps por núcleo con dos a la vez son unas 7 veces el tiempo real por núcleo
+en la máquina de CI. Es holgura, no un número de móvil, pero el heap
+perfectamente plano sobre 75 480 frames dice que en el bucle de ejecución no hay
+fuga.
+
+**Sin ruido**
+
+Cero líneas de log del núcleo. Con `logLevel 1` pasan FATAL, ERROR y WARN, así
+que mGBA no se quejó de nada en todo el run. Sin crashes. La única anotación del
+job es la de plataforma sobre Node 20 en las acciones `@v4`, ajena a este código.
+
+**Residuo al cerrar**
+
+Tras cerrar los dos núcleos quedan 4,25 MiB con la ROM aún compartida, y tras
+`rom_release` quedan **0,25 MiB** contra los 0,00 MiB iniciales. La comprobación
+pasa porque el umbral era 1 MiB, pero 256 KiB no vuelven.
+
+Hipótesis, encaja con los números pero **está sin comprobar**: el run abre tres
+núcleos en total y el tercero se abrió y cerró sin ejecutar un solo frame. Dos
+núcleos con frames × 128 KiB de savedata de flash dan 256 KiB exactos. Eso
+apuntaría a savedata asignada de forma perezosa al primer acceso del juego y no
+devuelta al cerrar la instancia: 128 KiB por asiento, 512 KiB en una sala llena.
+
+Lo resuelve `SMOKE_MODE=leak`, que mide 1, 2, 3 y 4 núcleos con y sin frames y
+repite dos núcleos con el doble de frames, que es donde se vería una fuga ligada
+al tiempo de ejecución en vez de al número de instancias.
+
+**Sample rate entre fases.** La fase 1 mide 32 768 Hz y la fase 2 mide
+65 536 Hz. Es correcto y no es un fallo: la fase 1 lee justo tras el reset y la
+fase 2 tras ~1 500 frames de juego. El GBA sube la resolución de audio por
+`SOUNDBIAS` sobre la marcha y mGBA reporta la del momento.
 
 ## Punto de partida
 

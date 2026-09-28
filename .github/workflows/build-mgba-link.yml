@@ -134,6 +134,20 @@ jobs:
           node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
             | tee "link-mgba/dist/${STAGE}/smoke.log"
 
+      # Cierra la pregunta abierta de la fase 2: los 256 KiB que no volvian al
+      # cerrar los nucleos. Mide 1, 2, 3 y 4 nucleos con y sin frames, y repite
+      # dos nucleos con el doble de frames, que es donde se veria una fuga
+      # ligada al tiempo de ejecucion en vez de al numero de instancias.
+      - name: Experimento de residuo de memoria
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: leak
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/leak.log"
+
       - name: Resumen
         if: always()
         shell: bash
@@ -169,6 +183,14 @@ jobs:
               echo
               echo "La prueba headless no llego a escribir salida."
             fi
+            if [ -f "${DIST}/leak.log" ]; then
+              echo
+              echo "### Experimento de residuo"
+              echo
+              echo '```'
+              cat "${DIST}/leak.log"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::mgba.wasm = $( [ -f "${DIST}/mgba.wasm" ] && wc -c < "${DIST}/mgba.wasm" || echo 0 ) bytes"
 
@@ -181,4 +203,5 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/mgba.js
             link-mgba/dist/${{ env.STAGE }}/mgba.wasm
             link-mgba/dist/${{ env.STAGE }}/smoke.log
+            link-mgba/dist/${{ env.STAGE }}/leak.log
           if-no-files-found: error
