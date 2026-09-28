@@ -514,6 +514,45 @@ async function leakExperiment(rom) {
 
 	info("residuo con 4 nucleos (sala llena)", kib(fourCores.residue));
 
+	/* --- de donde salen los 128 KiB ----------------------------------------- */
+	/* El residuo solo aparece cuando el nucleo ha corrido, y 128 KiB es
+	   exactamente GBA_SIZE_FLASH1M, que es lo que GBASavedataInitFlash reserva
+	   siempre aunque el cartucho resulte ser FLASH512 (64 KiB). Si el salto de
+	   0 a 128 KiB cae en el mismo punto en que la savedata pasa a existir,
+	   queda atado; si no coincide, es otra reserva y hay que buscarla en otro
+	   sitio. Se barre el numero de frames para encontrar los dos umbrales. */
+	console.log("\n--- Cuando aparece el residuo, frente a cuando aparece la savedata ---");
+	console.log("frames | savedata | residuo");
+	console.log("------ | -------- | -------");
+	let firstResidue = null;
+	let firstSavedata = null;
+	for (const frames of [0, 30, 60, 120, 240, 480, 960, 1800]) {
+		const Module = await loadModule();
+		const base = heapUsed(Module);
+		withRomInHeap(Module, rom, (ptr, len) => Module._mgbawasm_rom_share(ptr, len));
+		const id = Module._mgbawasm_instance_open(-1, 0, 1);
+		for (let f = 0; f < frames; ++f) {
+			Module._mgbawasm_run_frame(id);
+			Module._mgbawasm_drop_audio(id);
+		}
+		const sram = Module._mgbawasm_sram_save(id);
+		Module._mgbawasm_instance_close(id);
+		Module._mgbawasm_rom_release();
+		const residue = heapUsed(Module) - base;
+
+		if (residue > 16384 && firstResidue === null) firstResidue = frames;
+		if (sram > 0 && firstSavedata === null) firstSavedata = frames;
+		console.log(`${String(frames).padStart(6)} | ${(sram ? kib(sram) : "no").padStart(8)} | ${kib(residue).padStart(8)}`);
+	}
+	console.log();
+	info("primer frame con residuo", firstResidue === null ? "nunca" : firstResidue);
+	info("primer frame con savedata", firstSavedata === null ? "nunca" : firstSavedata);
+	if (firstResidue !== null && firstResidue === firstSavedata) {
+		console.log("Los dos umbrales coinciden: el residuo es la savedata.");
+	} else {
+		console.log("Los umbrales NO coinciden: el residuo no es la savedata.");
+	}
+
 	/* --- reapertura en el mismo modulo -------------------------------------- */
 	/* Lo de arriba mide modulos de usar y tirar. Una sesion Link abre y cierra
 	   asientos en cada partida sobre el modulo ya cargado, asi que la pregunta
