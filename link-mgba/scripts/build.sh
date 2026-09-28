@@ -86,8 +86,8 @@ else
 fi
 
 # --- Configure --------------------------------------------------------------
-# Verbatim from upstream's script, including the two flags in CMAKE_C_FLAGS that
-# its CMakeLists does not do for Emscripten:
+# From upstream's script, plus one define of our own. The first two are what its
+# CMakeLists does not do for Emscripten:
 #
 #  * _GNU_SOURCE — Emscripten satisfies if(UNIX) but is not "Linux", the only
 #    branch that defines it. Without it, -std=c11 hides strdup and strlcpy.
@@ -95,12 +95,23 @@ fi
 #    overriding it on the command line. Single-threaded: no SharedArrayBuffer,
 #    no COOP/COEP requirement. It is also what makes Mutex a no-op, which is
 #    what lets GBASIOLockstepCoordinator run cooperatively in stage 3.
+#  * DISABLE_ANON_MMAP — ours. Fixes a 128 KiB leak per core, measured.
+#    Emscripten satisfies if(UNIX), so the memory backend that gets compiled is
+#    src/platform/posix/memory.c, which is mmap/munmap — not the calloc/free of
+#    src/util/memory.c, which its own CMakeLists does not even list. munmap uses
+#    the size it is given. Flash savedata is always allocated as
+#    GBA_SIZE_FLASH1M (128 KiB) but freed as GBA_SIZE_FLASH512 (64 KiB) when the
+#    cartridge detects as 512k, and a partial munmap under Emscripten releases
+#    nothing at all. This define is mGBA's own AddressSanitizer configuration
+#    and swaps both functions to calloc/free, where the size passed to the free
+#    is ignored, so the mismatch stops mattering here and anywhere else it might
+#    exist. Under Emscripten anonymous mmap buys nothing over calloc anyway.
 echo "Configuring mGBA (emcmake)..."
 emcmake cmake \
 	-S "${BUILD_DIR}" \
 	-B "${CMAKE_DIR}" \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DCMAKE_C_FLAGS="${OPT} -D_GNU_SOURCE -DDISABLE_THREADING" \
+	-DCMAKE_C_FLAGS="${OPT} -D_GNU_SOURCE -DDISABLE_THREADING -DDISABLE_ANON_MMAP" \
 	-DBUILD_STATIC=ON \
 	-DBUILD_SHARED=OFF \
 	-DDISABLE_FRONTENDS=ON \
@@ -175,6 +186,7 @@ CFLAGS=(
 	-I"${CMAKE_DIR}/include"
 	-D_GNU_SOURCE
 	-DDISABLE_THREADING
+	-DDISABLE_ANON_MMAP
 	"${CORE_DEFINES[@]}"
 	-Wno-deprecated-declarations
 )

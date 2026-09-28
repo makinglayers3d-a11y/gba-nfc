@@ -588,6 +588,13 @@ async function leakExperiment(rom) {
 	check("reabrir asientos en el mismo modulo no acumula residuo",
 		growth < 16384,
 		`${kib(once.residue)} con 1 reapertura, ${kib(eight.residue)} con 8`);
+
+	/* Y el listón alto: con la fuga cerrada no deberia quedar practicamente
+	   nada, ni con cuatro asientos ni con ocho reaperturas. */
+	const worst = Math.max(maxResidue, ...reopenRows.map((r) => r.residue));
+	check("el residuo vuelve practicamente a la linea base",
+		worst < 65536, "peor caso " + kib(worst));
+	info("peor residuo de todo el experimento", kib(worst));
 }
 
 /* --------------------------------------------- traza de un solo core ----- */

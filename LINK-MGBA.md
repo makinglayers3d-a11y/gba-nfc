@@ -125,7 +125,42 @@ Cero líneas de log del núcleo. Con `logLevel 1` pasan FATAL, ERROR y WARN, as�
 que mGBA no se quejó de nada en todo el run. Sin crashes. La única anotación del
 job es la de plataforma sobre Node 20 en las acciones `@v4`, ajena a este código.
 
-**Residuo al cerrar**
+**Residuo al cerrar — era una fuga, y está cerrada**
+
+Lo que la primera pasada dejó abierto: tras cerrar los dos núcleos y soltar la
+ROM quedaban 0,25 MiB contra los 0,00 iniciales. El experimento
+(`SMOKE_MODE=leak`) lo convirtió en un diagnóstico y no en una sospecha.
+
+| Medida | Resultado |
+| --- | --- |
+| 1 / 2 / 3 / 4 núcleos con frames | 128 / 256 / 384 / 512 KiB |
+| 1 / 2 / 3 / 4 núcleos **sin** frames | 0 KiB en los cuatro |
+| 2 núcleos, 1 800 frames vs 3 600 | 256 KiB en ambos |
+| 1 / 2 / 4 / 8 reaperturas del mismo asiento | 128 / 256 / 512 / **1 024 KiB** |
+
+O sea: 128 KiB por núcleo que haya ejecutado, independiente del tiempo de
+ejecución, y **sin reaprovechar el hueco al reabrir**. Eso último es lo que lo
+convertía en fuga de verdad: una sesión larga crece sin techo.
+
+*La causa, que no era la obvia.* `src/util/memory.c` define
+`anonymousMemoryMap` como `calloc` y `mappedMemoryFree` como `free` ignorando el
+tamaño — y **no se compila**: su `CMakeLists.txt` no lo lista. La raíz hace glob
+de `src/platform/posix/*.c` para UNIX, condición que Emscripten cumple, y ese
+usa `mmap`/`munmap`. `munmap` **sí** usa el tamaño, y `GBASavedataInitFlash`
+reserva siempre `GBA_SIZE_FLASH1M` (128 KiB) mientras `GBASavedataDeinit` libera
+con `GBA_SIZE_FLASH512` (64 KiB) cuando el cartucho se detecta como 512k. El
+`munmap` parcial bajo Emscripten no libera nada.
+
+Instrumentando todas las reservas anónimas salió limpio: en un ciclo completo de
+un núcleo, **una** liberación con tamaño distinto del de su reserva y **cero**
+reservas sin liberar.
+
+*El arreglo:* `-DDISABLE_ANON_MMAP` en `build.sh`. Sin parche al código de mGBA
+— es su propia configuración de AddressSanitizer, cambia ambas funciones a
+`calloc`/`free`, donde el tamaño de la liberación se ignora, y bajo Emscripten
+el `mmap` anónimo no aporta nada frente a `calloc`.
+
+**Residuo al cerrar (medición original, antes del arreglo)**
 
 Tras cerrar los dos núcleos quedan 4,25 MiB con la ROM aún compartida, y tras
 `rom_release` quedan **0,25 MiB** contra los 0,00 MiB iniciales. La comprobación

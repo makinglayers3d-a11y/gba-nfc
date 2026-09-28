@@ -32,31 +32,57 @@ máquina donde se escribió esto no hay `docker`, `emcc`, `cmake`, `make` ni
 
 ## Parches sobre mGBA
 
-`scripts/build.sh` hace `reset --hard` al commit pinado y aplica encima, por
-orden alfabético, todo lo que haya en `patches/`. Un parche que no aplica **para
-el build**: compilar en silencio algo distinto de lo que dice el fichero es peor
-que no compilar.
+**Ninguno.** `patches/` está vacío y el código de mGBA se compila tal cual sale
+del commit pinado.
 
-Como no se commitean, `git rev-parse HEAD` dentro del checkout de mGBA sigue
-siendo el commit de upstream, y el workflow imprime el `diff --stat` para que se
-vea exactamente qué cambia.
+La infraestructura sigue ahí por si hiciera falta: `scripts/build.sh` hace
+`reset --hard` al commit pinado y aplica encima, por orden alfabético, todo
+`patches/*.patch`. Un parche que no aplica **para el build**: compilar en
+silencio algo distinto de lo que dice el fichero es peor que no compilar. Como
+no se commitean, `git rev-parse HEAD` dentro del checkout sigue siendo el commit
+de upstream y el workflow imprime el `diff --stat` de lo que cambia encima.
 
-| Parche | Qué hace | Estado |
-| --- | --- | --- |
-| `0001-diag-savedata-trace.patch` | Instrumenta `savedata.c`: registra cada reserva anónima y cada liberación con puntero, tamaño, tipo y el `struct GBASavedata*` que hace de identidad del núcleo | **temporal**, solo para diagnóstico; se retira al cerrar la fuga |
+`scripts/mkpatch.py` genera parches de instrumentación en `patches/diagnostics/`
+—fuera de donde `build.sh` mira, para que no se apliquen sin querer— anclando
+cada punto a un fragmento del fuente original y exigiendo que sea único: si
+upstream cambia esa zona, falla en vez de producir un diff con contexto
+inventado. Se usó para localizar la fuga de 128 KiB y se retiró después.
 
-El parche no está escrito a mano. Lo genera `scripts/mkpatch.py` a partir del
-fuente original:
+## La fuga de 128 KiB por núcleo
 
-```bash
-curl -sL -o savedata.c \
-  https://raw.githubusercontent.com/mgba-emu/mgba/c034660f007c543233f1cadeb0ca13c71afd8f41/src/gba/savedata.c
-python3 scripts/mkpatch.py savedata.c patches/0001-diag-savedata-trace.patch
+Cerrada con un define, sin tocar el código de mGBA. Vale la pena dejar escrito
+el camino, porque la pista obvia era falsa.
+
+`src/util/memory.c` tiene `anonymousMemoryMap` como `calloc` y
+`mappedMemoryFree` como `free` ignorando el tamaño — y **no se compila**: su
+propio `CMakeLists.txt` no lo lista. La raíz hace `file(GLOB OS_SRC
+src/platform/posix/*.c)` para UNIX, condición que Emscripten cumple, así que el
+que entra es `src/platform/posix/memory.c`:
+
+```c
+void* anonymousMemoryMap(size_t size) {
+	return mmap(0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+}
+void mappedMemoryFree(void* memory, size_t size) {
+	munmap(memory, size);
+}
 ```
 
-Cada punto de instrumentación se ancla a un fragmento del fuente y el script
-**exige que ese fragmento sea único**; si upstream lo cambia, falla en vez de
-producir un diff con contexto inventado que luego no aplica.
+`munmap` **sí** usa el tamaño. `GBASavedataInitFlash` reserva siempre
+`GBA_SIZE_FLASH1M` (128 KiB), y `GBASavedataDeinit` libera con
+`GBA_SIZE_FLASH512` (64 KiB) cuando el cartucho se detecta como 512k. Ese
+`munmap` parcial bajo Emscripten no libera nada.
+
+Medido con la instrumentación: en un ciclo completo de un núcleo había
+**exactamente una** liberación con tamaño distinto del de su reserva y **cero**
+reservas sin liberar. Todas las demás (608, 6 752, 294 912 de EWRAM+IWRAM,
+98 304 de VRAM) cuadraban en puntero y tamaño.
+
+El arreglo es `-DDISABLE_ANON_MMAP` en `build.sh`: es la configuración que el
+propio mGBA usa bajo AddressSanitizer, cambia las dos funciones a `calloc`/`free`
+—donde el tamaño de la liberación se ignora— y con eso el desajuste deja de
+importar aquí y en cualquier otro sitio donde pudiera existir. Bajo Emscripten
+el `mmap` anónimo no aporta nada frente a `calloc`.
 
 mGBA y mGBA-wasm son MPL-2.0, y los ficheros derivados también. Las copias
 conservan su cabecera.

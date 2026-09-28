@@ -20,7 +20,7 @@ MGBA_REF = "c034660f007c543233f1cadeb0ca13c71afd8f41"
 RAW = "https://raw.githubusercontent.com/mgba-emu/mgba/" + MGBA_REF + "/"
 
 OUT_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else
-                       pathlib.Path(__file__).resolve().parent.parent / "patches")
+                       pathlib.Path(__file__).resolve().parent.parent / "patches" / "diagnostics")
 
 
 def fetch(path):
