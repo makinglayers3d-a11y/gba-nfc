@@ -10,6 +10,11 @@
     ? "https://ml3d-link-lab.makinglayers3d.workers.dev"
     : `${location.origin}/api`;
   const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
+  /* Tope de jugadores en una sala online.
+     El cable admite 4 y en local se usan 4, pero por red solo se ha probado
+     con 2: con 3 o 4 el anfitrion hace de centralita y cada tecla da un salto
+     de mas, y eso no esta medido. Subir a 3 o 4 cuando se pruebe. */
+  const MAX_JUGADORES_ONLINE = 2;
   const PROFILE_KEY = "ml3d-link-profile-v1";
   const API_KEY = "ml3d-link-api";
   const MOVE_INTERVAL_MS = 55;
@@ -183,6 +188,22 @@
     if (window.parent && window.parent !== window) window.parent.ML3DLinkNet = window.ML3DLinkNet;
   } catch (_) { /* otro origen: se queda solo aqui */ }
 
+  /* Deja en los desplegables solo los tamanos permitidos, y explica el resto
+     en vez de ofrecerlos y rechazarlos luego. */
+  function acotaSelectoresDeJugadores() {
+    for (const id of ["maxPlayers", "hostMaxPlayers"]) {
+      const sel = document.getElementById(id);
+      if (!sel) continue;
+      for (const opt of [...sel.options]) {
+        if (Number(opt.value) > MAX_JUGADORES_ONLINE) {
+          opt.disabled = true;
+          opt.textContent = opt.value + " (aun no por red)";
+        }
+      }
+      if (Number(sel.value) > MAX_JUGADORES_ONLINE) sel.value = String(MAX_JUGADORES_ONLINE);
+    }
+  }
+
   function makePeer(label, onChannel) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     conexionesVivas.add(pc);
@@ -238,7 +259,7 @@
     const fromHost = Number(joinSession?.linkPlayers) | 0;
     if (fromHost >= 2) return Math.min(4, fromHost);
     const room = hostSession?.room || joinSession?.room;
-    return Math.max(2, Math.min(4, Number(room?.maxPlayers) | 0 || 2));
+    return Math.max(2, Math.min(MAX_JUGADORES_ONLINE, Number(room?.maxPlayers) | 0 || 2));
   }
 
   function rememberLocalLinkSession(roomId, playerNumber, role, players) {
@@ -1282,7 +1303,7 @@
           name: $("#roomName").value,
           game: $("#gameName").value,
           password: $("#roomPassword").value,
-          maxPlayers: Number($("#maxPlayers").value) || 2,
+          maxPlayers: Math.min(Number($("#maxPlayers").value) || 2, MAX_JUGADORES_ONLINE),
           lat: loc.lat,
           lon: loc.lon
         }
@@ -1531,7 +1552,7 @@
       const data = await api(`/v1/rooms/nearby?lat=${encodeURIComponent(loc.lat)}&lon=${encodeURIComponent(loc.lon)}&radiusKm=${encodeURIComponent(radiusKm)}`);
       const compatibleRooms = (data.rooms || []).filter((room) => {
         const seats = Number(room.maxPlayers) | 0;
-        return seats >= 2 && seats <= 4;
+        return seats >= 2 && seats <= MAX_JUGADORES_ONLINE;
       });
       renderRooms(compatibleRooms);
       setState("idle", compatibleRooms.length ? `${compatibleRooms.length} sala(s) Link encontrada(s)` : "No hay salas Link cercanas");
@@ -1919,7 +1940,7 @@
     if (!hostSession) return;
     const body = {
       name: $("#hostRoomNameInput").value,
-      maxPlayers: Number($("#hostMaxPlayers").value) || 2
+      maxPlayers: Math.min(Number($("#hostMaxPlayers").value) || 2, MAX_JUGADORES_ONLINE)
     };
     if (removePassword) body.clearPassword = true;
     else if ($("#hostPasswordInput").value) body.password = $("#hostPasswordInput").value;
@@ -2196,5 +2217,6 @@
   $("#playerName").value = profile.name;
   buildEditorChoices();
   bindControls();
+  acotaSelectoresDeJugadores();
   log("ML3D Link Lobby v4 · bus GBA Cable Link listo.");
 })();
