@@ -1,0 +1,40 @@
+{
+  "rama": "test/mgba-link-lobby-integration-2026-09-28",
+  "commit": "b1fd395",
+  "ficheroSesion": "user_scripts/LocalLinkSession.js (783 lineas, cable mGBA)",
+  "nucleo": "mGBA multi-instancia (link-mgba/dist/multi)",
+  "servidor": "http://localhost:8765/ (dev-server.ps1, con proxy /api)",
+  "fecha": "2026-09-29",
+  "tipo": "prueba a mano, sin lobby ni red",
+
+  "url": "index.html?skipintro=1&linkSelfTest=1&linkPlayers=2&rom=Mario%20Kart%20-%20Super%20Circuit.gba",
+
+  "validadoPorElUsuario": [
+    "imagen de la consola visible",
+    "sonido de la consola visible, sin cortes",
+    "controles de teclado sobre las dos consolas",
+    "cambio de consola visible",
+    "desconexion y vuelta al juego normal"
+  ],
+
+  "evidenciaDelTeclado": {
+    "antes": "IN:0/0",
+    "manteniendoAbajo": "IN:80/80",
+    "alSoltar": "IN:0/0",
+    "resultadoEnPantalla": "el cursor del menu baja de SINGLE PLAYER a MULTIPLAYER",
+    "nota": "0x80 es el bit DOWN; los dos campos son los dos asientos"
+  },
+
+  "correccionQueLoDesbloqueo": {
+    "fichero": "app.js",
+    "funciones": ["pressKey", "releaseKey"],
+    "causa": "la sesion Link se consultaba despues de `if (!emulator) return;`, y con mGBA `emulator` es null",
+    "arreglo": "consultar ML3DLocalLinkSession antes de esa guarda"
+  },
+
+  "noValidado": [
+    "lobby y WebRTC: aun no estan enganchados en esta rama",
+    "partida Link de verdad entre dos navegadores distintos",
+    "3 y 4 jugadores a mano"
+  ]
+}
