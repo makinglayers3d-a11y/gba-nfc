@@ -88,6 +88,12 @@
     get status() {
       return controller?.status?.() || { enabled, roomId, mySeat, role, selfTest };
     },
+    /* Medicion de la partida: resumen() separa CPU de red, muestras() da el
+       segundo a segundo. Es lo que se mira al terminar una prueba larga. */
+    get medicion() {
+      if (!controller) return null;
+      return { resumen: controller.resumen(), muestras: controller.muestras || [] };
+    },
     test: selfTest ? {
       setSeatMask(seat, mask) {
         seat = Number(seat) | 0;
@@ -275,8 +281,10 @@
       this.frame = 0;
       this.miHuella = new Map();    /* frame -> huella propia */
       this.suHuella = new Map();    /* frame -> { asiento: huella } */
+      this.statsRemotas = {};       /* asiento -> cifras que manda el otro */
       this.desync = null;
       quitarDesync();
+      this.arrancaRegistro();
       this.lastTickAt = performance.now();
       this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
       this.renderDebug();
@@ -496,6 +504,98 @@
       return true;
     }
 
+    /* ------------------------------------------------------- medicion */
+
+    /**
+     * Una muestra por segundo durante toda la partida.
+     *
+     * Va por reloj real y no por frame, para que una parada quede registrada
+     * como tal en vez de desaparecer. Guarda por separado lo que es CPU (fps
+     * de cada lado, cola de audio) y lo que es red (latencia, desfase de
+     * frames, esperas por falta de input): confundirlos es lo que hace que
+     * una prueba de dos dispositivos no sirva para nada.
+     */
+    arrancaRegistro() {
+      clearInterval(this.registroTimer);
+      this.muestras = [];
+      this.registroDesde = Date.now();
+      this.ultimaRed = null;
+      this.frameAnterior = 0;
+      this.stallsAnteriores = 0;
+      this.holdsAnteriores = 0;
+
+      this.registroTimer = setInterval(() => {
+        /* La latencia se pide sin esperar: llega para la muestra siguiente. */
+        Promise.resolve(window.ML3DLinkNet?.medida?.())
+          .then((red) => { if (red) this.ultimaRed = red; })
+          .catch(() => {});
+
+        const otro = Object.values(this.statsRemotas)[0] || null;
+        const fresco = otro && (Date.now() - otro.at) < 4000;
+        this.muestras.push({
+          s: Math.round((Date.now() - this.registroDesde) / 1000),
+          frame: this.frame,
+          fps: this.frame - this.frameAnterior,
+          stalls: this.stallCount - this.stallsAnteriores,
+          holds: (this.audioHolds || 0) - this.holdsAnteriores,
+          audioMs: Math.round(this.rt.audioBacklogMs()),
+          rttMs: this.ultimaRed?.rttMs ?? null,
+          otroFps: fresco ? otro.fps : null,
+          otroAudioMs: fresco ? otro.audioMs : null,
+          otroFrame: fresco ? otro.frame : null,
+          desfase: fresco ? this.frame - otro.frame : null,
+          desync: Boolean(this.desync)
+        });
+        this.frameAnterior = this.frame;
+        this.stallsAnteriores = this.stallCount;
+        this.holdsAnteriores = this.audioHolds || 0;
+
+        /* Dos horas de muestras bastan de sobra; mas seria fuga de memoria. */
+        if (this.muestras.length > 7200) this.muestras.shift();
+      }, 1000);
+    }
+
+    /** Resumen de lo registrado, con CPU y red separadas. */
+    resumen() {
+      const m = this.muestras || [];
+      if (!m.length) return null;
+      const num = (lista) => lista.filter((v) => typeof v === "number" && Number.isFinite(v));
+      const stat = (lista) => {
+        const v = num(lista).sort((a, b) => a - b);
+        if (!v.length) return null;
+        return {
+          min: v[0],
+          p50: v[Math.floor(v.length * 0.5)],
+          p95: v[Math.floor(v.length * 0.95)],
+          max: v[v.length - 1],
+          media: Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10
+        };
+      };
+      /* El primer par de muestras coge el arranque y no dice nada del regimen. */
+      const util = m.slice(2);
+      return {
+        duracionSegundos: m.length,
+        cpu: {
+          fpsAqui: stat(util.map((x) => x.fps)),
+          fpsAlli: stat(util.map((x) => x.otroFps)),
+          audioMsAqui: stat(util.map((x) => x.audioMs)),
+          audioMsAlli: stat(util.map((x) => x.otroAudioMs)),
+          frenosAudio: util.reduce((a, x) => a + x.holds, 0)
+        },
+        red: {
+          rttMs: stat(util.map((x) => x.rttMs)),
+          desfaseFrames: stat(util.map((x) => x.desfase)),
+          esperasPorInput: util.reduce((a, x) => a + x.stalls, 0),
+          segundosSinNoticias: util.filter((x) => x.otroFps === null).length
+        },
+        divergencia: {
+          hubo: util.some((x) => x.desync),
+          primerSegundo: util.findIndex((x) => x.desync)
+        },
+        peoresSegundos: util.slice().sort((a, b) => a.fps - b.fps).slice(0, 5)
+      };
+    }
+
     /* ------------------------------------------------- desincronizacion */
 
     /**
@@ -519,7 +619,16 @@
         sessionId: this.sessionId,
         playerNumber: mySeat,
         frame: this.frame,
-        hash: huella
+        hash: huella,
+        /* Las cifras del que envia viajan con la huella, que ya va cada
+           segundo. Es la unica forma de ver desde el PC como le va al movil
+           sin tener que mirarle la pantalla. */
+        stats: {
+          fps: Math.round((this.rt.status().fps || 0) * 10) / 10,
+          stalls: this.stallCount,
+          holds: this.audioHolds || 0,
+          audioMs: Math.round(this.rt.audioBacklogMs())
+        }
       });
       this.comparaHuellas(this.frame);
 
@@ -538,6 +647,9 @@
       if (!Number.isSafeInteger(frame) || frame < 0) return;
       if (!this.suHuella.has(frame)) this.suHuella.set(frame, {});
       this.suHuella.get(frame)[asiento] = Number(packet.hash) >>> 0;
+      if (packet.stats) {
+        this.statsRemotas[asiento] = { ...packet.stats, frame, at: Date.now() };
+      }
       this.comparaHuellas(frame);
     }
 
@@ -719,8 +831,10 @@
     destroy() {
       clearInterval(this.readyTimer);
       clearInterval(this.tickTimer);
+      clearInterval(this.registroTimer);
       this.readyTimer = null;
       this.tickTimer = null;
+      this.registroTimer = null;
       /* Soltar el cable y cerrar los cores; el runtime normal queda usable. */
       try { this.rt.detachAll(); } catch {}
       try { this.rt.destroy(); } catch {}

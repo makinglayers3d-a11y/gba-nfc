@@ -1,12 +1,14 @@
 (() => {
   "use strict";
 
-  /* El worker solo admite el origen del sitio publicado, así que desde el
-     servidor local se pasa por su proxy /api: mismo origen, sin CORS. */
-  const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
-  const DEFAULT_API_BASE = LOCAL_HOSTS.includes(location.hostname)
-    ? `${location.origin}/api`
-    : "https://ml3d-link-lab.makinglayers3d.workers.dev";
+  /* El worker solo admite el origen del sitio publicado, así que desde
+     cualquier otro se pasa por su proxy /api: mismo origen, sin CORS.
+     No vale mirar si el host es "localhost": con un túnel (para probar desde
+     el móvil) el host es el del túnel y el worker rechazaría la petición. */
+  const SITIO_PUBLICADO = "https://makinglayers3d-a11y.github.io";
+  const DEFAULT_API_BASE = location.origin === SITIO_PUBLICADO
+    ? "https://ml3d-link-lab.makinglayers3d.workers.dev"
+    : `${location.origin}/api`;
   const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
   const PROFILE_KEY = "ml3d-link-profile-v1";
   const API_KEY = "ml3d-link-api";
@@ -146,9 +148,41 @@
     return parsed;
   }
 
+  /* Conexiones vivas, para poder preguntarle a WebRTC la latencia real.
+     Sin esto no hay forma de separar "el movil va justo de CPU" de "la wifi
+     va lenta": las dos cosas se ven igual desde fuera. */
+  const conexionesVivas = new Set();
+
+  window.ML3DLinkNet = {
+    async medida() {
+      let rtt = null;
+      let camino = "";
+      let perdidos = null;
+      for (const pc of conexionesVivas) {
+        if (pc.connectionState !== "connected") continue;
+        const stats = await pc.getStats();
+        stats.forEach((s) => {
+          if (s.type === "candidate-pair" && s.state === "succeeded" && s.nominated !== false) {
+            if (typeof s.currentRoundTripTime === "number") rtt = s.currentRoundTripTime * 1000;
+          }
+          if (s.type === "local-candidate" && s.candidateType) camino = camino || s.candidateType;
+          if (s.type === "data-channel" && typeof s.messagesSent === "number") {
+            perdidos = { enviados: s.messagesSent, recibidos: s.messagesReceived };
+          }
+        });
+      }
+      return { rttMs: rtt === null ? null : Math.round(rtt * 10) / 10, camino, perdidos,
+               conexiones: conexionesVivas.size };
+    }
+  };
+
   function makePeer(label, onChannel) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    pc.addEventListener("connectionstatechange", () => log(`${label}: peer ${pc.connectionState}`));
+    conexionesVivas.add(pc);
+    pc.addEventListener("connectionstatechange", () => {
+      log(`${label}: peer ${pc.connectionState}`);
+      if (pc.connectionState === "closed" || pc.connectionState === "failed") conexionesVivas.delete(pc);
+    });
     pc.addEventListener("iceconnectionstatechange", () => log(`${label}: ICE ${pc.iceConnectionState}`));
     pc.addEventListener("datachannel", (event) => onChannel(event.channel));
     return pc;
@@ -2104,12 +2138,13 @@
     }
   });
 
-  /* En local, una API guardada que apunte fuera del proxio no puede funcionar
-     (CORS), así que no se hereda: manda el proxy del servidor de pruebas. */
+  /* Fuera del sitio publicado, una API guardada que apunte a otro sitio no
+     puede funcionar (CORS), así que no se hereda: manda el proxy propio. Vale
+     igual para localhost y para un túnel, que es como entra el móvil. */
   const storedApi = localStorage.getItem(API_KEY) || "";
-  const usableApi = LOCAL_HOSTS.includes(location.hostname)
-    ? (storedApi.startsWith(location.origin) ? storedApi : DEFAULT_API_BASE)
-    : (storedApi || DEFAULT_API_BASE);
+  const usableApi = location.origin === SITIO_PUBLICADO
+    ? (storedApi || DEFAULT_API_BASE)
+    : (storedApi.startsWith(location.origin) ? storedApi : DEFAULT_API_BASE);
   $("#apiBase").value = usableApi;
   $("#playerName").value = profile.name;
   buildEditorChoices();

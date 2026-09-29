@@ -293,7 +293,10 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			node.connect(gain).connect(ctx.destination);
 
 			this.audio = { ctx, node, gain, queued: 0, scratch: 0, scratchFrames: 0, carry: 0 };
-			node.port.onmessage = (event) => { this.audio.queued = event.data; };
+			/* El worklet sigue mandando mensajes un rato despues de que destroy()
+			   ponga this.audio a null, asi que hay que comprobarlo: si no, cada
+			   cierre suelta un puñado de excepciones en la consola. */
+			node.port.onmessage = (event) => { if (this.audio) this.audio.queued = event.data; };
 
 			/* Sin gesto del usuario, resume() devuelve una promesa que se queda
 			   PENDIENTE para siempre, no rechazada. Esperarla cuelga a quien
