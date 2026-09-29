@@ -70,6 +70,29 @@
     document.getElementById("ml3d-link-desync")?.remove();
   }
 
+  /* Que no se apague la pantalla durante la partida.
+     En el movil, apagarse congela el navegador y con el se para esta consola:
+     la otra se queda esperando input que ya no llega. El navegador suelta el
+     bloqueo solo al cambiar de pestaña, asi que hay que volver a pedirlo. */
+  let pantallaDespierta = null;
+
+  async function mantenPantallaEncendida() {
+    if (!navigator.wakeLock || pantallaDespierta) return;
+    try {
+      pantallaDespierta = await navigator.wakeLock.request("screen");
+      pantallaDespierta.addEventListener("release", () => { pantallaDespierta = null; });
+    } catch { pantallaDespierta = null; }
+  }
+
+  function dejaApagarPantalla() {
+    try { pantallaDespierta?.release(); } catch {}
+    pantallaDespierta = null;
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && controller?.started) mantenPantallaEncendida();
+  });
+
   function handleLocalKey(key, down) {
     key = Number(key) | 0;
     if (key < 0 || key > 9) return false;
@@ -284,6 +307,7 @@
       this.statsRemotas = {};       /* asiento -> cifras que manda el otro */
       this.desync = null;
       quitarDesync();
+      mantenPantallaEncendida();
       this.arrancaRegistro();
       this.lastTickAt = performance.now();
       this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
@@ -840,6 +864,7 @@
       try { this.rt.destroy(); } catch {}
       this.debug?.remove();
       quitarDesync();
+      dejaApagarPantalla();
       this.started = false;
     }
   }
