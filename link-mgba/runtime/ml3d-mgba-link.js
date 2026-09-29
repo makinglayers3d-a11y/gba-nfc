@@ -101,6 +101,8 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			this.frames = 0;
 			this.lastFpsAt = 0;
 			this.fps = 0;
+			this.hashBuf = 0;          /* buffer reutilizado por stateHash() */
+			this.hashSize = 0;
 		}
 
 		/**
@@ -531,6 +533,53 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			return Boolean(ok);
 		}
 
+		/* ------------------------------------------------- desincronizacion */
+
+		/**
+		 * Huella del estado completo de una consola.
+		 *
+		 * Con el cable en red cada navegador emula las mismas consolas con las
+		 * mismas teclas, asi que este numero tiene que coincidir en todos. Si deja
+		 * de coincidir, las copias han divergido y cada jugador esta viendo una
+		 * partida distinta. Se hashea el savestate y no el framebuffer porque la
+		 * divergencia empieza en el estado y tarda en verse en pantalla.
+		 */
+		stateHash(index) {
+			const s = this.seats[index];
+			if (!s) return 0;
+			const size = this.M._mgbawasm_state_size(s.id);
+			if (size <= 0) return 0;
+			if (this.hashSize < size) {
+				if (this.hashBuf) this.M._free(this.hashBuf);
+				this.hashBuf = this.M._malloc(size);
+				this.hashSize = this.hashBuf ? size : 0;
+			}
+			if (!this.hashBuf) return 0;
+			if (!this.M._mgbawasm_state_save(s.id, this.hashBuf)) return 0;
+			/* FNV-1a de 32 bits, de cuatro en cuatro bytes: basta para avisar y no
+			   cuesta nada frente a recorrer el savestate byte a byte. */
+			let h = 0x811c9dc5;
+			const words = size >>> 2;
+			const u32 = this.M.HEAPU32.subarray(this.hashBuf >>> 2, (this.hashBuf >>> 2) + words);
+			for (let i = 0; i < words; i++) {
+				h = Math.imul(h ^ u32[i], 0x01000193);
+			}
+			const u8 = this.M.HEAPU8;
+			for (let i = this.hashBuf + (words << 2); i < this.hashBuf + size; i++) {
+				h = Math.imul(h ^ u8[i], 0x01000193);
+			}
+			return h >>> 0;
+		}
+
+		/** Huella de todas las consolas juntas: una sola cifra que comparar. */
+		allStateHash() {
+			let h = 0x811c9dc5;
+			for (let i = 0; i < this.seats.length; i++) {
+				h = Math.imul(h ^ this.stateHash(i), 0x01000193);
+			}
+			return h >>> 0;
+		}
+
 		/* ------------------------------------------------------ diagnóstico */
 
 		status() {
@@ -561,6 +610,11 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			for (const s of this.seats) this.M._mgbawasm_instance_close(s.id);
 			this.seats = [];
 			this.ran = [];
+			if (this.hashBuf) {
+				this.M._free(this.hashBuf);
+				this.hashBuf = 0;
+				this.hashSize = 0;
+			}
 			this.M._mgbawasm_rom_release();
 			if (this.audio) {
 				if (this.audio.scratch) this.M._free(this.audio.scratch);

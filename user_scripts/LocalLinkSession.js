@@ -21,6 +21,7 @@
   const RING = 256;
   const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
   const AUDIO_TARGET_MS = 120; /* cola de audio a la que se acompasa la sesion */
+  const SYNC_EVERY = 60;       /* cada cuantos frames se comparan las copias */
   const UNKNOWN = -1;
 
   let localMask = 0;
@@ -30,6 +31,44 @@
   const selfTestMasks = [0, 0, 0, 0];
   let controller = null;
   let pendingStart = null;
+
+  /* Aviso de divergencia.
+
+     El cable en red no manda imagen: cada navegador emula las mismas consolas
+     con las mismas teclas y confia en llegar al mismo sitio. Si dejan de
+     coincidir, cada jugador ve una partida distinta y nada lo delata. Por eso
+     el aviso es un cartel que tapa la pantalla, no una linea en la barra de
+     depuracion: el jugador tiene que enterarse. */
+  function mostrarDesync(detalle) {
+    let el = document.getElementById("ml3d-link-desync");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ml3d-link-desync";
+      el.style.cssText =
+        "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+        "flex-direction:column;align-items:center;justify-content:center;gap:10px;" +
+        "background:rgba(120,0,0,.88);color:#fff;text-align:center;padding:24px;" +
+        "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+      document.documentElement.appendChild(el);
+    }
+    el.textContent = "";
+    const titulo = document.createElement("div");
+    titulo.style.cssText = "font-size:26px;letter-spacing:.04em";
+    titulo.textContent = "PARTIDAS DESINCRONIZADAS";
+    const cuerpo = document.createElement("div");
+    cuerpo.style.cssText = "font-weight:normal;max-width:34ch";
+    cuerpo.textContent =
+      "Las consolas han dejado de ir a la vez: cada jugador esta viendo una " +
+      "partida distinta. Volved a conectar para empezar de nuevo.";
+    const pie = document.createElement("div");
+    pie.style.cssText = "font:11px/1.3 monospace;opacity:.75";
+    pie.textContent = detalle;
+    el.append(titulo, cuerpo, pie);
+  }
+
+  function quitarDesync() {
+    document.getElementById("ml3d-link-desync")?.remove();
+  }
 
   function handleLocalKey(key, down) {
     key = Number(key) | 0;
@@ -234,6 +273,10 @@
       clearInterval(this.readyTimer);
       this.readyTimer = null;
       this.frame = 0;
+      this.miHuella = new Map();    /* frame -> huella propia */
+      this.suHuella = new Map();    /* frame -> { asiento: huella } */
+      this.desync = null;
+      quitarDesync();
       this.lastTickAt = performance.now();
       this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
       this.renderDebug();
@@ -438,7 +481,78 @@
       this.rt.present();
 
       this.frame += 1;
+      this.compruebaSincronia();
       return true;
+    }
+
+    /* ------------------------------------------------- desincronizacion */
+
+    /**
+     * Cada SYNC_EVERY frames se publica la huella del estado de todas las
+     * consolas y se compara con la de los demas navegadores.
+     *
+     * Vale con comparar de vez en cuando: una divergencia no se arregla sola,
+     * asi que si esta ahi seguira estando en la siguiente ronda. Hacerlo cada
+     * frame costaria un savestate por consola y por frame para no enterarse
+     * antes de nada util.
+     */
+    compruebaSincronia() {
+      /* En autoprueba no hay nadie al otro lado con quien comparar. */
+      if (selfTest || this.desync) return;
+      if (this.frame % SYNC_EVERY !== 0) return;
+
+      const huella = this.rt.allStateHash();
+      this.miHuella.set(this.frame, huella);
+      sendLocal({
+        type: "gba:lockstep:sync",
+        sessionId: this.sessionId,
+        playerNumber: mySeat,
+        frame: this.frame,
+        hash: huella
+      });
+      this.comparaHuellas(this.frame);
+
+      /* Las huellas viejas ya no sirven: el que iba retrasado o las mando o
+         no las va a mandar. */
+      const viejo = this.frame - SYNC_EVERY * 8;
+      for (const frame of this.miHuella.keys()) if (frame < viejo) this.miHuella.delete(frame);
+      for (const frame of this.suHuella.keys()) if (frame < viejo) this.suHuella.delete(frame);
+    }
+
+    acceptRemoteSync(packet) {
+      if (!this.started || String(packet.sessionId || "") !== this.sessionId) return;
+      const asiento = Number(packet.playerNumber) | 0;
+      if (asiento === mySeat || asiento < 0 || asiento > 3) return;
+      const frame = Number(packet.frame);
+      if (!Number.isSafeInteger(frame) || frame < 0) return;
+      if (!this.suHuella.has(frame)) this.suHuella.set(frame, {});
+      this.suHuella.get(frame)[asiento] = Number(packet.hash) >>> 0;
+      this.comparaHuellas(frame);
+    }
+
+    /* Solo compara lo que ya tiene de los dos lados: al que aun no ha llegado
+       a ese frame no se le da por divergente. */
+    comparaHuellas(frame) {
+      if (this.desync) return;
+      const mia = this.miHuella.get(frame);
+      const suyas = this.suHuella.get(frame);
+      if (mia === undefined || !suyas) return;
+      for (const asiento of Object.keys(suyas)) {
+        if (suyas[asiento] === mia) continue;
+        const hx = (v) => (v >>> 0).toString(16).padStart(8, "0");
+        this.desync = {
+          frame,
+          seat: Number(asiento),
+          mine: mia >>> 0,
+          theirs: suyas[asiento] >>> 0
+        };
+        mostrarDesync(
+          "frame " + frame + " · P" + mySeat + " " + hx(mia) +
+          " ≠ P" + asiento + " " + hx(suyas[asiento])
+        );
+        this.renderDebug();
+        return;
+      }
     }
 
     tick() {
@@ -592,6 +706,7 @@
       try { this.rt.detachAll(); } catch {}
       try { this.rt.destroy(); } catch {}
       this.debug?.remove();
+      quitarDesync();
       this.started = false;
     }
   }
@@ -759,6 +874,11 @@
 
     if (packet.type === "gba:lockstep:remote-input") {
       controller?.acceptRemoteInput(packet);
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:remote-sync") {
+      controller?.acceptRemoteSync(packet);
       return;
     }
 

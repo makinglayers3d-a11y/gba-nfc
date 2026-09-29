@@ -1,7 +1,12 @@
 (() => {
   "use strict";
 
-  const DEFAULT_API_BASE = "https://ml3d-link-lab.makinglayers3d.workers.dev";
+  /* El worker solo admite el origen del sitio publicado, así que desde el
+     servidor local se pasa por su proxy /api: mismo origen, sin CORS. */
+  const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+  const DEFAULT_API_BASE = LOCAL_HOSTS.includes(location.hostname)
+    ? `${location.origin}/api`
+    : "https://ml3d-link-lab.makinglayers3d.workers.dev";
   const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
   const PROFILE_KEY = "ml3d-link-profile-v1";
   const API_KEY = "ml3d-link-api";
@@ -82,12 +87,19 @@
     const headers = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      cache: "no-store"
-    });
+    let res;
+    try {
+      res = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        cache: "no-store"
+      });
+    } catch (error) {
+      /* "Failed to fetch" a secas no dice nada: casi siempre es el servidor
+         caído o un origen que la API no admite. */
+      throw new Error(`No se pudo contactar con ${base} (${error.message}).`);
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
@@ -174,11 +186,23 @@
     return String(hostSession?.room?.id || joinSession?.room?.id || "");
   }
 
-  function rememberLocalLinkSession(roomId, playerNumber, role) {
+  /* Jugadores de la sala, 2 a 4: define cuántas consolas emula cada navegador. */
+  function roomSeatCount() {
+    /* Al invitado que entra por código le llega una sala de relleno, así que
+       manda lo que dijo el host al configurar el cable. */
+    const fromHost = Number(joinSession?.linkPlayers) | 0;
+    if (fromHost >= 2) return Math.min(4, fromHost);
+    const room = hostSession?.room || joinSession?.room;
+    return Math.max(2, Math.min(4, Number(room?.maxPlayers) | 0 || 2));
+  }
+
+  function rememberLocalLinkSession(roomId, playerNumber, role, players) {
     const next = {
       roomId: String(roomId || ""),
       playerNumber: Math.max(0, Math.min(3, Number(playerNumber) | 0)),
       role: role === "host" ? "host" : "guest",
+      /* Manda lo que diga el host: su copia de la sala es la buena. */
+      players: Math.max(2, Math.min(4, Number(players) | 0 || roomSeatCount())),
       updatedAt: Date.now()
     };
     try {
@@ -188,6 +212,8 @@
       gbaLinkBus.postMessage({
         type: "gba:link:configure",
         source: "lobby",
+        /* El emulador abre este juego si no lo tiene ya puesto. */
+        game: String(hostSession?.room?.game || joinSession?.room?.game || ""),
         ...next
       });
     }
@@ -391,6 +417,28 @@
         playerNumber: Number(packet.playerNumber) | 0,
         frame: Number(packet.frame),
         mask: Number(packet.mask) & 0x3ff,
+        time: Date.now()
+      };
+      if (hostSession) {
+        for (const peer of hostSession.peers.values()) {
+          if (peer.channel?.readyState === "open") safeSend(peer.channel, outgoing);
+        }
+      } else if (joinSession?.channel?.readyState === "open") {
+        safeSend(joinSession.channel, outgoing);
+      }
+      return;
+    }
+
+    /* Huella del estado, para detectar que las copias han divergido. Viaja por
+       el mismo camino que las teclas y con las mismas reglas. */
+    if (packet.type === "gba:lockstep:sync") {
+      const outgoing = {
+        type: "gba:lockstep:sync",
+        roomId,
+        sessionId: String(packet.sessionId || ""),
+        playerNumber: Number(packet.playerNumber) | 0,
+        frame: Number(packet.frame),
+        hash: Number(packet.hash) >>> 0,
         time: Date.now()
       };
       if (hostSession) {
@@ -762,14 +810,48 @@
     }
 
     if (packet.type === "gba:lockstep:input") {
+      const slot = Math.max(1, Math.min(3, Number(peer.linkSlot) | 0));
       postLocalLink({
         type: "gba:lockstep:remote-input",
         roomId: hostSession.room.id,
         sessionId: String(packet.sessionId || ""),
-        playerNumber: Math.max(1, Math.min(3, Number(peer.linkSlot) | 0)),
+        playerNumber: slot,
         frame: Number(packet.frame),
         mask: Number(packet.mask) & 0x3ff
       });
+      /* Con tres o cuatro jugadores, los demás invitados también necesitan
+         estas teclas: el host es el único que habla con todos. */
+      sendAll({
+        type: "gba:lockstep:input",
+        roomId: hostSession.room.id,
+        sessionId: String(packet.sessionId || ""),
+        playerNumber: slot,
+        frame: Number(packet.frame),
+        mask: Number(packet.mask) & 0x3ff,
+        time: Date.now()
+      }, joinId);
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:sync") {
+      const slot = Math.max(1, Math.min(3, Number(peer.linkSlot) | 0));
+      postLocalLink({
+        type: "gba:lockstep:remote-sync",
+        roomId: hostSession.room.id,
+        sessionId: String(packet.sessionId || ""),
+        playerNumber: slot,
+        frame: Number(packet.frame),
+        hash: Number(packet.hash) >>> 0
+      });
+      sendAll({
+        type: "gba:lockstep:sync",
+        roomId: hostSession.room.id,
+        sessionId: String(packet.sessionId || ""),
+        playerNumber: slot,
+        frame: Number(packet.frame),
+        hash: Number(packet.hash) >>> 0,
+        time: Date.now()
+      }, joinId);
       return;
     }
 
@@ -895,9 +977,22 @@
         type: "gba:lockstep:remote-input",
         roomId: packet.roomId || joinSession?.room?.id || "",
         sessionId: String(packet.sessionId || ""),
-        playerNumber: 0,
+        /* Puede venir del host (0) o de otro invitado reenviado por él. */
+        playerNumber: Math.max(0, Math.min(3, Number(packet.playerNumber) | 0)),
         frame: Number(packet.frame),
         mask: Number(packet.mask) & 0x3ff
+      });
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:sync") {
+      postLocalLink({
+        type: "gba:lockstep:remote-sync",
+        roomId: packet.roomId || joinSession?.room?.id || "",
+        sessionId: String(packet.sessionId || ""),
+        playerNumber: Math.max(0, Math.min(3, Number(packet.playerNumber) | 0)),
+        frame: Number(packet.frame),
+        hash: Number(packet.hash) >>> 0
       });
       return;
     }
@@ -914,8 +1009,11 @@
 
     if (packet.type === "gba:link:configure") {
       const slot = Math.max(1, Math.min(3, Number(packet.playerNumber) | 0));
-      if (joinSession) joinSession.linkSlot = slot;
-      rememberLocalLinkSession(packet.roomId || joinSession?.room?.id || "", slot, "guest");
+      if (joinSession) {
+        joinSession.linkSlot = slot;
+        joinSession.linkPlayers = Math.max(2, Math.min(4, Number(packet.players) | 0 || 2));
+      }
+      rememberLocalLinkSession(packet.roomId || joinSession?.room?.id || "", slot, "guest", packet.players);
       return;
     }
 
@@ -1105,7 +1203,7 @@
           name: $("#roomName").value,
           game: $("#gameName").value,
           password: $("#roomPassword").value,
-          maxPlayers: 2,
+          maxPlayers: Number($("#maxPlayers").value) || 2,
           lat: loc.lat,
           lon: loc.lon
         }
@@ -1351,9 +1449,12 @@
       const loc = await getLocation();
       const radiusKm = Number($("#radius").value);
       const data = await api(`/v1/rooms/nearby?lat=${encodeURIComponent(loc.lat)}&lon=${encodeURIComponent(loc.lon)}&radiusKm=${encodeURIComponent(radiusKm)}`);
-      const compatibleRooms = (data.rooms || []).filter((room) => Number(room.maxPlayers) === 2);
+      const compatibleRooms = (data.rooms || []).filter((room) => {
+        const seats = Number(room.maxPlayers) | 0;
+        return seats >= 2 && seats <= 4;
+      });
       renderRooms(compatibleRooms);
-      setState("idle", compatibleRooms.length ? `${compatibleRooms.length} sala(s) Link P1/P2 encontrada(s)` : "No hay salas Link P1/P2 cercanas");
+      setState("idle", compatibleRooms.length ? `${compatibleRooms.length} sala(s) Link encontrada(s)` : "No hay salas Link cercanas");
     } catch (e) {
       fail(e, "No se pudieron buscar salas");
     }
@@ -1737,7 +1838,7 @@
     if (!hostSession) return;
     const body = {
       name: $("#hostRoomNameInput").value,
-      maxPlayers: 2
+      maxPlayers: Number($("#hostMaxPlayers").value) || 2
     };
     if (removePassword) body.clearPassword = true;
     else if ($("#hostPasswordInput").value) body.password = $("#hostPasswordInput").value;
@@ -1771,12 +1872,24 @@
       showSessionBanner("ESPERANDO ASIGNACIÓN LINK", 1800);
       return;
     }
-    if (!hostSession && playerNumber !== 1) {
-      showSessionBanner("LINK GBA ACTUAL: SOLO P1/P2", 2200);
+    if (!hostSession && (playerNumber < 1 || playerNumber > 3)) {
+      showSessionBanner("ASIENTO LINK NO VÁLIDO", 2200);
       return;
     }
 
     rememberLocalLinkSession(room.id, playerNumber, role);
+
+    /* Integrado en el emulador: el emulador es la página y el lobby vive en su
+       pantalla, así que aquí solo hay que devolver el mando al juego. La
+       configuración del cable ya ha viajado por BroadcastChannel. */
+    if (new URLSearchParams(location.search).get("embed") === "1") {
+      closeModal("selectModal");
+      window.parent?.postMessage(
+        { source: "ml3d-lobby", type: "link-start", roomId: room.id, playerNumber, role },
+        location.origin
+      );
+      return;
+    }
 
     const url = new URL("../", location.href);
     url.searchParams.set("menu", "1");
@@ -1820,8 +1933,14 @@
     if (!hostSession) return;
     const connectedPeers = [...hostSession.peers.values()]
       .filter((peer) => peer.channel?.readyState === "open");
-    if (connectedPeers.length !== 1 || Number(connectedPeers[0]?.linkSlot) !== 1) {
-      showSessionBanner("SE NECESITAN EXACTAMENTE 2 JUGADORES", 2400);
+    /* El cable admite de 2 a 4 consolas y cada una necesita su asiento: 0 para
+       el host y 1..3 seguidos para los invitados. */
+    const seats = roomSeatCount();
+    const slots = new Set(connectedPeers.map((peer) => Number(peer.linkSlot) | 0));
+    const expected = [];
+    for (let slot = 1; slot < seats; slot++) expected.push(slot);
+    if (connectedPeers.length !== seats - 1 || !expected.every((slot) => slots.has(slot))) {
+      showSessionBanner(`SE NECESITAN ${seats} JUGADORES`, 2400);
       return;
     }
     rememberLocalLinkSession(hostSession.room.id, 0, "host");
@@ -1832,6 +1951,7 @@
         roomId: hostSession.room.id,
         playerNumber: peer.linkSlot,
         role: "guest",
+        players: seats,
         time: Date.now()
       });
     }
@@ -1984,7 +2104,13 @@
     }
   });
 
-  $("#apiBase").value = localStorage.getItem(API_KEY) || DEFAULT_API_BASE;
+  /* En local, una API guardada que apunte fuera del proxio no puede funcionar
+     (CORS), así que no se hereda: manda el proxy del servidor de pruebas. */
+  const storedApi = localStorage.getItem(API_KEY) || "";
+  const usableApi = LOCAL_HOSTS.includes(location.hostname)
+    ? (storedApi.startsWith(location.origin) ? storedApi : DEFAULT_API_BASE)
+    : (storedApi || DEFAULT_API_BASE);
+  $("#apiBase").value = usableApi;
   $("#playerName").value = profile.name;
   buildEditorChoices();
   bindControls();

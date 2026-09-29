@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="style.css?v=menu-compact-1">
   <link rel="stylesheet" href="EnhancedFeatures.css?v=boot-sync-1">
   <link rel="stylesheet" href="save-capture-v2.css?v=final-port-1">
+  <link rel="stylesheet" href="ml3d-lobby-overlay.css?v=lobby-embed-1">
 </head>
 
 <body>
@@ -163,6 +164,9 @@
         </h2>
         <button id="select-game-button" type="button">
   Seleccionar juego
+</button>
+<button id="open-lobby-button" type="button">
+  ML3D Link · Lobby
 </button>
 <div class="speed-control">
   <label for="speed-select">Velocidad</label>
@@ -526,6 +530,7 @@
      solo módulo WASM, que es lo que exige el coordinador de lockstep. -->
 <script src="link-mgba/runtime/ml3d-mgba-link.js?v=mgba-link-1"></script>
 <script src="user_scripts/LocalLinkSession.js?v=lobby-4p-1"></script>
+<script src="ml3d-lobby-overlay.js?v=lobby-embed-1"></script>
 <script src="dev-access.js?v=dev-access-2"></script>
 <script src="emulator-tools.js?v=notice-preview-2"></script>
 <script src="vendor/xBRjs.min.umd.js?v=xbr-2"></script>
