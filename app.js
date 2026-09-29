@@ -251,18 +251,20 @@ function loadGameType(name, callback) {
     return;
   }
 
-  if (!emulator) return;
-
   const value = keyMap[keyName];
 
   if (value === undefined) return;
 
   /* La sesión Link ya no depende de parámetros en la URL: el lobby la
-     configura en caliente, así que se consulta siempre. */
+     configura en caliente, así que se consulta siempre. Va antes de mirar
+     `emulator`, que es null cuando el juego corre sobre mGBA: la sesión
+     tiene sus propios núcleos y no necesita el de IodineGBA. */
   if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, true);
     if (consumed) return;
   }
+
+  if (!emulator) return;
 
   emulator.keyDown(value);
 }
@@ -286,18 +288,20 @@ function loadGameType(name, callback) {
     return;
   }
 
-  if (!emulator) return;
-
   const value = keyMap[keyName];
 
   if (value === undefined) return;
 
   /* La sesión Link ya no depende de parámetros en la URL: el lobby la
-     configura en caliente, así que se consulta siempre. */
+     configura en caliente, así que se consulta siempre. Va antes de mirar
+     `emulator`, que es null cuando el juego corre sobre mGBA: la sesión
+     tiene sus propios núcleos y no necesita el de IodineGBA. */
   if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, false);
     if (consumed) return;
   }
+
+  if (!emulator) return;
 
   emulator.keyUp(value);
 } 
