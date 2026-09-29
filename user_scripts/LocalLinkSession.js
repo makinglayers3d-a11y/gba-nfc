@@ -23,6 +23,9 @@
   const UNKNOWN = -1;
 
   let localMask = 0;
+  /* Volver al juego normal recarga la ROM, y eso emite ml3d-rom-started. Sin
+     esta bandera el oyente volveria a armar la sesion que se acaba de cerrar. */
+  let returningToNormal = false;
   const selfTestMasks = [0, 0, 0, 0];
   let controller = null;
   let pendingStart = null;
@@ -573,6 +576,7 @@
   const MGBA_DIR = "link-mgba/dist/multi/";
 
   async function bootLocalDual() {
+    if (returningToNormal) return;
     if (!roomId && !selfTest) return;
     const runtime = window.ML3DLinkRuntime;
     const rom = runtime?.romBytes;
@@ -693,8 +697,10 @@
        devolver la pantalla al núcleo normal, que el runtime multi-instancia se
        había quedado durante la partida. */
     try { window.ML3DLinkRuntime?.startTimers?.(); } catch {}
+    returningToNormal = true;
     Promise.resolve(window.ML3DLinkRuntime?.resumeNormal?.())
-      .catch((error) => console.error("ML3D Local Link (volver al juego):", error));
+      .catch((error) => console.error("ML3D Local Link (volver al juego):", error))
+      .finally(() => { returningToNormal = false; });
   }
 
   bus.addEventListener("message", (event) => {
