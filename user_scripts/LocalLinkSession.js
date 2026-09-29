@@ -548,6 +548,8 @@
       this.stallsAnteriores = 0;
       this.holdsAnteriores = 0;
 
+      this.ultimaMuestraAt = performance.now();
+
       this.registroTimer = setInterval(() => {
         /* La latencia se pide sin esperar: llega para la muestra siguiente. */
         Promise.resolve(window.ML3DLinkNet?.medida?.())
@@ -556,10 +558,17 @@
 
         const otro = Object.values(this.statsRemotas)[0] || null;
         const fresco = otro && (Date.now() - otro.at) < 4000;
+        /* El intervalo no dispara exactamente cada segundo, y con el navegador
+           ocupado se va bastante. Dividir por el tiempo real evita que los fps
+           del panel mientan justo cuando mas importa. */
+        const ahora = performance.now();
+        const seg = Math.max(0.2, (ahora - this.ultimaMuestraAt) / 1000);
+        this.ultimaMuestraAt = ahora;
+        this.fpsMedidos = Math.round(((this.frame - this.frameAnterior) / seg) * 10) / 10;
         this.muestras.push({
           s: Math.round((Date.now() - this.registroDesde) / 1000),
           frame: this.frame,
-          fps: this.frame - this.frameAnterior,
+          fps: Math.round(((this.frame - this.frameAnterior) / seg) * 10) / 10,
           stalls: this.stallCount - this.stallsAnteriores,
           holds: (this.audioHolds || 0) - this.holdsAnteriores,
           audioMs: Math.round(this.rt.audioBacklogMs()),
@@ -774,6 +783,22 @@
         lines.push(`ESPERANDO PEERS:${this.readySeats.size}/${this.seats - 1} ROM:${rom}`);
       }
       lines.push(`F:${this.frame} IN:${ink(current0)}/${ink(current1)} D:${INPUT_DELAY}`);
+
+      /* Linea para leer a simple vista durante una prueba, sin consola y sin
+         cronometro: fps de aqui, fps del otro y latencia real de la red. */
+      const otro = Object.values(this.statsRemotas || {})[0];
+      const otroVivo = otro && (Date.now() - otro.at) < 4000;
+      const rtt = this.ultimaRed?.rttMs;
+      /* audioBacklogMs da -1 cuando todavia no suena nada: mostrar "-1ms"
+         parece una medida rara en vez de lo que es, que no hay audio. */
+      const aud = Math.round(this.rt.audioBacklogMs());
+      const estadoAudio = this.rt.audioState?.() || "?";
+      lines.push(
+        `FPS:${this.fpsMedidos ?? "-"}` +
+        ` OTRO:${otroVivo ? otro.fps : "-"}` +
+        ` RED:${rtt === null || rtt === undefined ? "-" : rtt + "ms"}` +
+        ` AUD:${aud >= 0 ? aud + "ms" : estadoAudio}`
+      );
       lines.push(`M:${a?.mode ?? "-"}/${b?.mode ?? "-"} BUSY:${busy(a)}/${busy(b)}` +
         ` S:${hx(a?.siocnt)}/${hx(b?.siocnt)} R:${hx(a?.rcnt)}/${hx(b?.rcnt)}`);
       lines.push(`XFER:${this.transferCount} SEATS:${this.confirmedSeat.join("/")}` +

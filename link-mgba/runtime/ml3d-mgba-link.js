@@ -301,14 +301,32 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			/* Sin gesto del usuario, resume() devuelve una promesa que se queda
 			   PENDIENTE para siempre, no rechazada. Esperarla cuelga a quien
 			   arranque la sesion, y la sesion no puede depender del audio: se
-			   lanza sin esperar y se reintenta al primer gesto. */
-			if (ctx.state === "suspended") {
-				ctx.resume().catch(() => {});
-				const unlock = () => { ctx.resume().catch(() => {}); };
-				window.addEventListener("pointerdown", unlock, { once: true });
-				window.addEventListener("keydown", unlock, { once: true });
-				window.addEventListener("touchstart", unlock, { once: true });
-			}
+			   lanza sin esperar y se reintenta con cada gesto.
+
+			   Nada de {once:true}: gastaba el unico intento aunque resume() no
+			   llegara a cuajar, y entonces ya no habia forma de recuperar el
+			   audio sin recargar. En Android pasaba justo eso. Se reintenta en
+			   cada gesto y los listeners se quitan solos cuando suena. */
+			const eventos = ["pointerdown", "touchstart", "touchend", "click", "keydown"];
+			const unlock = () => {
+				if (!this.audio || this.audio.ctx !== ctx) return quitarUnlock();
+				if (ctx.state === "running") return quitarUnlock();
+				ctx.resume().then(() => {
+					if (ctx.state === "running") quitarUnlock();
+				}).catch(() => {});
+			};
+			const quitarUnlock = () => {
+				for (const ev of eventos) window.removeEventListener(ev, unlock, true);
+			};
+			/* En captura: los botones del emulador hacen preventDefault en
+			   touchstart, y asi el gesto se ve igual aunque lo consuman. */
+			for (const ev of eventos) window.addEventListener(ev, unlock, true);
+			ctx.resume().catch(() => {});
+		}
+
+		/** Estado del audio, para que el panel diga por que no suena. */
+		audioState() {
+			return this.audio ? this.audio.ctx.state : "sin audio";
 		}
 
 		/** Milisegundos de audio encolados, o -1 si todavía no suena. */
