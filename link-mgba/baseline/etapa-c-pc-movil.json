@@ -1,0 +1,67 @@
+{
+  "rama": "test/mgba-link-lobby-integration-2026-09-28",
+  "fecha": "2026-09-29",
+  "tipo": "etapa C: dos dispositivos reales por wifi",
+
+  "montaje": {
+    "jugador0": "PC con Windows, host, Chrome, http://localhost:8765",
+    "jugador1": "Samsung S24 Ultra, Android 16, Chrome, sin ahorro de bateria",
+    "comoEntraElMovil": "tunel https de Cloudflare (probar-con-movil.ps1); hace falta contexto seguro o el navegador no deja usar WebRTC",
+    "porDondeVaLaPartida": "directa entre los dos dispositivos por la wifi; el tunel solo sirve para cargar la pagina y crear la sala",
+    "caminoWebRTC": "host (candidato local, sin relay)",
+    "juego": "Mario Kart - Super Circuit, servido desde el PC a los dos"
+  },
+
+  "marcaDelMovilAislada": {
+    "queEs": "el movil solo, dos consolas, sin red (linkSelfTest)",
+    "sinAudio": "62,4 fps",
+    "conAudio": "60 fps, cola 105 ms",
+    "lectura": "el movil no es el cuello de botella: iguala al PC"
+  },
+
+  "partida": {
+    "duracionMinutos": 23.7,
+    "fpsMedia": 59.23,
+    "fpsMediana": 59.5,
+    "divergencias": 0,
+    "colaAudioMediaMs": 88,
+    "latenciaRedMs": { "min": 3, "mediana": 6, "max": 11 },
+    "presupuestoDeLatenciaMs": 67,
+    "fpsDelMovilMedidoDesdeElPC": 59.8
+  },
+
+  "descontandoElCorteProvocado": {
+    "queSeDescuenta": "los 6 s en que el usuario salio del navegador del movil, y un hipo de 1 s",
+    "segundosAnalizados": 1503,
+    "porcentajePorEncimaDe55fps": 96.41,
+    "fpsMedia": 59.54,
+    "fpsMinimo": 37.7,
+    "percentil1": 50.4
+  },
+
+  "microbajones": {
+    "cuantos": "54 segundos de 1503",
+    "reparto": { "50-55 fps": 40, "40-50 fps": 13, "30-40 fps": 1, "menos de 30": 0 },
+    "causa": "los 54 llevan esperas por input; ninguno lleva freno de audio",
+    "lectura": "es jitter de la wifi, no latencia alta ni falta de potencia: la mediana es 6 ms pero algun paquete pasa de los 4 frames de margen",
+    "siMolestara": "subir INPUT_DELAY de 4 a 5 o 6 frames da mas margen, a cambio de mas retardo en los mandos"
+  },
+
+  "pruebaDeRobustezNoPlanificada": {
+    "que": "el usuario salio del navegador del movil durante la partida",
+    "efecto": "Chrome congela la pestaña; el movil dejo de mandar y el PC se quedo esperando 6 segundos a 0 fps",
+    "resultado": "al volver se recupero solo y siguio a 59,5 fps SIN desincronizarse",
+    "lectura": "el lockstep aguanta una congelacion real de varios segundos"
+  },
+
+  "falloDeInstrumentacionCorregidoDespues": [
+    "ML3DLinkNet se definia en el iframe del lobby y la sesion lo buscaba en la pagina: la latencia salia siempre vacia. Ahora el lobby lo publica tambien en el padre.",
+    "el relé de rooms.js reconstruye el paquete campo a campo y no incluia 'stats', asi que las cifras del otro dispositivo llegaban vacias. Ahora se reenvian."
+  ],
+
+  "noValidado": [
+    "3 y 4 jugadores sobre red",
+    "reconexion tras caida del canal",
+    "el panel con OTRO y RED rellenos durante una partida: los arreglos son posteriores a esta prueba"
+  ]
+}

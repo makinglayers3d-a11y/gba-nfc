@@ -176,6 +176,13 @@
     }
   };
 
+  /* La sesion Link corre en la pagina y el lobby dentro de un iframe, asi que
+     alli window.ML3DLinkNet no existe. Se publica tambien en el padre cuando
+     el origen coincide; sin esto la latencia salia siempre vacia. */
+  try {
+    if (window.parent && window.parent !== window) window.parent.ML3DLinkNet = window.ML3DLinkNet;
+  } catch (_) { /* otro origen: se queda solo aqui */ }
+
   function makePeer(label, onChannel) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     conexionesVivas.add(pc);
@@ -473,6 +480,9 @@
         playerNumber: Number(packet.playerNumber) | 0,
         frame: Number(packet.frame),
         hash: Number(packet.hash) >>> 0,
+        /* Las cifras del emisor viajan pegadas a la huella; sin
+           reenviarlas, el otro lado no ve como le va a su compañero. */
+        stats: packet.stats || null,
         time: Date.now()
       };
       if (hostSession) {
@@ -875,7 +885,8 @@
         sessionId: String(packet.sessionId || ""),
         playerNumber: slot,
         frame: Number(packet.frame),
-        hash: Number(packet.hash) >>> 0
+        hash: Number(packet.hash) >>> 0,
+        stats: packet.stats || null
       });
       sendAll({
         type: "gba:lockstep:sync",
@@ -884,6 +895,9 @@
         playerNumber: slot,
         frame: Number(packet.frame),
         hash: Number(packet.hash) >>> 0,
+        /* Las cifras del emisor viajan pegadas a la huella; sin
+           reenviarlas, el otro lado no ve como le va a su compañero. */
+        stats: packet.stats || null,
         time: Date.now()
       }, joinId);
       return;
@@ -1026,7 +1040,8 @@
         sessionId: String(packet.sessionId || ""),
         playerNumber: Math.max(0, Math.min(3, Number(packet.playerNumber) | 0)),
         frame: Number(packet.frame),
-        hash: Number(packet.hash) >>> 0
+        hash: Number(packet.hash) >>> 0,
+        stats: packet.stats || null
       });
       return;
     }
