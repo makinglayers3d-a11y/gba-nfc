@@ -20,6 +20,7 @@
   const INPUT_DELAY = 4;
   const RING = 256;
   const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
+  const AUDIO_TARGET_MS = 120; /* cola de audio a la que se acompasa la sesion */
   const UNKNOWN = -1;
 
   let localMask = 0;
@@ -127,6 +128,7 @@
       rt.setVisible(this.visible);
 
       this.ran = new Array(this.seats).fill(0);
+      this.target = 0;
       this.frame = 0;
       this.sessionId = "";
       this.started = false;
@@ -383,19 +385,21 @@
         this.applyMask(seat, this.getInput(this.frame, seat));
       }
 
-      const start = this.ran.slice();
-      const done = (seat) => this.ran[seat] - start[seat];
+      /* El objetivo es acumulativo, no relativo a esta llamada. Rehacer la
+         base cada frame hacia que el sobrepaso de la ultima rodaja se sumara
+         en vez de compensarse: el juego corria a 69 fps en vez de 59,7. */
+      this.target += FRAME_CYCLES;
       let rounds = 0;
       const MAX_ROUNDS = 8192;
 
       while (rounds++ < MAX_ROUNDS) {
-        if (this.ran.every((_, seat) => done(seat) >= FRAME_CYCLES)) break;
+        if (this.ran.every((cycles) => cycles >= this.target)) break;
 
         let pick = -1;
         let least = Infinity;
         for (let seat = 0; seat < this.seats; seat++) {
           if (this.rt.isAsleep(this.coreOf(seat))) continue;
-          if (done(seat) < least) { least = done(seat); pick = seat; }
+          if (this.ran[seat] < least) { least = this.ran[seat]; pick = seat; }
         }
         if (pick < 0) {
           /* Nadie despierto: el coordinador garantiza que no pasa, asi que si
@@ -404,7 +408,12 @@
           this.setDebugError("TODAS LAS CONSOLAS DORMIDAS");
           return false;
         }
-        this.ran[pick] += this.rt.runCycles(this.coreOf(pick), LINK_SLICE);
+        /* Se pide solo lo que falta, para no sobrepasar mas de lo justo; si
+           ya llego al objetivo se le da rodaja entera, porque puede tener que
+           correr para despertar a otra. */
+        const falta = this.target - this.ran[pick];
+        const rodaja = falta > 0 ? Math.min(LINK_SLICE, falta) : LINK_SLICE;
+        this.ran[pick] += this.rt.runCycles(this.coreOf(pick), rodaja);
       }
 
       if (rounds >= MAX_ROUNDS) {
@@ -434,6 +443,17 @@
       }
 
       this.publishLocalInput();
+
+      /* El temporizador dispara a ~62,5 Hz y el GBA va a 59,7275, asi que sin
+         frenar se corre un 4,6% y el audio se descarta sin parar. Cuando hay
+         audio sonando, manda su cola: si va sobrada, esta vuelta no avanza.
+         No cuenta como stall, que es otra cosa: ahi no se pudo avanzar. */
+      const backlog = this.rt.audioBacklogMs();
+      if (backlog > AUDIO_TARGET_MS) {
+        this.audioHolds = (this.audioHolds || 0) + 1;
+        this.renderDebug();
+        return;
+      }
 
       let ran = 0;
       if (this.frameReady()) {

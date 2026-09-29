@@ -19,6 +19,9 @@
 	const FRAME_CYCLES = 280896;
 	const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
 	const MAX_SEATS = 4;
+	/* Techo de la cola de audio. Por encima se descarta en vez de encolar: mas
+	   de esto ya no es buffer, es retraso audible. */
+	const MAX_QUEUED_MS = 250;
 
 	/* enum GBAKey de include/mgba/internal/gba/input.h */
 	const KEY = { A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 };
@@ -303,6 +306,13 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			}
 		}
 
+		/** Milisegundos de audio encolados, o -1 si todavía no suena. */
+		audioBacklogMs() {
+			const audio = this.audio;
+			if (!audio || audio.ctx.state !== "running") return -1;
+			return (audio.queued / audio.ctx.sampleRate) * 1000;
+		}
+
 		/** Vacía la cola: se usa al cambiar de consola visible. */
 		flushAudio() {
 			if (!this.audio) return;
@@ -315,6 +325,30 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			const audio = this.audio;
 			if (!audio) return;
 			const visible = this.seats[this.visible];
+
+			/* Dos formas de acumular retraso sin fin, las dos vistas en la
+			   integracion real:
+
+			   1. Con el contexto suspendido —sin gesto del usuario todavia— el
+			      worklet no consume nada, asi que todo lo que se le empuje se
+			      queda encolado. Al desbloquearlo aparecian 30 segundos de
+			      audio atrasado.
+			   2. Aunque este corriendo, quien lleva el planificador puede pedir
+			      frames mas deprisa de lo que suena el audio, y la cola crece.
+
+			   En ambos casos lo correcto es tirar el audio sobrante, no
+			   encolarlo: lo que se oye tiene que ser el presente. */
+			if (audio.ctx.state !== "running") {
+				this.M._mgbawasm_drop_audio(visible.id);
+				return;
+			}
+			const queuedMs = (audio.queued / audio.ctx.sampleRate) * 1000;
+			if (queuedMs > MAX_QUEUED_MS) {
+				this.M._mgbawasm_drop_audio(visible.id);
+				audio.dropped = (audio.dropped || 0) + 1;
+				return;
+			}
+
 			const available = this.M._mgbawasm_audio_available(visible.id);
 			if (available <= 0) return;
 
