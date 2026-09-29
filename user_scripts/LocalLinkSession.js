@@ -476,21 +476,25 @@
       const hx = (value) => (Number(value) & 0xff).toString(16).padStart(2, "0");
       const busy = (s) => (s && (s.siocnt & 0x80)) ? 1 : 0;
       const delta = Math.round((this.ran[0] || 0) - (this.ran[1] || 0));
-      this.debug.textContent =
-        `LOCAL LINK ${role === "host" ? "H" : "G"} P${mySeat} ${this.started ? "RUN" : "SYNC"}
-` +
-        (!this.started ? `ESPERANDO PEERS:${this.readySeats.size}/${this.seats - 1} ROM:${this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "..."}
-` : "") +
-        `F:${this.frame} IN:${current0 === UNKNOWN ? "-" : current0.toString(16)}/${current1 === UNKNOWN ? "-" : current1.toString(16)} D:${INPUT_DELAY}
-` +
-        `M:${a?.mode ?? "-"}/${b?.mode ?? "-"} BUSY:${busy(a)}/${busy(b)} S:${hx(a?.siocnt)}/${hx(b?.siocnt)} R:${hx(a?.rcnt)}/${hx(b?.rcnt)}
-` +
-        `XFER:${this.transferCount} SEATS:${this.confirmedSeat.join("/")} ACT:${coord.transferActive} Δ:${delta} T:${Math.round(FRAME_CYCLES - ((this.ran[0] || 0) % FRAME_CYCLES))} STALL:${this.stallCount}` +
-        (this.lastLinkError ? `
-ADAPTER ERROR: ${this.lastLinkError.split("
-")[0]}` : "") +
-        (this.wedged ? "
-WEDGED" : "");
+      const ink = (v) => v === UNKNOWN ? "-" : v.toString(16);
+      const lines = [
+        `LOCAL LINK ${role === "host" ? "H" : "G"} P${mySeat} ${this.started ? "RUN" : "SYNC"}`,
+      ];
+      if (!this.started) {
+        const rom = this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "...";
+        lines.push(`ESPERANDO PEERS:${this.readySeats.size}/${this.seats - 1} ROM:${rom}`);
+      }
+      lines.push(`F:${this.frame} IN:${ink(current0)}/${ink(current1)} D:${INPUT_DELAY}`);
+      lines.push(`M:${a?.mode ?? "-"}/${b?.mode ?? "-"} BUSY:${busy(a)}/${busy(b)}` +
+        ` S:${hx(a?.siocnt)}/${hx(b?.siocnt)} R:${hx(a?.rcnt)}/${hx(b?.rcnt)}`);
+      lines.push(`XFER:${this.transferCount} SEATS:${this.confirmedSeat.join("/")}` +
+        ` ACT:${coord.transferActive} D:${delta}` +
+        ` T:${Math.round(FRAME_CYCLES - ((this.ran[0] || 0) % FRAME_CYCLES))} STALL:${this.stallCount}`);
+      if (this.lastLinkError) {
+        lines.push("ADAPTER ERROR: " + this.lastLinkError.split("\n")[0]);
+      }
+      if (this.wedged) lines.push("WEDGED");
+      this.debug.textContent = lines.join("\n");
     }
 
     status() {

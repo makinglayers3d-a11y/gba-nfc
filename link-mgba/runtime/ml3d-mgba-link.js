@@ -57,16 +57,29 @@ class ML3DSink extends AudioWorkletProcessor {
 registerProcessor("ml3d-mgba-sink", ML3DSink);
 `;
 
-	/* mgba.js es UMD, no un modulo ES: define el global createMgbaModule. */
-	function loadClassicScript(url) {
-		return new Promise((resolve, reject) => {
-			if (window.createMgbaModule) return resolve();
-			const tag = document.createElement("script");
-			tag.src = url;
-			tag.onload = () => resolve();
-			tag.onerror = () => reject(new Error("no se pudo cargar " + url));
-			document.head.appendChild(tag);
-		});
+	/**
+	 * Carga nuestro glue sin tocar el global `createMgbaModule`.
+	 *
+	 * mgba.js es UMD y, como <script>, deja ese global. El problema es que en la
+	 * página conviven dos builds: mgba-compat.js carga el publicado de jsdelivr
+	 * para el juego normal y deja ahí SU factoría. Si aquí se reutilizara el
+	 * global, se acabaría instanciando nuestro .wasm con el glue de ellos, y los
+	 * imports no casan: "Import #28 a C: function import requires a callable".
+	 *
+	 * Así que se trae el fuente y se evalúa en su propio ámbito. Dentro de
+	 * `new Function` no existen `exports`, `module` ni `define`, así que la cola
+	 * UMD no hace nada y basta con devolver la factoría.
+	 */
+	async function loadFactory(url) {
+		const response = await fetch(url, { cache: "no-store" });
+		if (!response.ok) throw new Error("no se pudo cargar " + url + ": HTTP " + response.status);
+		const source = await response.text();
+		// eslint-disable-next-line no-new-func
+		const factory = new Function(source + "\n;return createMgbaModule;")();
+		if (typeof factory !== "function") {
+			throw new Error(url + " no ha definido createMgbaModule");
+		}
+		return factory;
 	}
 
 	class ML3DMgbaLink {
@@ -93,11 +106,8 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 		 */
 		static async create(options) {
 			const dir = options.wasmDir || "../dist/multi/";
-			await loadClassicScript(dir + "mgba.js");
-			if (typeof window.createMgbaModule !== "function") {
-				throw new Error("mgba.js no ha definido createMgbaModule");
-			}
-			const Module = await window.createMgbaModule({ locateFile: (p) => dir + p });
+			const factory = await loadFactory(dir + "mgba.js");
+			const Module = await factory({ locateFile: (p) => dir + p });
 			Module._mgbawasm_init();
 			Module._mgbawasm_set_log_level(options.logLevel ?? 1);
 
@@ -279,7 +289,18 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 
 			this.audio = { ctx, node, gain, queued: 0, scratch: 0, scratchFrames: 0, carry: 0 };
 			node.port.onmessage = (event) => { this.audio.queued = event.data; };
-			if (ctx.state === "suspended") await ctx.resume();
+
+			/* Sin gesto del usuario, resume() devuelve una promesa que se queda
+			   PENDIENTE para siempre, no rechazada. Esperarla cuelga a quien
+			   arranque la sesion, y la sesion no puede depender del audio: se
+			   lanza sin esperar y se reintenta al primer gesto. */
+			if (ctx.state === "suspended") {
+				ctx.resume().catch(() => {});
+				const unlock = () => { ctx.resume().catch(() => {}); };
+				window.addEventListener("pointerdown", unlock, { once: true });
+				window.addEventListener("keydown", unlock, { once: true });
+				window.addEventListener("touchstart", unlock, { once: true });
+			}
 		}
 
 		/** Vacía la cola: se usa al cambiar de consola visible. */
