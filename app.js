@@ -233,6 +233,11 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
+  /* Con el lobby abierto sobre la pantalla, los botones son suyos. Va lo
+     primero: si no, no hay forma de manejar el lobby desde un movil, donde el
+     unico mando son los botones de la propia pantalla. */
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, true)) return;
+
   if (window.ML3DMgbaCompat?.isActive?.()) {
     window.ML3DMgbaCompat.press(keyName);
     return;
@@ -270,6 +275,9 @@ function loadGameType(name, callback) {
 }
 
  function releaseKey(keyName) {
+  /* Igual que en pressKey: el lobby abierto se queda los botones. */
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, false)) return;
+
   if (window.ML3DMgbaCompat?.isActive?.()) {
     window.ML3DMgbaCompat.release(keyName);
     return;
