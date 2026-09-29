@@ -334,8 +334,13 @@
       this.sentFrames.add(target);
 
       if (selfTest) {
+        /* En autoprueba no hay nadie al otro lado que mande entrada, asi que el
+           teclado fisico mueve TODAS las consolas a la vez. Es lo que permite
+           llevarlas juntas al menu Link del juego desde una sola ventana; sin
+           esto solo respondian a test.setSeatMask, que es para automatizar.
+           El mando por asiento sigue funcionando y se suma. */
         for (let seat = 0; seat < this.seats; seat++) {
-          this.setInput(target, seat, selfTestMasks[seat] | 0);
+          this.setInput(target, seat, (selfTestMasks[seat] | localMask) & 0x3ff);
         }
       } else {
         this.setInput(target, mySeat, localMask);
