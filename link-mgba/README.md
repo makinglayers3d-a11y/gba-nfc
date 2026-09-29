@@ -87,6 +87,12 @@ el `mmap` anónimo no aporta nada frente a `calloc`.
 mGBA y mGBA-wasm son MPL-2.0, y los ficheros derivados también. Las copias
 conservan su cabecera.
 
+El texto de la licencia está en `LICENSE-MPL-2.0.txt`. El binario compilado
+(`dist/multi/mgba.wasm`) se versiona porque el sitio publicado tiene que
+servirlo, y va acompañado de `dist/multi/LEEME-LICENCIA.txt`, que dice de qué
+commit sale, cómo se compila y qué se ha cambiado: es lo que la MPL-2.0 exige
+al distribuir la forma ejecutable.
+
 No es un `git submodule` a propósito: de ese repo solo necesitamos el script de
 build y el shim. El SDK TypeScript, el manifest y la demo no los usamos, y un
 submódulo obligaría a arrastrarlos y a resolver su `npm install`.

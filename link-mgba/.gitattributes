@@ -9,3 +9,8 @@
 *.patch text eol=lf
 *.py    text eol=lf
 *.js    text eol=lf
+
+# El motor compilado es binario: que git no lo toque nunca. Una conversion de
+# saltos de linea lo corromperia sin avisar y el Link fallaria solo en
+# produccion.
+*.wasm  binary
