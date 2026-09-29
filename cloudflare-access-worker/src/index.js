@@ -1449,17 +1449,331 @@ async function adminChatSend(env, request, clientIdValue) {
   });
 }
 
+
+const DEMO_TERMS_VERSION = "2026-09-26";
+const DEFAULT_DEMO_BASE_URL = "https://makinglayers3d-a11y.github.io/gba-nfc/";
+
+async function ensureDemoSchema(env) {
+  await env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_links (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      label TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_visitors (
+      id TEXT PRIMARY KEY,
+      demo_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      instagram TEXT NOT NULL,
+      user_agent TEXT,
+      terms_version TEXT,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      active_seconds INTEGER NOT NULL DEFAULT 0,
+      session_count INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(demo_id, client_id)
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS demo_sessions (
+      id TEXT PRIMARY KEY,
+      demo_id TEXT NOT NULL,
+      visitor_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      last_heartbeat_ms INTEGER NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      active_seconds INTEGER NOT NULL DEFAULT 0
+    )`),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_links_expires ON demo_links(expires_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_visitors_demo ON demo_visitors(demo_id, last_seen_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_demo_sessions_visitor ON demo_sessions(visitor_id, last_seen_at DESC)")
+  ]);
+}
+
+function demoPublicUrl(env, token) {
+  const base = cleanText(env.DEMO_BASE_URL || DEFAULT_DEMO_BASE_URL, 500) || DEFAULT_DEMO_BASE_URL;
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}demo=${encodeURIComponent(token)}&menu=1`;
+}
+
+function demoState(row) {
+  if (!row) return "missing";
+  const raw = cleanText(row.status, 24) || "active";
+  if (raw === "revoked") return "revoked";
+  if (Number(row.expires_at || row.expiresAt || 0) <= Date.now()) return "expired";
+  if (raw === "paused") return "paused";
+  return "active";
+}
+
+function normalizedInstagram(value) {
+  const handle = cleanText(value, 40).replace(/^@+/, "");
+  if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) return "";
+  return "@" + handle.toLowerCase();
+}
+
+function randomDemoToken() {
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(24)));
+}
+
+async function demoByToken(env, tokenValue) {
+  await ensureDemoSchema(env);
+  const token = cleanText(tokenValue, 120);
+  if (!token) return null;
+  return env.DB.prepare("SELECT * FROM demo_links WHERE token = ?").bind(token).first();
+}
+
+async function publicDemoStatus(env, request) {
+  const body = await bodyJson(request);
+  const token = cleanText(body.token, 120);
+  const clientId = cleanText(body.clientId, 120);
+  const demo = await demoByToken(env, token);
+  if (!demo) return bad(env, request, "Enlace de demo no válido", 404);
+  const state = demoState(demo);
+  let visitor = null;
+  if (clientId) {
+    visitor = await env.DB.prepare(
+      "SELECT instagram, active_seconds AS activeSeconds, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt FROM demo_visitors WHERE demo_id = ? AND client_id = ?"
+    ).bind(demo.id, clientId).first();
+  }
+  return response(env, request, {
+    ok: state === "active",
+    state,
+    demoId: demo.id,
+    label: demo.label || "",
+    expiresAt: Number(demo.expires_at),
+    registered: Boolean(visitor),
+    instagram: visitor?.instagram || "",
+    activeSeconds: Number(visitor?.activeSeconds || 0),
+    termsVersion: DEMO_TERMS_VERSION
+  }, state === "revoked" ? 403 : 200);
+}
+
+async function publicDemoRegister(env, request) {
+  const body = await bodyJson(request);
+  const token = cleanText(body.token, 120);
+  const clientId = cleanText(body.clientId, 120);
+  const sessionId = cleanText(body.sessionId, 120);
+  const instagram = normalizedInstagram(body.instagram);
+  const userAgent = cleanText(body.userAgent, 500);
+  if (!token || !clientId || !sessionId || !instagram) return bad(env, request, "Faltan datos de acceso a la demo");
+  if (body.termsAccepted !== true) return bad(env, request, "Debes aceptar las condiciones de la demo");
+
+  const demo = await demoByToken(env, token);
+  if (!demo) return bad(env, request, "Enlace de demo no válido", 404);
+  const state = demoState(demo);
+  if (state !== "active") return response(env, request, { ok: false, state, expiresAt: Number(demo.expires_at) }, 403);
+
+  const now = nowIso();
+  const visitorId = `${demo.id}:${clientId}`;
+  const existingVisitor = await env.DB.prepare(
+    "SELECT id FROM demo_visitors WHERE demo_id = ? AND client_id = ?"
+  ).bind(demo.id, clientId).first();
+
+  if (!existingVisitor) {
+    await env.DB.prepare(`INSERT INTO demo_visitors
+      (id, demo_id, client_id, instagram, user_agent, terms_version, first_seen_at, last_seen_at, active_seconds, session_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`)
+      .bind(visitorId, demo.id, clientId, instagram, userAgent, DEMO_TERMS_VERSION, now, now).run();
+  } else {
+    await env.DB.prepare(`UPDATE demo_visitors SET instagram = ?, user_agent = ?, terms_version = ?,
+      last_seen_at = ? WHERE id = ?`)
+      .bind(instagram, userAgent, DEMO_TERMS_VERSION, now, visitorId).run();
+  }
+
+  const sessionKey = `${visitorId}:${sessionId}`;
+  const session = await env.DB.prepare("SELECT id FROM demo_sessions WHERE id = ?").bind(sessionKey).first();
+  if (!session) {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO demo_sessions
+        (id, demo_id, visitor_id, session_id, started_at, last_heartbeat_ms, last_seen_at, active_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
+        .bind(sessionKey, demo.id, visitorId, sessionId, now, Date.now(), now),
+      env.DB.prepare("UPDATE demo_visitors SET session_count = session_count + 1, last_seen_at = ? WHERE id = ?")
+        .bind(now, visitorId)
+    ]);
+  }
+
+  return response(env, request, {
+    ok: true,
+    state: "active",
+    demoId: demo.id,
+    instagram,
+    expiresAt: Number(demo.expires_at),
+    termsVersion: DEMO_TERMS_VERSION
+  });
+}
+
+async function publicDemoHeartbeat(env, request) {
+  const body = await bodyJson(request);
+  const token = cleanText(body.token, 120);
+  const clientId = cleanText(body.clientId, 120);
+  const sessionId = cleanText(body.sessionId, 120);
+  if (!token || !clientId || !sessionId) return bad(env, request, "Faltan datos de sesión");
+
+  const demo = await demoByToken(env, token);
+  if (!demo) return bad(env, request, "Enlace de demo no válido", 404);
+  const state = demoState(demo);
+  if (state !== "active") return response(env, request, { ok: false, state, expiresAt: Number(demo.expires_at) }, 403);
+
+  const visitorId = `${demo.id}:${clientId}`;
+  const visitor = await env.DB.prepare("SELECT id FROM demo_visitors WHERE id = ?").bind(visitorId).first();
+  if (!visitor) return bad(env, request, "Identificación de demo no registrada", 403);
+
+  const nowMs = Date.now();
+  const now = nowIso();
+  const sessionKey = `${visitorId}:${sessionId}`;
+  const previous = await env.DB.prepare(
+    "SELECT last_heartbeat_ms AS lastHeartbeatMs FROM demo_sessions WHERE id = ?"
+  ).bind(sessionKey).first();
+  const resetBaseline = body.resetBaseline === true;
+
+  let elapsedSeconds = 0;
+  if (!previous) {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO demo_sessions
+        (id, demo_id, visitor_id, session_id, started_at, last_heartbeat_ms, last_seen_at, active_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`)
+        .bind(sessionKey, demo.id, visitorId, sessionId, now, nowMs, now),
+      env.DB.prepare("UPDATE demo_visitors SET session_count = session_count + 1, last_seen_at = ? WHERE id = ?")
+        .bind(now, visitorId)
+    ]);
+  } else {
+    elapsedSeconds = resetBaseline
+      ? 0
+      : Math.floor(Math.max(0, Math.min(45000, nowMs - Number(previous.lastHeartbeatMs || nowMs))) / 1000);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE demo_sessions SET last_heartbeat_ms = ?, last_seen_at = ?,
+        active_seconds = active_seconds + ? WHERE id = ?`)
+        .bind(nowMs, now, elapsedSeconds, sessionKey),
+      env.DB.prepare(`UPDATE demo_visitors SET last_seen_at = ?,
+        active_seconds = active_seconds + ? WHERE id = ?`)
+        .bind(now, elapsedSeconds, visitorId)
+    ]);
+  }
+
+  return response(env, request, {
+    ok: true,
+    state: "active",
+    activeSecondsAdded: elapsedSeconds,
+    expiresAt: Number(demo.expires_at),
+    remainingMs: Math.max(0, Number(demo.expires_at) - nowMs)
+  });
+}
+
+function demoSummary(env, row) {
+  const state = demoState(row);
+  return {
+    id: row.id,
+    label: row.label || "",
+    status: row.status || "active",
+    state,
+    createdAt: row.createdAt || row.created_at || "",
+    expiresAt: Number(row.expiresAt ?? row.expires_at ?? 0),
+    visitorCount: Number(row.visitorCount || 0),
+    totalActiveSeconds: Number(row.totalActiveSeconds || 0),
+    url: demoPublicUrl(env, row.token)
+  };
+}
+
+async function adminCreateDemo(env, request) {
+  await ensureDemoSchema(env);
+  const body = await bodyJson(request);
+  const expiresInMinutes = Number(body.expiresInMinutes ?? 1440);
+  if (!Number.isFinite(expiresInMinutes) || expiresInMinutes < 5 || expiresInMinutes > 43200) {
+    return bad(env, request, "La duración debe estar entre 5 minutos y 30 días");
+  }
+  const label = cleanText(body.label, 120);
+  const id = crypto.randomUUID();
+  const token = randomDemoToken();
+  const nowMs = Date.now();
+  const now = nowIso();
+  const expiresAt = nowMs + Math.round(expiresInMinutes * 60 * 1000);
+  await env.DB.prepare(`INSERT INTO demo_links
+    (id, token, label, status, created_at, expires_at, updated_at)
+    VALUES (?, ?, ?, 'active', ?, ?, ?)`)
+    .bind(id, token, label || null, now, expiresAt, now).run();
+  return response(env, request, {
+    demo: demoSummary(env, {
+      id, token, label, status: "active", created_at: now, expires_at: expiresAt,
+      visitorCount: 0, totalActiveSeconds: 0
+    })
+  }, 201);
+}
+
+async function adminListDemos(env, request) {
+  await ensureDemoSchema(env);
+  const result = await env.DB.prepare(`SELECT d.id, d.token, d.label, d.status,
+      d.created_at AS createdAt, d.expires_at AS expiresAt,
+      (SELECT COUNT(*) FROM demo_visitors v WHERE v.demo_id = d.id) AS visitorCount,
+      (SELECT COALESCE(SUM(v.active_seconds),0) FROM demo_visitors v WHERE v.demo_id = d.id) AS totalActiveSeconds
+    FROM demo_links d ORDER BY d.created_at DESC LIMIT 300`).all();
+  return response(env, request, { demos: (result.results || []).map((row) => demoSummary(env, row)) });
+}
+
+async function adminDemoDetail(env, request, demoIdValue) {
+  await ensureDemoSchema(env);
+  const demoId = cleanText(decodeURIComponent(demoIdValue), 120);
+  const demo = await env.DB.prepare(`SELECT d.id, d.token, d.label, d.status,
+      d.created_at AS createdAt, d.expires_at AS expiresAt,
+      (SELECT COUNT(*) FROM demo_visitors v WHERE v.demo_id = d.id) AS visitorCount,
+      (SELECT COALESCE(SUM(v.active_seconds),0) FROM demo_visitors v WHERE v.demo_id = d.id) AS totalActiveSeconds
+    FROM demo_links d WHERE d.id = ?`).bind(demoId).first();
+  if (!demo) return bad(env, request, "Demo no encontrada", 404);
+
+  const visitors = await env.DB.prepare(`SELECT id, instagram, user_agent AS userAgent,
+      first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt,
+      active_seconds AS activeSeconds, session_count AS sessionCount
+    FROM demo_visitors WHERE demo_id = ? ORDER BY last_seen_at DESC LIMIT 500`).bind(demoId).all();
+  return response(env, request, { demo: demoSummary(env, demo), visitors: visitors.results || [] });
+}
+
+async function adminDemoStatus(env, request, demoIdValue) {
+  await ensureDemoSchema(env);
+  const demoId = cleanText(decodeURIComponent(demoIdValue), 120);
+  const body = await bodyJson(request);
+  const status = cleanText(body.status, 24);
+  if (!["active", "paused", "revoked"].includes(status)) return bad(env, request, "Estado de demo no válido");
+  const existing = await env.DB.prepare("SELECT id FROM demo_links WHERE id = ?").bind(demoId).first();
+  if (!existing) return bad(env, request, "Demo no encontrada", 404);
+  await env.DB.prepare("UPDATE demo_links SET status = ?, updated_at = ? WHERE id = ?")
+    .bind(status, nowIso(), demoId).run();
+  return adminDemoDetail(env, request, demoId);
+}
+
+async function adminDemoExtend(env, request, demoIdValue) {
+  await ensureDemoSchema(env);
+  const demoId = cleanText(decodeURIComponent(demoIdValue), 120);
+  const body = await bodyJson(request);
+  const additionalMinutes = Number(body.additionalMinutes);
+  if (!Number.isFinite(additionalMinutes) || additionalMinutes < 1 || additionalMinutes > 43200) {
+    return bad(env, request, "Ampliación no válida");
+  }
+  const demo = await env.DB.prepare("SELECT * FROM demo_links WHERE id = ?").bind(demoId).first();
+  if (!demo) return bad(env, request, "Demo no encontrada", 404);
+  const base = Math.max(Date.now(), Number(demo.expires_at || 0));
+  const expiresAt = base + Math.round(additionalMinutes * 60 * 1000);
+  await env.DB.prepare("UPDATE demo_links SET expires_at = ?, updated_at = ? WHERE id = ?")
+    .bind(expiresAt, nowIso(), demoId).run();
+  return adminDemoDetail(env, request, demoId);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 4 });
+      if (request.method === "GET" && url.pathname === "/v1/health") return response(env, request, { ok: true, service: "ml3d-dev-access", apiVersion: 5 });
       if (request.method === "POST" && url.pathname === "/v1/access/request") return requestAccess(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/challenge") return challenge(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/verify") return verify(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/request-more-uses") return requestMoreUses(env, request);
       if (request.method === "POST" && url.pathname === "/v1/access/heartbeat") return heartbeat(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/demo/status") return publicDemoStatus(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/demo/register") return publicDemoRegister(env, request);
+      if (request.method === "POST" && url.pathname === "/v1/demo/heartbeat") return publicDemoHeartbeat(env, request);
       if (request.method === "GET" && url.pathname === "/v1/emulator/messages") return listEmulatorMessages(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/reports") return submitEmulatorReport(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/status") return publicChatStatus(env, request);
@@ -1472,11 +1786,20 @@ export default {
         if (request.method === "GET" && url.pathname === "/v1/admin/requests") return listRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/use-requests") return listUseRequests(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/devices") return listDevices(env, request);
+        if (request.method === "GET" && url.pathname === "/v1/admin/demos") return adminListDemos(env, request);
+        if (request.method === "POST" && url.pathname === "/v1/admin/demos") return adminCreateDemo(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/messages") return listEmulatorMessages(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/reports") return listEmulatorReports(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/emulator/chats") return listAdminChats(env, request);
         if (request.method === "GET" && url.pathname === "/v1/admin/games") return listManagedGames(env, request);
         if (request.method === "POST" && url.pathname === "/v1/admin/games") return addManagedGame(env, request);
+
+        const demoDetailMatch = url.pathname.match(/^\/v1\/admin\/demos\/([^/]+)$/);
+        if (request.method === "GET" && demoDetailMatch) return adminDemoDetail(env, request, demoDetailMatch[1]);
+        const demoStatusMatch = url.pathname.match(/^\/v1\/admin\/demos\/([^/]+)\/status$/);
+        if (request.method === "POST" && demoStatusMatch) return adminDemoStatus(env, request, demoStatusMatch[1]);
+        const demoExtendMatch = url.pathname.match(/^\/v1\/admin\/demos\/([^/]+)\/extend$/);
+        if (request.method === "POST" && demoExtendMatch) return adminDemoExtend(env, request, demoExtendMatch[1]);
 
         const gameUpdateMatch = url.pathname.match(/^\/v1\/admin\/games\/([^/]+)\/update$/);
         if (request.method === "POST" && gameUpdateMatch) return updateManagedGame(env, request, gameUpdateMatch[1]);

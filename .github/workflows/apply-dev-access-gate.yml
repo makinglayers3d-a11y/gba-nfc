@@ -10,28 +10,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Patch emulator startup
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          index = Path('index.html')
+          index = Path("index.html")
           text = index.read_text()
-          old = '<script src="GB/GBSave.js?v=final-port-1"></script>\n<script src="app.js?v=final-port-1"></script>'
-          new = '<script src="GB/GBSave.js?v=final-port-1"></script>\n<script src="dev-access.js?v=dev-access-1"></script>\n<script src="app.js?v=dev-access-1"></script>'
-          if old not in text:
-              raise SystemExit('index.html target not found')
-          index.write_text(text.replace(old, new, 1))
 
-          app = Path('app.js')
+          if "dev-access.js" not in text:
+              marker = '<script src="app.js'
+              pos = text.find(marker)
+              if pos < 0:
+                  raise SystemExit("No se encontró app.js en index.html")
+              text = text[:pos] + '<script src="dev-access.js?v=dev-access-2"></script>\n' + text[pos:]
+              index.write_text(text)
+              print("Añadido dev-access.js a index.html")
+          else:
+              print("index.html ya carga dev-access.js")
+
+          app = Path("app.js")
           text = app.read_text()
-          old = '''async function startApplication() {
-            const params =
-              new URLSearchParams(window.location.search);
 
-            const menuOnly ='''
-          new = '''async function startApplication() {
-            const params =
+          if 'params.get("dev") === "1"' not in text:
+              marker = '''  const params =
+              new URLSearchParams(window.location.search);
+          '''
+              if marker not in text:
+                  raise SystemExit("No se encontró el bloque de parámetros en app.js")
+              gate = '''  const params =
               new URLSearchParams(window.location.search);
 
             if (params.get("dev") === "1") {
@@ -44,19 +52,26 @@ jobs:
               const accessGranted = await window.ml3dDevAccess.ensureAccess(params);
               if (!accessGranted) return;
             }
-
-            const menuOnly ='''
-          if old not in text:
-              raise SystemExit('app.js target not found')
-          app.write_text(text.replace(old, new, 1))
+          '''
+              app.write_text(text.replace(marker, gate, 1))
+              print("Añadido control dev=1 a app.js")
+          else:
+              print("app.js ya contiene el control dev=1")
           PY
+
       - name: Validate JavaScript
         run: |
           node --check app.js
           node --check dev-access.js
+          node --check demo-access.js
           node --check cloudflare-access-worker/src/index.js
+
       - name: Commit changes
         run: |
+          if git diff --quiet -- index.html app.js; then
+            echo "El control de acceso ya estaba aplicado; no hay cambios que publicar."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html app.js

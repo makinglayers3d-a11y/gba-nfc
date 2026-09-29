@@ -576,6 +576,7 @@ document.querySelectorAll("[data-key]").forEach((button) => {
   let pressed = false;
 
   function press() {
+    if (window.ml3dStartupGateLocked) return;
     if (pressed) return;
 
     pressed = true;
@@ -677,6 +678,9 @@ window.addEventListener(
     if (isEditableKeyboardTarget(event.target)) {
       return;
     }
+    if (window.ml3dStartupGateLocked) {
+      return;
+    }
 
     const keyName = keyboardMap[event.code];
 
@@ -772,9 +776,24 @@ window.addEventListener(
     emulator.setIntervalRate(16 * safeLegacySpeed);
   }
 
+  function isIOSWebKit() {
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const touchMac = platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    const detected = /iPad|iPhone|iPod/i.test(ua) || touchMac;
+    document.documentElement.classList.toggle("ml3d-ios", detected);
+    return detected;
+  }
+
+  // Mark iOS before any menu interaction so Safari gets the stable touch path
+  // even when the menu is opened before a ROM has started.
+  isIOSWebKit();
+
   function shouldUseMgbaCompat() {
-    // Single-player uses mGBA. Active Cable Link sessions keep the
-    // existing IodineGBA implementation unchanged.
+    // mGBA's browser/WASM runtime can stall shortly after startup on iOS
+    // WebKit. Keep iPhone/iPad on the proven legacy cores while preserving
+    // mGBA for single-player on the rest of the platforms.
+    if (isIOSWebKit()) return false;
     return !linkRoomActive;
   }
 
@@ -1083,15 +1102,21 @@ if (hapticButton) {
 
 updateVolumeUI();
 updateHapticUI();
-  closeMenu.addEventListener("click", async () => {
-    if (!menu.open || menu.classList.contains("menu-closing-comic")) {
-      return;
-    }
+  let menuCloseInProgress = false;
+
+  async function closeMenuAnimated() {
+    if (!menu.open || menuCloseInProgress) return;
 
     const card = menu.querySelector(".menu-card");
+    menuCloseInProgress = true;
     menu.classList.add("menu-closing-comic");
 
     await new Promise((resolve) => {
+      if (!card) {
+        resolve();
+        return;
+      }
+
       let finished = false;
       const finish = () => {
         if (finished) return;
@@ -1100,17 +1125,21 @@ updateHapticUI();
         resolve();
       };
       const onAnimationEnd = (event) => {
-        if (event.target === card && event.animationName === "menuComicClose") {
-          finish();
-        }
+        if (event.target === card) finish();
       };
 
       card.addEventListener("animationend", onAnimationEnd);
-      window.setTimeout(finish, 620);
+      window.setTimeout(finish, 420);
     });
 
-    menu.close();
+    if (menu.open) menu.close();
     menu.classList.remove("menu-closing-comic");
+    menuCloseInProgress = false;
+  }
+
+  closeMenu.addEventListener("click", (event) => {
+    event.preventDefault();
+    void closeMenuAnimated();
   });
 
   async function exportLegacySaveForDevice() {
@@ -1437,6 +1466,17 @@ async function startApplication() {
     return;
   }
 
+  if (params.get("demo")) {
+    if (!window.ml3dDemoGate || typeof window.ml3dDemoGate.ensureAccess !== "function") {
+      status.hidden = false;
+      status.style.display = "";
+      status.textContent = "No se pudo iniciar el control de la demo.";
+      return;
+    }
+    const demoGranted = await window.ml3dDemoGate.ensureAccess(params);
+    if (!demoGranted) return;
+  }
+
   if (params.get("dev") === "1") {
     if (!window.ml3dDevAccess || typeof window.ml3dDevAccess.ensureAccess !== "function") {
       status.hidden = false;
@@ -1447,6 +1487,11 @@ async function startApplication() {
     const accessGranted = await window.ml3dDevAccess.ensureAccess(params);
     if (!accessGranted) return;
   }
+
+  if (typeof window.ml3dReleaseStartupGate === "function") {
+    window.ml3dReleaseStartupGate();
+  }
+  await Promise.resolve(window.ml3dStartupGatePromise).catch(() => {});
 
   const menuOnly =
     params.get("menu") === "1";

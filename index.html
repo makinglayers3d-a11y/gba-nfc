@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#10141b">
   <title>ML3Demuler</title>
 
-  <link rel="stylesheet" href="style.css?v=menu-compact-1">
+  <link rel="stylesheet" href="style.css?v=ios-menu-touch-1">
   <link rel="stylesheet" href="EnhancedFeatures.css?v=boot-sync-1">
   <link rel="stylesheet" href="save-capture-v2.css?v=final-port-1">
   <link rel="stylesheet" href="ml3d-lobby-overlay.css?v=lobby-embed-1">
@@ -510,10 +510,32 @@
 </script>
 <script src="GB/lazy-loader.js?v=playback-compat-2"></script>
 
-<script src="console-transitions.js?v=boot-sync-1"></script>
+<script>
+  (() => {
+    const params = new URLSearchParams(window.location.search);
+    const needsGate = Boolean(params.get("demo")) || params.get("dev") === "1";
+    let releaseGate = null;
+    let released = !needsGate;
+
+    window.ml3dStartupGateLocked = needsGate;
+    window.ml3dStartupGatePromise = needsGate
+      ? new Promise((resolve) => { releaseGate = resolve; })
+      : Promise.resolve();
+
+    window.ml3dReleaseStartupGate = () => {
+      if (released) return;
+      released = true;
+      window.ml3dStartupGateLocked = false;
+      if (typeof releaseGate === "function") releaseGate();
+      window.dispatchEvent(new CustomEvent("ml3d-startup-gate-released"));
+    };
+  })();
+</script>
+
+<script src="console-transitions.js?v=boot-sync-2"></script>
 <script src="user_scripts/BootIntro.js?v=playback-compat-2"></script>
 <script src="appearance-selector.js?v=save-compat-updates-1"></script>
-<script src="EnhancedFeatures.js?v=device-saves-1"></script>
+<script src="EnhancedFeatures.js?v=demo-gate-1"></script>
 <script src="save-capture-v2.js?v=final-port-1"></script>
 <script src="user_scripts/GameSelector.js?v=selector-speed-1"></script>
 <script src="GB/GBSave.js?v=final-port-1"></script>
@@ -532,13 +554,14 @@
 <script src="user_scripts/LocalLinkSession.js?v=lobby-4p-1"></script>
 <script src="ml3d-lobby-overlay.js?v=lobby-embed-1"></script>
 <script src="dev-access.js?v=dev-access-2"></script>
+<script src="demo-access.js?v=demo-access-1"></script>
 <script src="emulator-tools.js?v=notice-preview-2"></script>
 <script src="vendor/xBRjs.min.umd.js?v=xbr-2"></script>
 <script src="graphics-scalefx.js?v=scalefx-main-1"></script>
 <script src="graphics-enhancer.js?v=scalefx-main-1"></script>
 <script src="local-save-manager.js?v=menu-compact-1"></script>
 <script src="mgba-compat.js?v=device-saves-1"></script>
-<script src="app.js?v=device-saves-1"></script>
+<script src="app.js?v=ios-menu-touch-1"></script>
   
 </body>
 </html>
