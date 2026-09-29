@@ -935,9 +935,57 @@
      el cable exige que las cuatro consolas vivan en el mismo modulo. */
   const MGBA_DIR = "link-mgba/dist/multi/";
 
+  /* iPhone y iPad quedan fuera de momento.
+     app.js ya deja el juego normal en el nucleo antiguo en iOS, porque mGBA se
+     atasca al poco de arrancar bajo WebKit. El Cable Link usa nuestro propio
+     mGBA, que esta compilado de otra forma y quiza no sufra lo mismo, pero eso
+     no se ha probado en un iPhone. Mejor decirlo que dejar a alguien con la
+     partida colgada. Quitar esta guarda en cuanto se pruebe. */
+  function esIOS() {
+    const ua = navigator.userAgent || "";
+    const macTactil = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return /iPad|iPhone|iPod/i.test(ua) || macTactil;
+  }
+
+  function avisaLinkNoDisponible() {
+    if (document.getElementById("ml3d-link-sin-ios")) return;
+    const el = document.createElement("div");
+    el.id = "ml3d-link-sin-ios";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+      "background:rgba(20,20,28,.92);color:#fff;text-align:center;padding:24px;" +
+      "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+    const t = document.createElement("div");
+    t.style.cssText = "font-size:22px;letter-spacing:.03em";
+    t.textContent = "CABLE LINK NO DISPONIBLE AQUI";
+    const c = document.createElement("div");
+    c.style.cssText = "font-weight:normal;max-width:34ch";
+    c.textContent =
+      "El Cable Link todavia no funciona en iPhone ni iPad. El resto del " +
+      "emulador si: puedes jugar de un jugador con normalidad.";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = "ENTENDIDO";
+    b.style.cssText =
+      "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
+      "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
+    b.addEventListener("click", () => el.remove());
+    el.append(t, c, b);
+    document.documentElement.appendChild(el);
+    setTimeout(() => el.remove(), 15000);
+  }
+
   async function bootLocalDual() {
     if (returningToNormal) return;
     if (!roomId && !selfTest) return;
+    if (esIOS()) {
+      console.warn("ML3D Local Link: desactivado en iOS hasta poder probarlo.");
+      avisaLinkNoDisponible();
+      roomId = "";
+      enabled = false;
+      return;
+    }
     const runtime = window.ML3DLinkRuntime;
     const rom = runtime?.romBytes;
     if (!rom || !rom.byteLength) return;
