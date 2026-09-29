@@ -481,6 +481,17 @@
       this.rt.present();
 
       this.frame += 1;
+
+      /* El anillo reutiliza el hueco de hace RING frames. Sin vaciarlo, un
+         input que todavia no ha llegado se lee como el de la vuelta anterior y
+         frameReady() da por completo un frame que no lo esta: pasados RING
+         frames el lockstep deja de esperar a nadie y las dos copias divergen
+         en silencio. Se libera el hueco que se acaba de consumir. */
+      const libre = this.frame + RING - 1;
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.inputs[this.slot(libre, seat)] = UNKNOWN;
+      }
+
       this.compruebaSincronia();
       return true;
     }
@@ -662,6 +673,14 @@
         remoteHash: this.remoteHash,
         wedged: this.wedged,
         stalls: this.stallCount,
+        /* Diagnostico del ritmo: un tick que no avanza o es un stall (falta
+           input de alguien) o es un freno de audio (la cola va sobrada).
+           Distinguirlos es lo unico que dice quien manda cuando el juego se
+           arrastra. */
+        audioHolds: this.audioHolds || 0,
+        audioBacklogMs: Math.round(this.rt.audioBacklogMs()),
+        faltaInput: Array.from({ length: this.seats },
+          (_, seat) => this.getInput(this.frame, seat) === UNKNOWN),
         transferCycles: requestedTransferCycles || null,
         progressiveTransfer,
         cable: {
