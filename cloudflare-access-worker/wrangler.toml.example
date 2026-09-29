@@ -9,3 +9,10 @@ ALLOWED_ORIGIN = "https://makinglayers3d-a11y.github.io"
 binding = "DB"
 database_name = "ml3d-dev-access"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Almacen privado del contenido protegido: ROMs, caratulas y las ocho carcasas
+# de consolas reales. No tiene direcciones publicas: solo el worker puede sacar
+# nada de aqui, y solo despues de comprobar el acceso.
+[[r2_buckets]]
+binding = "CONTENIDO"
+bucket_name = "ml3d-contenido"

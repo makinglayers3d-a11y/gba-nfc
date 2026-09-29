@@ -1,3 +1,5 @@
+import { emitePase, quienPide, puedeVerJuego, entrega, claveDeJuego, CARCASA_PUBLICA } from "./content.js";
+
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const encoder = new TextEncoder();
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -11,7 +13,7 @@ function cors(env, request) {
   const allowed = env.ALLOWED_ORIGIN || "https://makinglayers3d-a11y.github.io";
   const headers = {
     "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-ML3D-Windows-Time,X-ML3D-Windows-Signature",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-ML3D-Windows-Time,X-ML3D-Windows-Signature,X-ML3D-Content-Pass",
     "Access-Control-Max-Age": "86400"
   };
   if (origin === allowed) headers["Access-Control-Allow-Origin"] = origin;
@@ -702,7 +704,11 @@ async function verify(env, request) {
     approved: true,
     policy: policyForDevice(device),
     deviceId,
-    displayName: cleanText(device?.display_name, 120)
+    displayName: cleanText(device?.display_name, 120),
+    /* Pase para pedir ROMs, caratulas y carcasas sin volver a firmar un
+       desafio por cada archivo. Dice quien eres; lo que puedes ver se relee
+       de la base de datos en cada peticion. */
+    contentPass: await emitePase(env, deviceId)
   });
 }
 
@@ -1760,6 +1766,111 @@ async function adminDemoExtend(env, request, demoIdValue) {
   return adminDemoDetail(env, request, demoId);
 }
 
+/* ------------------------------------------------------- contenido protegido */
+
+/* Las ocho carcasas de consolas reales estan protegidas; la de ML3D es diseno
+   propio y se sirve a cualquiera, para que quien no tenga acceso vea el
+   emulador entero y no una pantalla desnuda. */
+const CARCASAS = {
+  "ml3d": ["assets/gba-sp-ml3d.webp", "assets/sp-lids/ml3d.webp"],
+  "silver": ["assets/gba-sp-silver.jpg", "assets/sp-lids/silver.webp"],
+  "gray-red": ["assets/gba-sp-gray-red.png", "assets/sp-lids/gray-red.webp"],
+  "cream-burgundy": ["assets/gba-sp-cream-burgundy.png", "assets/sp-lids/cream-burgundy.webp"],
+  "gold-zelda": ["assets/gba-sp-gold-zelda.png", "assets/sp-lids/gold-zelda.webp"],
+  "yellow-character": ["assets/gba-sp-yellow-character.jpg", "assets/sp-lids/yellow-character.webp"],
+  "groudon": ["assets/gba-sp-groudon.webp", "assets/sp-lids/groudon.webp"],
+  "kyogre": ["assets/gba-sp-kyogre.webp", "assets/sp-lids/kyogre.webp"],
+  "rayquaza": ["assets/gba-sp-rayquaza.webp", "assets/sp-lids/rayquaza.webp"]
+};
+
+function sinAcceso(env, request, motivo) {
+  return response(env, request, {
+    ok: false,
+    acceso: false,
+    motivo,
+    mensaje: "Este contenido es solo para testers con acceso concedido."
+  }, 403);
+}
+
+async function rutaContenido(env, request, url) {
+  const trozos = url.pathname.split("/").filter(Boolean);   /* v1 content ... */
+  const que = trozos[2] || "";
+  const resto = decodeURIComponent(trozos.slice(3).join("/") || "");
+  const cabeceras = cors(env, request);
+
+  /* La carcasa de ML3D no pide nada a nadie. */
+  if (que === "skin" && resto.split("/")[0] === CARCASA_PUBLICA) {
+    const cual = CARCASAS[CARCASA_PUBLICA];
+    const pieza = resto.endsWith("/lid") ? cual[1] : cual[0];
+    return entrega(env, request, pieza, cabeceras);
+  }
+
+  const quien = await quienPide(env, request);
+
+  /* El catalogo se responde siempre: quien no tiene acceso recibe una lista
+     vacia y el aviso, que es justo lo que la pantalla necesita para
+     explicarselo en vez de quedarse en blanco sin decir nada. */
+  if (que === "catalog") {
+    if (!quien.ok) {
+      return response(env, request, {
+        ok: true, acceso: false, motivo: quien.motivo, juegos: [], carcasas: [CARCASA_PUBLICA],
+        mensaje: "No tienes acceso de tester todavia."
+      });
+    }
+    const todos = await listaDeJuegos(env);
+    const juegos = todos.filter((n) => puedeVerJuego(quien, n));
+    return response(env, request, {
+      ok: true, acceso: true, juegos,
+      carcasas: quien.carcasas ? Object.keys(CARCASAS) : [CARCASA_PUBLICA]
+    });
+  }
+
+  if (!quien.ok) return sinAcceso(env, request, quien.motivo);
+
+  if (que === "rom") {
+    if (!puedeVerJuego(quien, resto)) return sinAcceso(env, request, "juego_no_permitido");
+    return entrega(env, request, "games/" + resto, cabeceras);
+  }
+
+  if (que === "cover") {
+    /* La caratula acompana al juego: si puede verlo, puede ver su caratula. */
+    if (!puedeVerJuego(quien, resto)) return sinAcceso(env, request, "juego_no_permitido");
+    return entrega(env, request, "covers/" + resto, cabeceras);
+  }
+
+  if (que === "skin") {
+    const id = resto.split("/")[0];
+    const cual = CARCASAS[id];
+    if (!cual) return bad(env, request, "Carcasa desconocida", 404);
+    if (!quien.carcasas) return sinAcceso(env, request, "carcasas_no_permitidas");
+    return entrega(env, request, resto.endsWith("/lid") ? cual[1] : cual[0], cabeceras);
+  }
+
+  return bad(env, request, "Ruta de contenido desconocida", 404);
+}
+
+/* La lista de juegos sale del propio bucket, que es donde viven a partir de
+   ahora. Se cachea un rato porque listar es caro y cambia poco. */
+let cacheJuegos = { lista: null, hasta: 0 };
+
+async function listaDeJuegos(env) {
+  if (cacheJuegos.lista && cacheJuegos.hasta > Date.now()) return cacheJuegos.lista;
+  if (!env.CONTENIDO) return [];
+  const salida = [];
+  let cursor;
+  do {
+    const pagina = await env.CONTENIDO.list({ prefix: "games/", cursor, limit: 1000 });
+    for (const o of pagina.objects) {
+      const nombre = o.key.slice("games/".length);
+      if (/\.(gba|gbc|gb)$/i.test(nombre)) salida.push(nombre);
+    }
+    cursor = pagina.truncated ? pagina.cursor : null;
+  } while (cursor);
+  salida.sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  cacheJuegos = { lista: salida, hasta: Date.now() + 60000 };
+  return salida;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env, request) });
@@ -1780,6 +1891,8 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/history") return publicChatHistory(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/messages") return publicChatSend(env, request);
       if (request.method === "POST" && url.pathname === "/v1/emulator/chat/read") return publicChatRead(env, request);
+
+      if (url.pathname.startsWith("/v1/content/")) return rutaContenido(env, request, url);
 
       if (url.pathname.startsWith("/v1/admin/")) {
         if (!(await adminAuthorized(env, request))) return bad(env, request, "No autorizado", 401);

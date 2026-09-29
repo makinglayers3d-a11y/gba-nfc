@@ -70,6 +70,19 @@ jobs:
             echo 'binding = "DB"'
             echo 'database_name = "ml3d-dev-access"'
             echo "database_id = \"$DB_ID\""
+            # Almacen del contenido protegido. Solo se declara si el bucket
+            # existe: asi el worker se sigue desplegando aunque R2 no este
+            # configurado todavia, y en ese caso el contenido responde 503 en
+            # vez de tumbar el resto de la API.
+            if npx wrangler r2 bucket list 2>/dev/null | grep -q 'ml3d-contenido'; then
+              echo
+              echo '[[r2_buckets]]'
+              echo 'binding = "CONTENIDO"'
+              echo 'bucket_name = "ml3d-contenido"'
+              echo "Bucket de contenido encontrado: se enlaza." >&2
+            else
+              echo "Aviso: no hay bucket ml3d-contenido; el contenido protegido no se servira." >&2
+            fi
           } > wrangler.toml
 
       - name: Deploy Worker
