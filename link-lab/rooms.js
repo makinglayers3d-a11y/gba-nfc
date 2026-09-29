@@ -188,7 +188,11 @@
     conexionesVivas.add(pc);
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
-      if (pc.connectionState === "closed" || pc.connectionState === "failed") conexionesVivas.delete(pc);
+      if (pc.connectionState === "connected") olvidaCaida();
+      if (pc.connectionState === "closed" || pc.connectionState === "failed") {
+        conexionesVivas.delete(pc);
+        avisaCaidaAlEmulador("la conexion con el otro jugador se ha perdido");
+      }
     });
     pc.addEventListener("iceconnectionstatechange", () => log(`${label}: ICE ${pc.iceConnectionState}`));
     pc.addEventListener("datachannel", (event) => onChannel(event.channel));
@@ -277,6 +281,32 @@
         });
       }
     }
+  }
+
+  /* Aviso al emulador de que el cable se ha caido.
+     El lobby se enteraba (lo escribia en su registro) pero no se lo decia a
+     nadie: la partida se quedaba congelada esperando datos que ya no iban a
+     llegar, sin explicacion para el jugador. */
+  let caidaAvisada = false;
+
+  function avisaCaidaAlEmulador(motivo) {
+    if (caidaAvisada || !gbaLinkBus) return;
+    const roomId = currentLinkRoomId();
+    if (!roomId) return;
+    caidaAvisada = true;
+    gbaLinkBus.postMessage({
+      type: "gba:link:peer-lost",
+      source: "lobby",
+      roomId,
+      motivo: String(motivo || ""),
+      time: Date.now()
+    });
+  }
+
+  /* Al volver a conectar se rearma, para que la siguiente caida vuelva a
+     avisar. */
+  function olvidaCaida() {
+    caidaAvisada = false;
   }
 
   function postLocalLink(packet) {
@@ -1389,6 +1419,7 @@
     });
     channel.addEventListener("close", () => {
       log(`${peerInfo.join.displayName}: canal cerrado.`);
+      avisaCaidaAlEmulador(`${peerInfo.join.displayName} se ha desconectado`);
       if (players.has(joinId)) {
         players.delete(joinId);
         sendAll({ type: "lobby:player-left", playerId: joinId }, joinId);
@@ -1645,6 +1676,7 @@
     });
     channel.addEventListener("close", () => {
       log("Jugador: canal cerrado.");
+      avisaCaidaAlEmulador("se ha perdido la conexion con el anfitrion");
       updateChannelButtons();
       if (joinSession) setState("idle", "Conexión cerrada");
     });

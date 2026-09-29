@@ -70,6 +70,43 @@
     document.getElementById("ml3d-link-desync")?.remove();
   }
 
+  /* Aviso de cable caido.
+     Se parece al de divergencia pero dice otra cosa: alli las dos copias
+     seguian corriendo y habian dejado de coincidir; aqui no hay nadie al otro
+     lado. El jugador tiene que enterarse de por que se ha quedado solo, y la
+     partida tiene que soltarse en vez de esperar para siempre. */
+  function mostrarCaida(motivo) {
+    let el = document.getElementById("ml3d-link-caida");
+    if (el) return;
+    el = document.createElement("div");
+    el.id = "ml3d-link-caida";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+      "background:rgba(20,20,28,.92);color:#fff;text-align:center;padding:24px;" +
+      "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+    const titulo = document.createElement("div");
+    titulo.style.cssText = "font-size:24px;letter-spacing:.03em";
+    titulo.textContent = "SE PERDIO LA CONEXION";
+    const cuerpo = document.createElement("div");
+    cuerpo.style.cssText = "font-weight:normal;max-width:34ch";
+    cuerpo.textContent =
+      (motivo ? motivo.charAt(0).toUpperCase() + motivo.slice(1) + ". " : "") +
+      "Vuelves al juego de un jugador. Para seguir jugando juntos, entrad otra " +
+      "vez en la sala y empezad una partida nueva.";
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.textContent = "ENTENDIDO";
+    boton.style.cssText =
+      "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
+      "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
+    boton.addEventListener("click", () => el.remove());
+    el.append(titulo, cuerpo, boton);
+    document.documentElement.appendChild(el);
+    /* Que no se quede para siempre si nadie lo toca. */
+    setTimeout(() => el.remove(), 15000);
+  }
+
   /* Que no se apague la pantalla durante la partida.
      En el movil, apagarse congela el navegador y con el se para esta consola:
      la otra se queda esperando input que ya no llega. El navegador suelta el
@@ -1035,6 +1072,17 @@
       return;
     }
     if (packet.type === "gba:link:disconnect") {
+      disconnectSession(packet);
+      return;
+    }
+
+    /* El cable se ha caido: avisar y soltar la partida. Sin esto la sesion se
+       quedaba viva esperando input que ya no iba a llegar, con la pantalla
+       congelada y sin decir nada. */
+    if (packet.type === "gba:link:peer-lost") {
+      if (packet.roomId && packet.roomId !== roomId) return;
+      if (!controller) return;
+      mostrarCaida(String(packet.motivo || ""));
       disconnectSession(packet);
       return;
     }
