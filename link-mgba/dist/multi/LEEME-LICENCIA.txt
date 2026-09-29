@@ -1,0 +1,67 @@
+mgba.wasm / mgba.js — aviso de licencia
+=======================================
+
+Qué son estos dos ficheros
+--------------------------
+
+`mgba.wasm` y `mgba.js` son la forma ejecutable de mGBA, el emulador de Game
+Boy Advance, compilado a WebAssembly para que el Cable Link funcione dentro del
+navegador. No son código escrito aquí: son mGBA compilado.
+
+mGBA es software libre bajo la Mozilla Public License, versión 2.0 (MPL-2.0).
+Copyright (c) 2013-2026 Jeffrey Pfau y colaboradores de mGBA.
+
+El texto completo de la licencia está en `link-mgba/LICENSE-MPL-2.0.txt`, o en
+https://mozilla.org/MPL/2.0/
+
+
+De dónde sale exactamente (código fuente)
+-----------------------------------------
+
+La MPL-2.0 exige que quien reciba el ejecutable pueda conseguir el código
+fuente. Aquí está todo:
+
+1. mGBA, sin modificar, del commit exacto:
+   https://github.com/mgba-emu/mgba
+   commit c034660f007c543233f1cadeb0ca13c71afd8f41  (master, 2026-07-21)
+
+   No se le ha cambiado ni una línea. `link-mgba/patches/` está vacío a
+   propósito, y el script de compilación hace `reset --hard` a ese commit
+   antes de construir.
+
+2. El shim que añade la capa multi-consola y el cable:
+   `link-mgba/shim/mgba_shim_multi.c`   (en este mismo repositorio)
+
+   Es un fichero derivado de `scripts/shim/mgba_shim.c` de
+   https://github.com/wasm-gaming/mGBA-wasm (también MPL-2.0), y como fichero
+   derivado sigue siendo MPL-2.0. Su cabecera lo dice y conserva el aviso.
+
+3. Cómo se compila, con todas sus opciones:
+   `link-mgba/scripts/build.sh`         (en este mismo repositorio)
+
+   No hay ningún paso manual ni ningún binario traído de otro sitio: el
+   workflow `.github/workflows/build-mgba-link.yml` reconstruye estos dos
+   ficheros desde cero en GitHub Actions, partiendo del commit de arriba.
+
+
+Qué se ha cambiado respecto a mGBA original
+--------------------------------------------
+
+Del código de mGBA, nada. El comportamiento se ajusta solo con opciones de
+compilación, que están todas en `scripts/build.sh`:
+
+  -DDISABLE_THREADING    el navegador no nos da hilos; los mutex quedan vacíos.
+  -DDISABLE_ANON_MMAP    usa calloc/free en vez de mmap anónimo. Sin esto, cada
+                         consola perdía 128 KiB al cerrarse, porque la memoria
+                         se reservaba con un tamaño y se liberaba con otro.
+
+Lo que sí es nuestro y va aparte de mGBA es el shim del punto 2: convierte las
+variables globales en un array para que quepan hasta cuatro consolas en el
+mismo módulo, y expone el coordinador de lockstep que hace de cable.
+
+
+Los juegos no entran aquí
+-------------------------
+
+Este aviso cubre el emulador. Las ROMs de los juegos son obra de sus
+respectivos titulares y tienen sus propias condiciones, que no son esta.

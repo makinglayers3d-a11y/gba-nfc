@@ -1,0 +1,329 @@
+name: Build mGBA Link core
+
+# Build reproducible del fork mGBA de ML3D. Solo en la rama de migracion del
+# Cable Link: no toca main ni la rama del lobby.
+#
+# Fase 1 (`upstream`): compila el shim original de mGBA-wasm sin tocarlo y
+# comprueba que exporta exactamente lo mismo que @wasm-gaming/mgba-wasm@0.1.1.
+# Fase 2 (`multi`): shim multi-instancia con ROM compartida, todavia sin SIO.
+#
+# Temporalmente, los push de esta rama lanzan fase 2 multi durante 180 s para validar el prototipo.
+
+on:
+  push:
+    branches: [test/mgba-link-2026-09-26]
+    paths:
+      - 'link-mgba/**'
+      - '.github/workflows/build-mgba-link.yml'
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Fase a compilar'
+        type: choice
+        options: [upstream, multi]
+        default: upstream
+      emsdk_tag:
+        description: 'Etiqueta de la imagen emscripten/emsdk (pinar cuando haya un build bueno)'
+        type: string
+        default: latest
+      smoke_seconds:
+        description: 'Segundos de la prueba de estabilidad (solo fase multi)'
+        type: string
+        default: '60'
+      rom:
+        description: 'ROM para la prueba headless'
+        type: string
+        default: 'games/Mario Kart - Super Circuit.gba'
+
+permissions:
+  contents: read
+
+env:
+  # El commit del que salio @wasm-gaming/mgba-wasm@0.1.1: mgba master, 2026-07-21.
+  MGBA_REF: c034660f007c543233f1cadeb0ca13c71afd8f41
+  STAGE: ${{ inputs.stage || 'multi' }}
+  ROM: ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
+  SMOKE_SECONDS: ${{ inputs.smoke_seconds || '180' }}
+
+jobs:
+  build:
+    # Pinado, no ubuntu-latest: la etiqueta migra a Ubuntu 26 en octubre de 2026
+    # y este build existe para no depender del entorno.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container: emscripten/emsdk:${{ inputs.emsdk_tag || 'latest' }}
+
+    steps:
+      # El repo trae 577 MB de ROMs en games/. Sin sparse-checkout el clone se
+      # lleva casi todo el tiempo del job, asi que se pide solo link-mgba y la
+      # ROM de la prueba.
+      - name: Checkout (solo link-mgba y la ROM de prueba)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            link-mgba
+            app.js
+            index.html
+            user_scripts/LocalLinkSession.js
+            user_scripts/LinkCableBridge.js
+            ${{ inputs.rom || 'games/Mario Kart - Super Circuit.gba' }}
+          sparse-checkout-cone-mode: false
+
+      - name: Entorno
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          echo "Fase: ${STAGE}"
+          echo "mGBA pinado: ${MGBA_REF}"
+          echo
+          echo "emcc:  $(emcc --version | head -1)"
+          echo "node:  $(node --version)"
+          echo "git:   $(git --version)"
+          # La imagen de emsdk trae cmake y make, pero no esta garantizado en
+          # todas las etiquetas. Si falta alguno se instala y se dice.
+          for tool in cmake make; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "$tool: $($tool --version | head -1)"
+            else
+              echo "::warning::${tool} no esta en la imagen; instalando con apt"
+              apt-get update -qq && apt-get install -y -qq "$tool"
+              echo "$tool: $($tool --version | head -1)"
+            fi
+          done
+
+      # Los ficheros del runtime solo se ejecutan en el navegador, asi que un
+      # error de sintaxis no saldria hasta abrir la pagina. Esto lo caza antes.
+      - name: Sintaxis de los scripts JS
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in link-mgba/scripts/*.cjs link-mgba/runtime/*.js                    app.js user_scripts/LocalLinkSession.js user_scripts/LinkCableBridge.js; do
+            node --check "$f"
+            echo "ok  $f"
+          done
+
+      - name: Cache del checkout y el build de mGBA
+        uses: actions/cache@v4
+        with:
+          path: link-mgba/.tmp
+          key: mgba-${{ env.MGBA_REF }}-${{ inputs.emsdk_tag || 'latest' }}-${{ env.STAGE }}
+          restore-keys: |
+            mgba-${{ env.MGBA_REF }}-${{ inputs.emsdk_tag || 'latest' }}-
+
+      - name: Compilar
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash link-mgba/scripts/build.sh "${STAGE}"
+
+      - name: Verificar el commit de mGBA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
+          HEAD_SHA="$(git -C link-mgba/.tmp/mgba-build rev-parse HEAD)"
+          echo "mGBA HEAD: ${HEAD_SHA}"
+          if [ "${HEAD_SHA}" != "${MGBA_REF}" ]; then
+            echo "::error::mGBA compilado desde ${HEAD_SHA}, se esperaba ${MGBA_REF}"
+            exit 1
+          fi
+          echo "Coincide con el commit pinado."
+          # Los parches de patches/ van encima sin commitear, asi que HEAD sigue
+          # siendo el commit de upstream y el diff dice exactamente que cambia.
+          echo
+          echo "Parches aplicados encima:"
+          git -C link-mgba/.tmp/mgba-build diff --stat || echo "  ninguno"
+
+      # build.sh ya llama a check-exports.sh y falla si el enlazador ha tirado
+      # algun export. Se repite aqui como paso propio para que el fallo salga
+      # con su nombre en la interfaz de Actions.
+      - name: Verificar exports y tamano
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash link-mgba/scripts/check-exports.sh "${STAGE}"
+
+      # La salida se guarda y se vuelca al resumen del run: los logs de Actions
+      # piden autenticacion, el resumen y el artifact no hace falta abrirlos a
+      # ciegas. Con pipefail, el fallo de node sigue siendo el fallo del paso.
+      - name: Prueba headless (node)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/smoke.log"
+
+      # SMOKE_MODE=trace sigue existiendo en smoke.cjs, pero no corre aqui: solo
+      # dice algo con los parches de instrumentacion puestos, y esos se
+      # retiraron al cerrar la fuga. Se reactiva a mano cuando haga falta
+      # diagnosticar otra cosa, junto con patches/diagnostics/.
+
+      # Cierra la pregunta abierta de la fase 2: los 256 KiB que no volvian al
+      # cerrar los nucleos. Mide 1, 2, 3 y 4 nucleos con y sin frames, y repite
+      # dos nucleos con el doble de frames, que es donde se veria una fuga
+      # ligada al tiempo de ejecucion en vez de al numero de instancias.
+      - name: Experimento de residuo de memoria
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: leak
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/leak.log"
+
+      # La capa de runtime, con los minimos stubs de navegador. No cubre audio
+      # ni vsync —eso solo se ve en Chrome— pero si el planificador, el avance
+      # de las ocultas, el input, la savedata, la memoria y el cierre.
+      - name: Capa de runtime (2, 3 y 4 consolas)
+        if: env.STAGE == 'multi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/runtime-check.cjs "${ROM}" 2>&1             | tee "link-mgba/dist/${STAGE}/runtime.log"
+
+      # Fase 3: dos mGBA hablando por SIO con el coordinador nativo, dentro del
+      # mismo modulo y sin lobby ni red. La evidencia no es que ambos avancen,
+      # sino que SIOMULTI0..3 coincide en las dos con datos vivos.
+      - name: Cable Link nativo (2, 3 y 4 consolas)
+        if: env.STAGE == 'multi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > "link-mgba/dist/${STAGE}/link.log"
+          for seats in 2 3 4; do
+            echo "::group::Cable Link con ${seats} consolas"
+            SMOKE_MODE=link SMOKE_LINK_SEATS="${seats}" SMOKE_LINK_FRAMES=1800 \
+              node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+              | tee -a "link-mgba/dist/${STAGE}/link.log"
+            echo "::endgroup::"
+          done
+
+      # El coordinador reserva su Table en el primer attach y no la deshace.
+      # Esto mide si eso es una vez por modulo o crece con ciclos o asientos.
+      - name: Residuo del coordinador
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: linkleak
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/linkleak.log"
+
+      # Que el cable mueva datos no prueba que mueva datos de partida: el
+      # handshake de arranque intercambia siempre lo mismo. Esto busca una
+      # secuencia de botones que lleve al modo Link del juego.
+      - name: Trafico Link real
+        if: env.STAGE == 'multi'
+        shell: bash
+        env:
+          SMOKE_MODE: traffic
+        run: |
+          set -euo pipefail
+          node link-mgba/scripts/smoke.cjs "${STAGE}" "${ROM}" 2>&1 \
+            | tee "link-mgba/dist/${STAGE}/traffic.log"
+
+      - name: Resumen
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="link-mgba/dist/${STAGE}"
+          {
+            echo "## Fase \`${STAGE}\`"
+            echo
+            if [ -f "${DIST}/mgba.wasm" ]; then
+              WASM=$(wc -c < "${DIST}/mgba.wasm")
+              GLUE=$(wc -c < "${DIST}/mgba.js")
+              EXPORTS=$(grep -aoE '_mgbawasm_[a-z0-9_]+' "${DIST}/mgba.js" | sort -u | wc -l)
+              echo "| Medida | Valor |"
+              echo "| --- | --- |"
+              echo "| mgba.wasm | $WASM bytes ($((WASM / 1024)) KiB) |"
+              echo "| mgba.js | $GLUE bytes ($((GLUE / 1024)) KiB) |"
+              echo "| exports \`mgbawasm_*\` | $EXPORTS |"
+              echo "| mGBA | \`${MGBA_REF}\` |"
+              echo "| emsdk | $(emcc --version | head -1) |"
+              echo "| ROM de prueba | \`${ROM}\` |"
+            else
+              echo "El build no ha producido artefactos."
+            fi
+            if [ -f "${DIST}/smoke.log" ]; then
+              echo
+              echo "### Prueba headless"
+              echo
+              echo '```'
+              cat "${DIST}/smoke.log"
+              echo '```'
+            else
+              echo
+              echo "La prueba headless no llego a escribir salida."
+            fi
+            if [ -f "${DIST}/trace.log" ]; then
+              echo
+              echo "### Traza de savedata"
+              echo
+              echo '```'
+              cat "${DIST}/trace.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/link.log" ]; then
+              echo
+              echo "### Cable Link nativo"
+              echo
+              echo '```'
+              cat "${DIST}/link.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/traffic.log" ]; then
+              echo
+              echo "### Trafico Link real"
+              echo
+              echo '```'
+              cat "${DIST}/traffic.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/linkleak.log" ]; then
+              echo
+              echo "### Residuo del coordinador"
+              echo
+              echo '```'
+              cat "${DIST}/linkleak.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/runtime.log" ]; then
+              echo
+              echo "### Capa de runtime"
+              echo
+              echo '```'
+              cat "${DIST}/runtime.log"
+              echo '```'
+            fi
+            if [ -f "${DIST}/leak.log" ]; then
+              echo
+              echo "### Experimento de residuo"
+              echo
+              echo '```'
+              cat "${DIST}/leak.log"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::mgba.wasm = $( [ -f "${DIST}/mgba.wasm" ] && wc -c < "${DIST}/mgba.wasm" || echo 0 ) bytes"
+
+      - name: Subir artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mgba-${{ env.STAGE }}-${{ github.run_number }}
+          path: |
+            link-mgba/dist/${{ env.STAGE }}/mgba.js
+            link-mgba/dist/${{ env.STAGE }}/mgba.wasm
+            link-mgba/dist/${{ env.STAGE }}/smoke.log
+            link-mgba/dist/${{ env.STAGE }}/leak.log
+            link-mgba/dist/${{ env.STAGE }}/trace.log
+            link-mgba/dist/${{ env.STAGE }}/link.log
+            link-mgba/dist/${{ env.STAGE }}/linkleak.log
+            link-mgba/dist/${{ env.STAGE }}/traffic.log
+            link-mgba/dist/${{ env.STAGE }}/runtime.log
+          if-no-files-found: error

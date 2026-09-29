@@ -1,0 +1,651 @@
+/*
+ * Capa de runtime para el mGBA multi-instancia con Cable Link.
+ *
+ * El SDK publicado no vale aqui: abre su propio modulo WASM y se lo queda, y el
+ * cable necesita que las cuatro consolas vivan en el MISMO modulo, porque el
+ * coordinador de lockstep guarda a sus jugadores en una Table propia. Asi que
+ * esto conduce el modulo directamente.
+ *
+ * Reparto de responsabilidades:
+ *   - una sola consola es la visible: se pinta y suena;
+ *   - las ocultas corren igual, sin pintar y con el audio descartado;
+ *   - el cable lo lleva el coordinador nativo, aqui solo se reparte tiempo.
+ *
+ * No sabe nada de lobby, de WebRTC ni de asientos remotos. Eso va por encima.
+ */
+(() => {
+	"use strict";
+
+	const FRAME_CYCLES = 280896;
+	const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
+	const MAX_SEATS = 4;
+	/* Techo de la cola de audio. Por encima se descarta en vez de encolar: mas
+	   de esto ya no es buffer, es retraso audible. */
+	const MAX_QUEUED_MS = 250;
+
+	/* enum GBAKey de include/mgba/internal/gba/input.h */
+	const KEY = { A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 };
+
+	/* El worklet solo hace de cola: recibe bloques estereo ya remuestreados y
+	   los va soltando. Sin SharedArrayBuffer, que exigiria COOP/COEP. */
+	const WORKLET = `
+class ML3DSink extends AudioWorkletProcessor {
+	constructor() {
+		super();
+		this.queue = [];
+		this.offset = 0;
+		this.queued = 0;
+		this.port.onmessage = (event) => {
+			if (event.data === null) { this.queue = []; this.offset = 0; this.queued = 0; return; }
+			this.queue.push(event.data);
+			this.queued += event.data.length / 2;
+		};
+	}
+	process(inputs, outputs) {
+		const left = outputs[0][0];
+		const right = outputs[0][1] || outputs[0][0];
+		for (let i = 0; i < left.length; ++i) {
+			const block = this.queue[0];
+			if (!block) { left[i] = 0; right[i] = 0; continue; }
+			left[i] = block[this.offset];
+			right[i] = block[this.offset + 1];
+			this.offset += 2;
+			--this.queued;
+			if (this.offset >= block.length) { this.queue.shift(); this.offset = 0; }
+		}
+		this.port.postMessage(this.queued);
+		return true;
+	}
+}
+registerProcessor("ml3d-mgba-sink", ML3DSink);
+`;
+
+	/**
+	 * Carga nuestro glue sin tocar el global `createMgbaModule`.
+	 *
+	 * mgba.js es UMD y, como <script>, deja ese global. El problema es que en la
+	 * página conviven dos builds: mgba-compat.js carga el publicado de jsdelivr
+	 * para el juego normal y deja ahí SU factoría. Si aquí se reutilizara el
+	 * global, se acabaría instanciando nuestro .wasm con el glue de ellos, y los
+	 * imports no casan: "Import #28 a C: function import requires a callable".
+	 *
+	 * Así que se trae el fuente y se evalúa en su propio ámbito. Dentro de
+	 * `new Function` no existen `exports`, `module` ni `define`, así que la cola
+	 * UMD no hace nada y basta con devolver la factoría.
+	 */
+	async function loadFactory(url) {
+		const response = await fetch(url, { cache: "no-store" });
+		if (!response.ok) throw new Error("no se pudo cargar " + url + ": HTTP " + response.status);
+		const source = await response.text();
+		// eslint-disable-next-line no-new-func
+		const factory = new Function(source + "\n;return createMgbaModule;")();
+		if (typeof factory !== "function") {
+			throw new Error(url + " no ha definido createMgbaModule");
+		}
+		return factory;
+	}
+
+	class ML3DMgbaLink {
+		constructor(Module, options) {
+			this.M = Module;
+			this.canvas = options.canvas;
+			this.ctx2d = options.canvas ? options.canvas.getContext("2d") : null;
+			this.image = null;
+			this.seats = [];            /* { id, mask, seat } por asiento */
+			this.visible = 0;
+			this.running = false;
+			this.rafHandle = 0;
+			this.ran = [];              /* ciclos acumulados, para el round-robin */
+			this.audio = null;
+			this.onStatus = options.onStatus || (() => {});
+			this.frames = 0;
+			this.lastFpsAt = 0;
+			this.fps = 0;
+			this.hashBuf = 0;          /* buffer reutilizado por stateHash() */
+			this.hashSize = 0;
+		}
+
+		/**
+		 * Abre `seats` consolas sobre una sola copia de la ROM y, si se pide,
+		 * las engancha al cable.
+		 */
+		static async create(options) {
+			const dir = options.wasmDir || "../dist/multi/";
+			const factory = await loadFactory(dir + "mgba.js");
+			const Module = await factory({ locateFile: (p) => dir + p });
+			Module._mgbawasm_init();
+			Module._mgbawasm_set_log_level(options.logLevel ?? 1);
+
+			const runtime = new ML3DMgbaLink(Module, options);
+			runtime.shareRom(options.rom);
+			const count = Math.min(Math.max(1, options.seats || 1), MAX_SEATS);
+			for (let i = 0; i < count; ++i) runtime.openSeat();
+			if (options.link !== false && count > 1) runtime.attachAll();
+			return runtime;
+		}
+
+		shareRom(bytes) {
+			const ptr = this.M._malloc(bytes.length);
+			this.M.HEAPU8.set(bytes, ptr);
+			const shared = this.M._mgbawasm_rom_share(ptr, bytes.length);
+			this.M._free(ptr);
+			if (!shared) throw new Error("mgbawasm_rom_share falló");
+			return shared;
+		}
+
+		/** Abre una consola más y devuelve su índice, o -1 si no cabe. */
+		openSeat() {
+			if (this.seats.length >= MAX_SEATS) return -1;
+			const id = this.M._mgbawasm_instance_open(-1, 0, 1);
+			if (id < 0) return -1;
+			this.seats.push({ id, mask: 0, seat: -1 });
+			this.ran.push(0);
+			return this.seats.length - 1;
+		}
+
+		/** Cierra una consola concreta, sin tocar las demás. */
+		closeSeat(index) {
+			const s = this.seats[index];
+			if (!s) return false;
+			this.detachSeat(index);
+			this.M._mgbawasm_instance_close(s.id);
+			this.seats.splice(index, 1);
+			this.ran.splice(index, 1);
+			if (this.visible >= this.seats.length) this.visible = Math.max(0, this.seats.length - 1);
+			return true;
+		}
+
+		maxSeats() {
+			return MAX_SEATS;
+		}
+
+		attachAll() {
+			this.seats.forEach((s, i) => {
+				if (!this.M._mgbawasm_link_attach(s.id, i)) {
+					throw new Error("link_attach falló en la consola " + s.id);
+				}
+			});
+			this.refreshSeats();
+		}
+
+		/* --- primitivas por índice, para quien lleve su propio planificador --- */
+
+		/** Engancha una sola consola pidiendo asiento. Devuelve true si entra. */
+		attachSeat(index, requestedSeat) {
+			const s = this.seats[index];
+			if (!s) return false;
+			const ok = this.M._mgbawasm_link_attach(s.id, requestedSeat) === 1;
+			if (ok) s.seat = this.M._mgbawasm_link_seat(s.id);
+			return ok;
+		}
+
+		detachSeat(index) {
+			const s = this.seats[index];
+			if (!s) return;
+			this.M._mgbawasm_link_detach(s.id);
+			s.seat = -1;
+		}
+
+		/** Asiento que confirma el coordinador, que no tiene por qué ser el pedido. */
+		seatOf(index) {
+			const s = this.seats[index];
+			return s ? this.M._mgbawasm_link_seat(s.id) : -1;
+		}
+
+		attachedCount() {
+			return this.M._mgbawasm_link_attached();
+		}
+
+		isAsleep(index) {
+			const s = this.seats[index];
+			return s ? Boolean(this.M._mgbawasm_link_asleep(s.id)) : false;
+		}
+
+		/** Avanza una consola hasta agotar ciclos o hasta que el cable la duerma. */
+		runCycles(index, cycles) {
+			const s = this.seats[index];
+			return s ? this.M._mgbawasm_link_run(s.id, cycles) : 0;
+		}
+
+		coordinatorState() {
+			const out = { attached: 0, transferActive: 0, transferMode: 0, cycle: 0, multiData: [0, 0, 0, 0], waiting: 0 };
+			const ptr = this.M._malloc(9 * 4);
+			try {
+				this.M._mgbawasm_link_coordinator_state(ptr);
+				const v = this.M.HEAP32.subarray(ptr >> 2, (ptr >> 2) + 9);
+				out.attached = v[0]; out.transferActive = v[1]; out.transferMode = v[2];
+				out.cycle = v[3]; out.multiData = [v[4], v[5], v[6], v[7]]; out.waiting = v[8];
+			} finally {
+				this.M._free(ptr);
+			}
+			return out;
+		}
+
+		/** Registros SIO de una consola, para el panel de depuración. */
+		coreState(index) {
+			const s = this.seats[index];
+			if (!s) return null;
+			const ptr = this.M._malloc(11 * 4);
+			try {
+				this.M._mgbawasm_link_core_state(s.id, ptr);
+				const v = this.M.HEAP32.subarray(ptr >> 2, (ptr >> 2) + 11);
+				return {
+					linked: !!v[0], asleep: !!v[1], seat: v[2], mode: v[3],
+					siocnt: v[4] & 0xffff, rcnt: v[5] & 0xffff,
+					multi: [v[6] & 0xffff, v[7] & 0xffff, v[8] & 0xffff, v[9] & 0xffff],
+					send: v[10] & 0xffff,
+					frames: this.M._mgbawasm_frame_counter(s.id)
+				};
+			} finally {
+				this.M._free(ptr);
+			}
+		}
+
+		/**
+		 * Pinta la visible y saca su audio; a las demás se les descarta la cola.
+		 * Lo llama quien lleve el planificador, una vez por frame.
+		 */
+		present() {
+			this.seats.forEach((s, i) => {
+				if (i !== this.visible) this.M._mgbawasm_drop_audio(s.id);
+			});
+			this.pumpAudio();
+			this.blit();
+		}
+
+		detachAll() {
+			for (const s of this.seats) this.M._mgbawasm_link_detach(s.id);
+			this.refreshSeats();
+		}
+
+		refreshSeats() {
+			for (const s of this.seats) s.seat = this.M._mgbawasm_link_seat(s.id);
+		}
+
+		get linked() {
+			return this.M._mgbawasm_link_attached() > 0;
+		}
+
+		/* ------------------------------------------------------------ audio */
+
+		/**
+		 * Audio solo de la consola visible.
+		 *
+		 * El GBA emite a 32768 Hz y sube a 65536 en marcha, mientras el
+		 * AudioContext va a lo suyo, asi que hay que remuestrear. Se hace aqui
+		 * con interpolacion lineal en vez de rehacer el contexto cada vez que
+		 * el juego cambia de resolucion, que sonaria a corte.
+		 */
+		async startAudio() {
+			if (this.audio) return;
+			const ctx = new (window.AudioContext || window.webkitAudioContext)();
+			const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+			await ctx.audioWorklet.addModule(url);
+			URL.revokeObjectURL(url);
+
+			const node = new AudioWorkletNode(ctx, "ml3d-mgba-sink", {
+				numberOfInputs: 0,
+				numberOfOutputs: 1,
+				outputChannelCount: [2]
+			});
+			const gain = ctx.createGain();
+			gain.gain.value = 1;
+			node.connect(gain).connect(ctx.destination);
+
+			this.audio = { ctx, node, gain, queued: 0, scratch: 0, scratchFrames: 0, carry: 0 };
+			/* El worklet sigue mandando mensajes un rato despues de que destroy()
+			   ponga this.audio a null, asi que hay que comprobarlo: si no, cada
+			   cierre suelta un puñado de excepciones en la consola. */
+			node.port.onmessage = (event) => { if (this.audio) this.audio.queued = event.data; };
+
+			/* Sin gesto del usuario, resume() devuelve una promesa que se queda
+			   PENDIENTE para siempre, no rechazada. Esperarla cuelga a quien
+			   arranque la sesion, y la sesion no puede depender del audio: se
+			   lanza sin esperar y se reintenta con cada gesto.
+
+			   Nada de {once:true}: gastaba el unico intento aunque resume() no
+			   llegara a cuajar, y entonces ya no habia forma de recuperar el
+			   audio sin recargar. En Android pasaba justo eso. Se reintenta en
+			   cada gesto y los listeners se quitan solos cuando suena. */
+			const eventos = ["pointerdown", "touchstart", "touchend", "click", "keydown"];
+			const unlock = () => {
+				if (!this.audio || this.audio.ctx !== ctx) return quitarUnlock();
+				if (ctx.state === "running") return quitarUnlock();
+				ctx.resume().then(() => {
+					if (ctx.state === "running") quitarUnlock();
+				}).catch(() => {});
+			};
+			const quitarUnlock = () => {
+				for (const ev of eventos) window.removeEventListener(ev, unlock, true);
+			};
+			/* En captura: los botones del emulador hacen preventDefault en
+			   touchstart, y asi el gesto se ve igual aunque lo consuman. */
+			for (const ev of eventos) window.addEventListener(ev, unlock, true);
+			ctx.resume().catch(() => {});
+		}
+
+		/** Estado del audio, para que el panel diga por que no suena. */
+		audioState() {
+			return this.audio ? this.audio.ctx.state : "sin audio";
+		}
+
+		/** Milisegundos de audio encolados, o -1 si todavía no suena. */
+		audioBacklogMs() {
+			const audio = this.audio;
+			if (!audio || audio.ctx.state !== "running") return -1;
+			return (audio.queued / audio.ctx.sampleRate) * 1000;
+		}
+
+		/** Vacía la cola: se usa al cambiar de consola visible. */
+		flushAudio() {
+			if (!this.audio) return;
+			this.audio.node.port.postMessage(null);
+			this.audio.queued = 0;
+			this.audio.carry = 0;
+		}
+
+		pumpAudio() {
+			const audio = this.audio;
+			if (!audio) return;
+			const visible = this.seats[this.visible];
+
+			/* Dos formas de acumular retraso sin fin, las dos vistas en la
+			   integracion real:
+
+			   1. Con el contexto suspendido —sin gesto del usuario todavia— el
+			      worklet no consume nada, asi que todo lo que se le empuje se
+			      queda encolado. Al desbloquearlo aparecian 30 segundos de
+			      audio atrasado.
+			   2. Aunque este corriendo, quien lleva el planificador puede pedir
+			      frames mas deprisa de lo que suena el audio, y la cola crece.
+
+			   En ambos casos lo correcto es tirar el audio sobrante, no
+			   encolarlo: lo que se oye tiene que ser el presente. */
+			if (audio.ctx.state !== "running") {
+				this.M._mgbawasm_drop_audio(visible.id);
+				return;
+			}
+			const queuedMs = (audio.queued / audio.ctx.sampleRate) * 1000;
+			if (queuedMs > MAX_QUEUED_MS) {
+				this.M._mgbawasm_drop_audio(visible.id);
+				audio.dropped = (audio.dropped || 0) + 1;
+				return;
+			}
+
+			const available = this.M._mgbawasm_audio_available(visible.id);
+			if (available <= 0) return;
+
+			if (audio.scratchFrames < available) {
+				if (audio.scratch) this.M._free(audio.scratch);
+				audio.scratch = this.M._malloc(available * 4);   /* estéreo int16 */
+				audio.scratchFrames = available;
+			}
+			const got = this.M._mgbawasm_read_audio(visible.id, audio.scratch, available);
+			if (got <= 0) return;
+
+			const src = this.M.HEAP16.subarray(audio.scratch >> 1, (audio.scratch >> 1) + got * 2);
+			const srcRate = this.M._mgbawasm_sample_rate(visible.id) || 32768;
+			const ratio = srcRate / audio.ctx.sampleRate;
+
+			const outFrames = Math.floor((got - audio.carry) / ratio);
+			if (outFrames <= 0) return;
+			const out = new Float32Array(outFrames * 2);
+			let pos = audio.carry;
+			for (let i = 0; i < outFrames; ++i) {
+				const index = Math.min(Math.floor(pos), got - 1) * 2;
+				out[i * 2] = src[index] / 32768;
+				out[i * 2 + 1] = src[index + 1] / 32768;
+				pos += ratio;
+			}
+			audio.carry = pos - got;
+			if (audio.carry < 0) audio.carry = 0;
+			audio.node.port.postMessage(out, [out.buffer]);
+		}
+
+		/* ------------------------------------------------------------ video */
+
+		blit() {
+			if (!this.ctx2d) return;
+			const visible = this.seats[this.visible];
+			/* Con cable, link_run no empaqueta el framebuffer —eso vivia dentro
+			   de run_frame—, asi que hay que pedirlo aqui. Solo para la visible:
+			   a las ocultas no hay que empaquetarles nada. */
+			if (this.linked) this.M._mgbawasm_present(visible.id);
+			const width = this.M._mgbawasm_video_width(visible.id);
+			const height = this.M._mgbawasm_video_height(visible.id);
+			if (!width || !height) return;
+			if (this.canvas.width !== width || this.canvas.height !== height) {
+				this.canvas.width = width;
+				this.canvas.height = height;
+				this.image = null;
+			}
+			if (!this.image) this.image = this.ctx2d.createImageData(width, height);
+			const ptr = this.M._mgbawasm_video_ptr(visible.id);
+			this.image.data.set(this.M.HEAPU8.subarray(ptr, ptr + width * height * 4));
+			this.ctx2d.putImageData(this.image, 0, 0);
+		}
+
+		/* -------------------------------------------------------- ejecución */
+
+		/**
+		 * Un frame para todas las consolas.
+		 *
+		 * Con cable: se le da tiempo a la despierta que menos ha corrido, y se
+		 * ordena por los ciclos que devuelve link_run y no por el reloj emulado,
+		 * porque mTiming es un int32 que mGBA reajusta. Sin cable: un frame a
+		 * cada una y ya.
+		 */
+		advanceFrame() {
+			if (!this.linked) {
+				for (const s of this.seats) this.M._mgbawasm_run_frame(s.id);
+			} else {
+				const start = this.ran.slice();
+				const done = (i) => this.ran[i] - start[i];
+				let guard = 0;
+				while (++guard < 8192) {
+					if (this.ran.every((_, i) => done(i) >= FRAME_CYCLES)) break;
+					/* Se elige al despierto que menos ha avanzado EN ESTA vuelta,
+					   sin impedirle pasar del frame. Atarlo al objetivo bloquea:
+					   una consola que ya cumplio su frame todavia tiene que poder
+					   correr para que el lockstep despierte a la que espera por
+					   ella, y si no se la deja, se quedan las dos paradas. */
+					let pick = -1;
+					let least = Infinity;
+					for (let i = 0; i < this.seats.length; ++i) {
+						if (this.M._mgbawasm_link_asleep(this.seats[i].id)) continue;
+						if (done(i) < least) { least = done(i); pick = i; }
+					}
+					if (pick < 0) break;   /* todas dormidas: bloqueo de verdad */
+					this.ran[pick] += this.M._mgbawasm_link_run(this.seats[pick].id, LINK_SLICE);
+				}
+			}
+			/* Las ocultas no suenan: su cola se descarta para que no sature. */
+			this.seats.forEach((s, i) => {
+				if (i !== this.visible) this.M._mgbawasm_drop_audio(s.id);
+			});
+		}
+
+		tick(now) {
+			if (!this.running) return;
+
+			/* Realimentacion por nivel de cola: el GBA va a 59,7275 Hz y la
+			   pantalla a 60, asi que sin esto el audio deriva. Un frame de mas
+			   o de menos segun lo que quede encolado. */
+			let frames = 1;
+			if (this.audio) {
+				const ms = (this.audio.queued / this.audio.ctx.sampleRate) * 1000;
+				if (ms < 40) frames = 2;
+				else if (ms > 140) frames = 0;
+			}
+			for (let f = 0; f < frames; ++f) {
+				this.advanceFrame();
+				this.pumpAudio();
+			}
+
+			this.blit();
+			++this.frames;
+			if (now - this.lastFpsAt >= 1000) {
+				this.fps = this.frames * 1000 / (now - this.lastFpsAt);
+				this.frames = 0;
+				this.lastFpsAt = now;
+				this.onStatus(this.status());
+			}
+			this.rafHandle = requestAnimationFrame((t) => this.tick(t));
+		}
+
+		start() {
+			if (this.running) return;
+			this.running = true;
+			this.lastFpsAt = performance.now();
+			this.frames = 0;
+			this.rafHandle = requestAnimationFrame((t) => this.tick(t));
+		}
+
+		stop() {
+			this.running = false;
+			if (this.rafHandle) cancelAnimationFrame(this.rafHandle);
+			this.rafHandle = 0;
+		}
+
+		/* ------------------------------------------------------------ input */
+
+		setKeys(index, mask) {
+			const s = this.seats[index];
+			if (!s) return;
+			s.mask = mask;
+			this.M._mgbawasm_set_keys(s.id, mask);
+		}
+
+		press(index, keyName, down) {
+			const s = this.seats[index];
+			if (!s || KEY[keyName] === undefined) return;
+			const bit = 1 << KEY[keyName];
+			this.setKeys(index, down ? (s.mask | bit) : (s.mask & ~bit));
+		}
+
+		/* --------------------------------------------------- consola visible */
+
+		/** Cambia quién se ve y se oye. No reinicia ni para ninguna consola. */
+		setVisible(index) {
+			if (index < 0 || index >= this.seats.length || index === this.visible) return;
+			this.visible = index;
+			this.image = null;
+			this.flushAudio();
+		}
+
+		/* ---------------------------------------------------------- savedata */
+
+		sram(index) {
+			const s = this.seats[index];
+			if (!s) return null;
+			const size = this.M._mgbawasm_sram_save(s.id);
+			if (!size) return null;
+			const ptr = this.M._mgbawasm_sram_ptr(s.id);
+			return Uint8Array.from(this.M.HEAPU8.subarray(ptr, ptr + size));
+		}
+
+		loadSram(index, bytes) {
+			const s = this.seats[index];
+			if (!s || !bytes || !bytes.length) return false;
+			const ptr = this.M._malloc(bytes.length);
+			this.M.HEAPU8.set(bytes, ptr);
+			const ok = this.M._mgbawasm_sram_load(s.id, ptr, bytes.length);
+			this.M._free(ptr);
+			return Boolean(ok);
+		}
+
+		/* ------------------------------------------------- desincronizacion */
+
+		/**
+		 * Huella del estado completo de una consola.
+		 *
+		 * Con el cable en red cada navegador emula las mismas consolas con las
+		 * mismas teclas, asi que este numero tiene que coincidir en todos. Si deja
+		 * de coincidir, las copias han divergido y cada jugador esta viendo una
+		 * partida distinta. Se hashea el savestate y no el framebuffer porque la
+		 * divergencia empieza en el estado y tarda en verse en pantalla.
+		 */
+		stateHash(index) {
+			const s = this.seats[index];
+			if (!s) return 0;
+			const size = this.M._mgbawasm_state_size(s.id);
+			if (size <= 0) return 0;
+			if (this.hashSize < size) {
+				if (this.hashBuf) this.M._free(this.hashBuf);
+				this.hashBuf = this.M._malloc(size);
+				this.hashSize = this.hashBuf ? size : 0;
+			}
+			if (!this.hashBuf) return 0;
+			if (!this.M._mgbawasm_state_save(s.id, this.hashBuf)) return 0;
+			/* FNV-1a de 32 bits, de cuatro en cuatro bytes: basta para avisar y no
+			   cuesta nada frente a recorrer el savestate byte a byte. */
+			let h = 0x811c9dc5;
+			const words = size >>> 2;
+			const u32 = this.M.HEAPU32.subarray(this.hashBuf >>> 2, (this.hashBuf >>> 2) + words);
+			for (let i = 0; i < words; i++) {
+				h = Math.imul(h ^ u32[i], 0x01000193);
+			}
+			const u8 = this.M.HEAPU8;
+			for (let i = this.hashBuf + (words << 2); i < this.hashBuf + size; i++) {
+				h = Math.imul(h ^ u8[i], 0x01000193);
+			}
+			return h >>> 0;
+		}
+
+		/** Huella de todas las consolas juntas: una sola cifra que comparar. */
+		allStateHash() {
+			let h = 0x811c9dc5;
+			for (let i = 0; i < this.seats.length; i++) {
+				h = Math.imul(h ^ this.stateHash(i), 0x01000193);
+			}
+			return h >>> 0;
+		}
+
+		/* ------------------------------------------------------ diagnóstico */
+
+		status() {
+			return {
+				fps: this.fps,
+				visible: this.visible,
+				linked: this.linked,
+				attached: this.M._mgbawasm_link_attached(),
+				heap: this.M._mgbawasm_heap_used() >>> 0,
+				linear: this.M.HEAPU8.length,
+				audioQueued: this.audio ? this.audio.queued : 0,
+				sampleRate: this.seats.length
+					? this.M._mgbawasm_sample_rate(this.seats[this.visible].id) : 0,
+				seats: this.seats.map((s, i) => ({
+					id: s.id,
+					seat: this.M._mgbawasm_link_seat(s.id),
+					asleep: Boolean(this.M._mgbawasm_link_asleep(s.id)),
+					frames: this.M._mgbawasm_frame_counter(s.id),
+					cycles: this.ran[i],
+					mask: s.mask
+				}))
+			};
+		}
+
+		destroy() {
+			this.stop();
+			this.detachAll();
+			for (const s of this.seats) this.M._mgbawasm_instance_close(s.id);
+			this.seats = [];
+			this.ran = [];
+			if (this.hashBuf) {
+				this.M._free(this.hashBuf);
+				this.hashBuf = 0;
+				this.hashSize = 0;
+			}
+			this.M._mgbawasm_rom_release();
+			if (this.audio) {
+				if (this.audio.scratch) this.M._free(this.audio.scratch);
+				try { this.audio.ctx.close(); } catch (_) {}
+				this.audio = null;
+			}
+		}
+	}
+
+	ML3DMgbaLink.KEY = KEY;
+	ML3DMgbaLink.FRAME_CYCLES = FRAME_CYCLES;
+	window.ML3DMgbaLink = ML3DMgbaLink;
+})();

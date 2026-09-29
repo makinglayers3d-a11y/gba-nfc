@@ -2,23 +2,133 @@
   "use strict";
 
   const params = new URLSearchParams(location.search);
-  const roomId = String(params.get("linkRoom") || "");
-  const mySeat = Math.max(0, Math.min(1, Number(params.get("linkPlayer")) | 0));
-  const role = params.get("linkRole") === "host" ? "host" : "guest";
+  /* El lobby integrado configura la sesión en caliente (gba:link:configure),
+     así que estos tres valores ya no son fijos: la URL solo da el arranque
+     directo que sigue usando el lobby en ventana aparte. */
+  let roomId = String(params.get("linkRoom") || "");
+  let mySeat = Math.max(0, Math.min(3, Number(params.get("linkPlayer")) | 0));
+  let role = params.get("linkRole") === "host" ? "host" : "guest";
+  /* Jugadores de la sala: 2 a 4, como el cable Link real. Cada navegador
+     emula su consola y una copia oculta de cada compañero. */
+  let seatCount = Math.max(2, Math.min(4, Number(params.get("linkPlayers")) | 0 || 2));
   const selfTest = params.get("linkSelfTest") === "1";
   const requestedTransferCycles = Math.max(0, Number(params.get("linkTransferCycles")) | 0);
   const progressiveTransfer = params.get("linkProgressive") === "1";
-  const enabled = Boolean(roomId) || selfTest;
+  let enabled = Boolean(roomId) || selfTest;
   const BUS_NAME = "ml3d-gba-link-v1";
   const FRAME_CYCLES = 280896;
   const INPUT_DELAY = 4;
   const RING = 256;
+  const LINK_SLICE = 16384;   /* rodaja por vuelta del planificador con cable */
+  const AUDIO_TARGET_MS = 120; /* cola de audio a la que se acompasa la sesion */
+  const SYNC_EVERY = 60;       /* cada cuantos frames se comparan las copias */
   const UNKNOWN = -1;
 
   let localMask = 0;
-  const selfTestMasks = [0, 0];
+  /* Volver al juego normal recarga la ROM, y eso emite ml3d-rom-started. Sin
+     esta bandera el oyente volveria a armar la sesion que se acaba de cerrar. */
+  let returningToNormal = false;
+  const selfTestMasks = [0, 0, 0, 0];
   let controller = null;
   let pendingStart = null;
+
+  /* Aviso de divergencia.
+
+     El cable en red no manda imagen: cada navegador emula las mismas consolas
+     con las mismas teclas y confia en llegar al mismo sitio. Si dejan de
+     coincidir, cada jugador ve una partida distinta y nada lo delata. Por eso
+     el aviso es un cartel que tapa la pantalla, no una linea en la barra de
+     depuracion: el jugador tiene que enterarse. */
+  function mostrarDesync(detalle) {
+    let el = document.getElementById("ml3d-link-desync");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ml3d-link-desync";
+      el.style.cssText =
+        "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+        "flex-direction:column;align-items:center;justify-content:center;gap:10px;" +
+        "background:rgba(120,0,0,.88);color:#fff;text-align:center;padding:24px;" +
+        "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+      document.documentElement.appendChild(el);
+    }
+    el.textContent = "";
+    const titulo = document.createElement("div");
+    titulo.style.cssText = "font-size:26px;letter-spacing:.04em";
+    titulo.textContent = "PARTIDAS DESINCRONIZADAS";
+    const cuerpo = document.createElement("div");
+    cuerpo.style.cssText = "font-weight:normal;max-width:34ch";
+    cuerpo.textContent =
+      "Las consolas han dejado de ir a la vez: cada jugador esta viendo una " +
+      "partida distinta. Volved a conectar para empezar de nuevo.";
+    const pie = document.createElement("div");
+    pie.style.cssText = "font:11px/1.3 monospace;opacity:.75";
+    pie.textContent = detalle;
+    el.append(titulo, cuerpo, pie);
+  }
+
+  function quitarDesync() {
+    document.getElementById("ml3d-link-desync")?.remove();
+  }
+
+  /* Aviso de cable caido.
+     Se parece al de divergencia pero dice otra cosa: alli las dos copias
+     seguian corriendo y habian dejado de coincidir; aqui no hay nadie al otro
+     lado. El jugador tiene que enterarse de por que se ha quedado solo, y la
+     partida tiene que soltarse en vez de esperar para siempre. */
+  function mostrarCaida(motivo) {
+    let el = document.getElementById("ml3d-link-caida");
+    if (el) return;
+    el = document.createElement("div");
+    el.id = "ml3d-link-caida";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+      "background:rgba(20,20,28,.92);color:#fff;text-align:center;padding:24px;" +
+      "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+    const titulo = document.createElement("div");
+    titulo.style.cssText = "font-size:24px;letter-spacing:.03em";
+    titulo.textContent = "SE PERDIO LA CONEXION";
+    const cuerpo = document.createElement("div");
+    cuerpo.style.cssText = "font-weight:normal;max-width:34ch";
+    cuerpo.textContent =
+      (motivo ? motivo.charAt(0).toUpperCase() + motivo.slice(1) + ". " : "") +
+      "Vuelves al juego de un jugador. Para seguir jugando juntos, entrad otra " +
+      "vez en la sala y empezad una partida nueva.";
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.textContent = "ENTENDIDO";
+    boton.style.cssText =
+      "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
+      "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
+    boton.addEventListener("click", () => el.remove());
+    el.append(titulo, cuerpo, boton);
+    document.documentElement.appendChild(el);
+    /* Que no se quede para siempre si nadie lo toca. */
+    setTimeout(() => el.remove(), 15000);
+  }
+
+  /* Que no se apague la pantalla durante la partida.
+     En el movil, apagarse congela el navegador y con el se para esta consola:
+     la otra se queda esperando input que ya no llega. El navegador suelta el
+     bloqueo solo al cambiar de pestaña, asi que hay que volver a pedirlo. */
+  let pantallaDespierta = null;
+
+  async function mantenPantallaEncendida() {
+    if (!navigator.wakeLock || pantallaDespierta) return;
+    try {
+      pantallaDespierta = await navigator.wakeLock.request("screen");
+      pantallaDespierta.addEventListener("release", () => { pantallaDespierta = null; });
+    } catch { pantallaDespierta = null; }
+  }
+
+  function dejaApagarPantalla() {
+    try { pantallaDespierta?.release(); } catch {}
+    pantallaDespierta = null;
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && controller?.started) mantenPantallaEncendida();
+  });
 
   function handleLocalKey(key, down) {
     key = Number(key) | 0;
@@ -38,30 +148,35 @@
     get status() {
       return controller?.status?.() || { enabled, roomId, mySeat, role, selfTest };
     },
+    /* Medicion de la partida: resumen() separa CPU de red, muestras() da el
+       segundo a segundo. Es lo que se mira al terminar una prueba larga. */
+    get medicion() {
+      if (!controller) return null;
+      return { resumen: controller.resumen(), muestras: controller.muestras || [] };
+    },
     test: selfTest ? {
       setSeatMask(seat, mask) {
         seat = Number(seat) | 0;
-        if (seat < 0 || seat > 1) return false;
+        if (seat < 0 || seat > 3) return false;
         selfTestMasks[seat] = Number(mask) & 0x3ff;
         return true;
       },
       press(seat, key) {
         seat = Number(seat) | 0;
         key = Number(key) | 0;
-        if (seat < 0 || seat > 1 || key < 0 || key > 9) return false;
+        if (seat < 0 || seat > 3 || key < 0 || key > 9) return false;
         selfTestMasks[seat] |= (1 << key);
         return true;
       },
       release(seat, key) {
         seat = Number(seat) | 0;
         key = Number(key) | 0;
-        if (seat < 0 || seat > 1 || key < 0 || key > 9) return false;
+        if (seat < 0 || seat > 3 || key < 0 || key > 9) return false;
         selfTestMasks[seat] &= ~(1 << key);
         return true;
       },
       releaseAll() {
-        selfTestMasks[0] = 0;
-        selfTestMasks[1] = 0;
+        selfTestMasks.fill(0);
       },
       get masks() {
         return selfTestMasks.slice();
@@ -72,7 +187,9 @@
     } : null
   };
 
-  if (!enabled || typeof BroadcastChannel !== "function") return;
+  /* El bus queda siempre escuchando: sin sala configurada nada casa con el
+     filtro de roomId, y asi el lobby integrado puede configurarla despues. */
+  if (typeof BroadcastChannel !== "function") return;
 
   const bus = new BroadcastChannel(BUS_NAME);
 
@@ -96,89 +213,57 @@
       .join("");
   }
 
-  function makeHiddenCore(rom) {
-    const core = new GameBoyAdvanceEmulator();
-    core.attachPlayStatusHandler(() => {});
-    core.settings.offthreadGfxEnabled = false;
-    core.settings.SKIPBoot = true;
-    core.attachROM(rom.slice());
-    core.play();
-    try {
-      core.audioPushNewState?.();
-    } catch {}
-    return core;
-  }
-
   class LocalDualLink {
-    constructor(visible, hidden, hash) {
-      this.visible = visible;
-      this.hidden = hidden;
+    /**
+     * @param rt   adaptador del runtime mGBA multi-instancia (ver mgbaRuntime)
+     * @param hash huella de la ROM, para que los dos lados comparen cartucho
+     */
+    constructor(rt, hash) {
+      this.rt = rt;
       this.romHash = hash;
-      this.cores = mySeat === 0 ? [visible, hidden] : [hidden, visible];
-      this.serials = this.cores.map((core) => core.IOCore.serial);
-      // The cycle counter is coordinator-only metadata. Normalize both cores
-      // at the moment the deterministic session is created so pre-session UI
-      // activity can never become a permanent scheduling skew.
-      for (const core of this.cores) {
-        if (core?.IOCore) {
-          core.IOCore.linkCycleCounter = 0;
-          core.IOCore.cyclesOveriteratedPreviously = 0;
-          core.IOCore.linkIterationCut = false;
-        }
-      }
+      this.seats = seatCount;
+
+      /* Mapa explícito asiento → core. El id que devuelve instance_open no
+         tiene por qué coincidir con el asiento, y el asiento definitivo lo
+         confirma el coordinador aparte, en confirmedSeat. */
+      this.seatToCore = Array.from({ length: this.seats }, (_, i) => i);
+      this.confirmedSeat = new Array(this.seats).fill(-1);
+      /* La consola visible y audible es siempre la de mySeat. */
+      this.visible = this.coreOf(Math.min(mySeat, this.seats - 1));
+      rt.setVisible(this.visible);
+
+      this.ran = new Array(this.seats).fill(0);
+      this.target = 0;
       this.frame = 0;
       this.sessionId = "";
       this.started = false;
-      this.remoteReady = false;
+      this.readySeats = new Set();
       this.remoteHash = "";
-      this.pendingTransfer = null;
+      /* El recuento de transferencias lo lleva ahora el coordinador nativo: se
+         cuenta por flancos de transferencia activa, no por el cable a mano. */
       this.transferCount = 0;
-      this.finishSyncCount = 0;
-      this.localTransferArmed = false;
-      this.normalPrepared = [null, null];
-      this.normalTransferCount = 0;
-      this.normalTrace = [];
-      this.normalAttemptTrace = [];
+      this.prevTransferActive = 0;
       this.lastLinkError = "";
-      this.startSkewLast = 0;
-      this.startSkewMin = Infinity;
-      this.startSkewMax = -Infinity;
-      this.startSkewTotal = 0;
-      this.startSkewCount = 0;
-      this.recentTransfers = [];
-      this.sendWordHistory = [[], []];
-      this.siocntWrites = [[], []];
-      this.siocntReads = [[], []];
-      this.rcntWrites = [[], []];
-      this.siomultiReads = [[], []];
-      this.criticalSiomultiReads = [[], []];
-      this.comparisonTrace = [[], []];
-      this.mainReturnTrace = [[], []];
-      this.instructionRing = [[], []];
-      this.error60Trace = [[], []];
-      this.resetTrace = [[], []];
-      this.protocolTransition = null;
-      this.protocolTransitionRemaining = 0;
       this.wedged = false;
       this.inputTimer = null;
       this.readyTimer = null;
       this.tickTimer = null;
-      this.lastApplied = [0, 0];
-      this.inputs = new Int16Array(RING * 2).fill(UNKNOWN);
+      this.lastApplied = new Array(this.seats).fill(0);
+      this.inputs = new Int16Array(RING * this.seats).fill(UNKNOWN);
       this.sentFrames = new Set();
       this.lastTickAt = performance.now();
       this.stallCount = 0;
       this.debug = null;
 
       for (let frame = 0; frame < INPUT_DELAY; frame++) {
-        this.setInput(frame, 0, 0);
-        this.setInput(frame, 1, 0);
+        for (let seat = 0; seat < this.seats; seat++) this.setInput(frame, seat, 0);
       }
 
-      this.installLocalCable();
+      this.cableOk = this.attachCable();
       this.buildDebug();
+      if (!this.cableOk) return;
       if (selfTest) {
-        this.remoteReady = true;
+        for (let seat = 1; seat < this.seats; seat++) this.readySeats.add(seat);
         this.remoteHash = this.romHash;
         setTimeout(() => this.start("ci-selftest", INPUT_DELAY), 0);
       } else {
@@ -190,7 +275,7 @@
     }
 
     slot(frame, seat) {
-      return (frame % RING) * 2 + seat;
+      return (frame % RING) * this.seats + seat;
     }
 
     setInput(frame, seat, mask) {
@@ -215,7 +300,9 @@
     }
 
     maybeHostStart() {
-      if (role !== "host" || this.started || !this.remoteReady) return;
+      /* El host arranca cuando todos los compañeros están listos. */
+      if (role !== "host" || this.started) return;
+      if (this.readySeats.size < this.seats - 1) return;
       if (!this.remoteHash || this.remoteHash !== this.romHash) {
         this.setDebugError("ROM DISTINTA");
         return;
@@ -232,7 +319,9 @@
     }
 
     acceptRemoteReady(packet) {
-      this.remoteReady = Boolean(packet.ready !== false);
+      const seat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
+      if (packet.ready === false) this.readySeats.delete(seat);
+      else if (seat !== mySeat) this.readySeats.add(seat);
       this.remoteHash = String(packet.romHash || "");
       this.renderDebug();
       this.maybeHostStart();
@@ -250,577 +339,105 @@
       clearInterval(this.readyTimer);
       this.readyTimer = null;
       this.frame = 0;
+      this.miHuella = new Map();    /* frame -> huella propia */
+      this.suHuella = new Map();    /* frame -> { asiento: huella } */
+      this.statsRemotas = {};       /* asiento -> cifras que manda el otro */
+      this.desync = null;
+      quitarDesync();
+      mantenPantallaEncendida();
+      this.arrancaRegistro();
       this.lastTickAt = performance.now();
-      try {
-        this.visible.audioPushNewState?.();
-        this.hidden.audioPushNewState?.();
-      } catch {}
       this.tickTimer = setInterval(() => this.tick(), 1000 / 60);
       this.renderDebug();
     }
 
-    installLocalCable() {
+    /* El cable ya no se monta a mano: lo lleva GBASIOLockstepCoordinator dentro
+       del propio WASM. Aqui solo se pide asiento y se comprueba que el
+       coordinador lo confirma. No se asume que el id del core sea el asiento:
+       el coordinador reparte por preferencia y puede no coincidir. */
+    attachCable() {
       try {
         window.ML3DLinkCable?.detachEmulator?.(this.visible);
       } catch {}
       document.getElementById("ml3d-link-debug")?.remove();
 
-      const makeAdapter = (seat) => ({
-        playerNumber: seat,
-        localDeterministic: true,
-        isConnected: () => true,
-        isReady: () =>
-          (this.serials[0]?.SIOCNT_MODE | 0) === 2 &&
-          (this.serials[1]?.SIOCNT_MODE | 0) === 2,
-        canTransfer: () => {
-          if (seat !== 0) return true;
-          return (this.serials[1]?.SIOCNT_MODE | 0) === 2;
-        },
-        onSerialModeChange: (mode) => {
-          mode = Number(mode) | 0;
-          if (mode !== 0 && mode !== 1) {
-            this.normalPrepared[seat] = null;
-          }
-          this.renderDebug();
-        },
-        onSendDataChange: (word) => {
-          const core = this.cores[seat];
-          const cycle = Number(core?.IOCore?.linkCycleCounter) || 0;
-          const cpu = core?.IOCore?.cpu;
-          const pc = Number(cpu?.registers?.[15] ?? 0) >>> 0;
-          const thumb = Boolean((Number(cpu?.modeFlags) | 0) & 0x20);
-          const history = this.sendWordHistory[seat];
-          history.push({
-            cycle,
-            word: Number(word) & 0xffff,
-            pc,
-            thumb
-          });
-          if (history.length > 256) history.splice(0, history.length - 256);
-        },
-        onLinkError: (error) => {
-          this.lastLinkError = String(error?.stack || error?.message || error || "unknown");
-          this.renderDebug();
-        },
-        onHardwareTransferComplete: () => {
-          if (!this.localTransferArmed) return;
-          if (seat === 1) {
-            // Match mGBA's finish hard-sync: the clock owner must not expose
-            // completion/IRQ until the secondary has finished the same transfer.
-            this.finishSyncCount += 1;
-            this.serials[0]?.releaseExternalMultiplayerTransfer?.(false);
-            return;
-          }
-          if (seat === 0) {
-            this.transferCount += 1;
-            this.localTransferArmed = false;
-            this.renderDebug();
-          }
-        },
-        startNormalTransfer: (info = {}) => {
-          const mode = Number(info.mode) | 0;
-          if (mode !== 0 && mode !== 1) return false;
-
-          const core = this.cores[seat];
-          const prepared = {
-            seat,
-            sequence: Number(info.sequence) | 0,
-            mode,
-            data: Number(info.data) >>> 0,
-            internalClock: !!info.internalClock,
-            fastClock: !!info.fastClock,
-            cycle: Number(core?.IOCore?.linkCycleCounter) || 0,
-            frame: this.frame
-          };
-          this.normalPrepared[seat] = prepared;
-          this.normalAttemptTrace.push({
-            ...prepared,
-            peer: this.normalPrepared[seat ^ 1] ? { ...this.normalPrepared[seat ^ 1] } : null
-          });
-          if (this.normalAttemptTrace.length > 256) this.normalAttemptTrace.shift();
-
-          const peer = this.normalPrepared[seat ^ 1];
-          if (!peer || peer.mode !== mode) return true;
-
-          // Normal serial requires exactly one clock source. Do not fabricate
-          // a transfer if both ends claim master or both wait for external clock.
-          if (prepared.internalClock === peer.internalClock) return true;
-
-          const p0 = this.normalPrepared[0];
-          const p1 = this.normalPrepared[1];
-          if (!p0 || !p1) return true;
-
-          // Consume before completing because IRQ handlers can immediately
-          // configure the next transfer.
-          this.normalPrepared[0] = null;
-          this.normalPrepared[1] = null;
-
-          const masterSeat = p0.internalClock ? 0 : 1;
-          this.normalTrace.push({
-            frame: this.frame,
-            mode,
-            masterSeat,
-            p0: p0.data >>> 0,
-            p1: p1.data >>> 0,
-            p0Cycle: p0.cycle,
-            p1Cycle: p1.cycle,
-            fastClock: !!(p0.fastClock || p1.fastClock)
-          });
-          if (this.normalTrace.length > 256) this.normalTrace.shift();
-
-          this.serials[0]?.completeExternalNormalTransfer?.(p1.data >>> 0);
-          this.serials[1]?.completeExternalNormalTransfer?.(p0.data >>> 0);
-          this.normalTransferCount += 1;
-          this.renderDebug();
-          return true;
-        },
-        onNormalTransferComplete: () => {},
-                startMultiplayerTransfer: (info = {}) => {
-          if (seat !== 0 || this.pendingTransfer || this.localTransferArmed) return false;
-          // The secondary has its own copy of the cartridge and reaches MULTI
-          // on its own schedule. Until it does there is nobody to clock, so
-          // leave BUSY clear and let the parent retry, exactly as a cable with
-          // an unready peer behaves.
-          if ((this.serials[1]?.SIOCNT_MODE | 0) !== 2) return false;
-          this.pendingTransfer = {
-            sequence: Number(info.sequence) | 0,
-            word: Number(info.word) & 0xffff,
-            baud: Number(info.baud) & 0x3,
-            parentCycle: Number(this.cores[0].IOCore.linkCycleCounter) || 0
-          };
-          try {
-            const io = this.cores[0].IOCore;
-            if (typeof io.flagLinkIterationEnd === "function") io.flagLinkIterationEnd();
-            else io.flagIterationEnd();
-          } catch {}
-          return true;
+      for (let seat = 0; seat < this.seats; seat++) {
+        const core = this.coreOf(seat);
+        if (!this.rt.attachSeat(core, seat)) {
+          this.setDebugError("NO SE PUDO ENGANCHAR EL ASIENTO " + seat);
+          return false;
         }
-      });
-
-      this.serials[0].attachLinkCable(makeAdapter(0));
-      this.serials[0].setLinkPlayerNumber(0);
-      this.serials[1].attachLinkCable(makeAdapter(1));
-      this.serials[1].setLinkPlayerNumber(1);
-
-      for (let seat = 0; seat < 2; seat++) {
-        const io = this.cores[seat]?.IOCore;
-        if (io) {
-          io.linkInstructionObserver = (logicalPc, rawPc) => {
-            const cpu = io.cpu;
-            if (!cpu?.registers) return;
-            const regs = Array.from(cpu.registers.slice(0, 8), (v) => Number(v) >>> 0);
-
-            const ring = this.instructionRing[seat];
-            ring.push({
-              frame: this.frame,
-              cycle: Number(io.linkCycleCounter) || 0,
-              logicalPc: Number(logicalPc) >>> 0,
-              rawPc: Number(rawPc) >>> 0,
-              r0: regs[0] >>> 0,
-              r1: regs[1] >>> 0,
-              r2: regs[2] >>> 0,
-              r3: regs[3] >>> 0,
-              r4: regs[4] >>> 0,
-              r5: regs[5] >>> 0,
-              r6: regs[6] >>> 0,
-              r7: regs[7] >>> 0
-            });
-            if (ring.length > 32) ring.shift();
-
-            if (logicalPc === 0x080C9900) {
-              const traces = this.resetTrace[seat];
-              traces.push({
-                frame: this.frame,
-                cycle: Number(io.linkCycleCounter) || 0,
-                history: ring.slice(),
-                bus: [
-                  this.serials[seat].SIODATA_A & 0xffff,
-                  this.serials[seat].SIODATA_B & 0xffff,
-                  this.serials[seat].SIODATA_C & 0xffff,
-                  this.serials[seat].SIODATA_D & 0xffff
-                ],
-                siocnt: ((this.serials[seat].readSIOCNT1?.() ?? 0) << 8) |
-                  (this.serials[seat].readSIOCNT0?.() ?? 0),
-                rcnt: ((this.serials[seat].readRCNT1?.() ?? 0) << 8) |
-                  (this.serials[seat].readRCNT0?.() ?? 0)
-              });
-              if (traces.length > 16) traces.shift();
-            }
-
-            if (logicalPc === 0x080C9D1C) {
-              const traces = this.error60Trace[seat];
-              traces.push({
-                frame: this.frame,
-                cycle: Number(io.linkCycleCounter) || 0,
-                history: ring.slice(),
-                bus: [
-                  this.serials[seat].SIODATA_A & 0xffff,
-                  this.serials[seat].SIODATA_B & 0xffff,
-                  this.serials[seat].SIODATA_C & 0xffff,
-                  this.serials[seat].SIODATA_D & 0xffff
-                ],
-                siocnt: ((this.serials[seat].readSIOCNT1?.() ?? 0) << 8) |
-                  (this.serials[seat].readSIOCNT0?.() ?? 0)
-              });
-              if (traces.length > 16) traces.shift();
-            }
-
-            // Exact protocol comparisons that can return Link error 0x71.
-            if (logicalPc === 0x080C9D28 && (regs[0] >>> 0) !== 0) {
-              const statePtr = regs[7] >>> 0;
-              const mem = io.memory;
-              const raw8 = (address) => {
-                address = Number(address) >>> 0;
-                const region = address >>> 24;
-                if (region === 0x02 && mem?.externalRAM) return mem.externalRAM[address & 0x3ffff] & 0xff;
-                if (region === 0x03 && mem?.internalRAM) return mem.internalRAM[address & 0x7fff] & 0xff;
-                return null;
-              };
-              const raw16 = (address) => {
-                const lo = raw8(address);
-                const hi = raw8((Number(address) + 1) >>> 0);
-                return lo === null || hi === null ? null : (lo | (hi << 8)) & 0xffff;
-              };
-              const list = this.mainReturnTrace[seat];
-              list.push({
-                frame: this.frame,
-                cycle: Number(io.linkCycleCounter) || 0,
-                code: regs[0] >>> 0,
-                statePtr,
-                state: raw8((statePtr + 0x18) >>> 0),
-                playerMask: raw8((statePtr + 0x1e) >>> 0),
-                substate: raw8((statePtr + 0x1d) >>> 0),
-                timer: raw16((statePtr + 0x16) >>> 0),
-                siocnt: ((this.serials[seat].readSIOCNT1?.() ?? 0) << 8) |
-                  (this.serials[seat].readSIOCNT0?.() ?? 0),
-                rcnt: ((this.serials[seat].readRCNT1?.() ?? 0) << 8) |
-                  (this.serials[seat].readRCNT0?.() ?? 0),
-                bus: [
-                  this.serials[seat].SIODATA_A & 0xffff,
-                  this.serials[seat].SIODATA_B & 0xffff,
-                  this.serials[seat].SIODATA_C & 0xffff,
-                  this.serials[seat].SIODATA_D & 0xffff
-                ],
-                regs: Array.from(cpu.registers, (v) => Number(v) >>> 0)
-              });
-              if (list.length > 128) list.splice(0, list.length - 128);
-            }
-
-            if (
-              logicalPc === 0x080C9958 ||
-              logicalPc === 0x080C9988 ||
-              logicalPc === 0x080C99A8 ||
-              logicalPc === 0x080C99D2 ||
-              logicalPc === 0x080C99E4 ||
-              logicalPc === 0x080C9D1C ||
-              logicalPc === 0x080C9D22 ||
-              logicalPc === 0x080C9EC4 ||
-              logicalPc === 0x080C9F24 ||
-              logicalPc === 0x080C9F58 ||
-              logicalPc === 0x080C98B4 ||
-              logicalPc === 0x080C98C6 ||
-              logicalPc === 0x080C98CA ||
-              logicalPc === 0x080C98E0 ||
-              logicalPc === 0x080C98EE ||
-              logicalPc === 0x080C98F0 ||
-              logicalPc === 0x080C9900
-            ) {
-              const list = this.comparisonTrace[seat];
-              list.push({
-                frame: this.frame,
-                cycle: Number(io.linkCycleCounter) || 0,
-                logicalPc: Number(logicalPc) >>> 0,
-                rawPc: Number(rawPc) >>> 0,
-                r0: regs[0] >>> 0,
-                r1: regs[1] >>> 0,
-                r2: regs[2] >>> 0,
-                r3: regs[3] >>> 0,
-                r4: regs[4] >>> 0,
-                r5: regs[5] >>> 0,
-                r6: regs[6] >>> 0,
-                r7: regs[7] >>> 0,
-                lr: regs[14] >>> 0,
-                sp: regs[13] >>> 0,
-                bus: [
-                  this.serials[seat].SIODATA_A & 0xffff,
-                  this.serials[seat].SIODATA_B & 0xffff,
-                  this.serials[seat].SIODATA_C & 0xffff,
-                  this.serials[seat].SIODATA_D & 0xffff
-                ]
-              });
-              if (list.length > 512) list.splice(0, list.length - 512);
-            }
-          };
-        }
-
-        this.serials[seat].linkSIOCNTWriteObserver = (entry) => {
-          const cycle = Number(this.cores[seat]?.IOCore?.linkCycleCounter) || 0;
-          const list = this.siocntWrites[seat];
-          const core = this.cores[seat];
-          const cpu = core?.IOCore?.cpu;
-          const regs = cpu?.registers;
-          const ram = core?.IOCore?.memory?.internalRAM;
-          const pc = Number(regs?.[15] ?? 0) >>> 0;
-          const lr = Number(regs?.[14] ?? 0) >>> 0;
-          list.push({
-            cycle,
-            ...entry,
-            pc,
-            logicalPc: (pc - 0x40) >>> 0,
-            lr,
-            r0: Number(regs?.[0] ?? 0) >>> 0,
-            r1: Number(regs?.[1] ?? 0) >>> 0,
-            r2: Number(regs?.[2] ?? 0) >>> 0,
-            r3: Number(regs?.[3] ?? 0) >>> 0,
-            iwramCEC: ram ? (Number(ram[0x0CEC]) & 0xff) : null,
-            iwramCF0: ram ? (Number(ram[0x0CF0]) & 0xff) : null,
-            iwramD04: ram ? (Number(ram[0x0D04]) & 0xff) : null,
-            bus: [
-              this.serials[seat].SIODATA_A & 0xffff,
-              this.serials[seat].SIODATA_B & 0xffff,
-              this.serials[seat].SIODATA_C & 0xffff,
-              this.serials[seat].SIODATA_D & 0xffff
-            ]
-          });
-          if (list.length > 512) list.splice(0, list.length - 512);
-        };
-        this.serials[seat].linkSIOCNTReadObserver = (value) => {
-          const core = this.cores[seat];
-          const io = core?.IOCore;
-          const cpu = io?.cpu;
-          const regs = cpu?.registers;
-          const ram = io?.memory?.internalRAM;
-          const rawPc = Number(regs?.[15] ?? 0) >>> 0;
-          const thumb = !!((Number(cpu?.modeFlags) | 0) & 0x20);
-          const logicalPc = thumb ? ((rawPc - 4) >>> 0) : ((rawPc - 8) >>> 0);
-          const list = this.siocntReads[seat];
-          list.push({
-            frame: this.frame,
-            cycle: Number(io?.linkCycleCounter) || 0,
-            value: Number(value) & 0xffff,
-            mode: this.serials[seat].SIOCNT_MODE | 0,
-            rawPc,
-            logicalPc,
-            thumb,
-            iwramCEC: ram ? (Number(ram[0x0CEC]) & 0xff) : null,
-            iwramCF0: ram ? (Number(ram[0x0CF0]) & 0xff) : null,
-            iwramD04: ram ? (Number(ram[0x0D04]) & 0xff) : null,
-            bus: [
-              this.serials[seat].SIODATA_A & 0xffff,
-              this.serials[seat].SIODATA_B & 0xffff,
-              this.serials[seat].SIODATA_C & 0xffff,
-              this.serials[seat].SIODATA_D & 0xffff
-            ]
-          });
-          if (list.length > 2048) list.splice(0, list.length - 2048);
-        };
-        this.serials[seat].linkRCNTWriteObserver = (byteIndex, data) => {
-          const core = this.cores[seat];
-          const cycle = Number(core?.IOCore?.linkCycleCounter) || 0;
-          const cpu = core?.IOCore?.cpu;
-          const regs = cpu?.registers;
-          const pc = Number(regs?.[15] ?? 0) >>> 0;
-          const lr = Number(regs?.[14] ?? 0) >>> 0;
-          const list = this.rcntWrites[seat];
-          list.push({
-            cycle,
-            byteIndex: Number(byteIndex) | 0,
-            data: Number(data) & 0xff,
-            pc,
-            logicalPc: (pc - 0x40) >>> 0,
-            lr
-          });
-          if (list.length > 256) list.splice(0, list.length - 256);
-        };
-        this.serials[seat].linkSIOMULTIReadObserver = (index, word) => {
-          const core = this.cores[seat];
-          const cycle = Number(core?.IOCore?.linkCycleCounter) || 0;
-          const cpu = core?.IOCore?.cpu;
-          const pc = Number(cpu?.registers?.[15] ?? 0) >>> 0;
-          // Iodine's visible r15 is ahead of the currently executing Thumb
-          // instruction in this ROM. Empirically SIOMULTI @080C96F6 appears
-          // as r15=080C9736, so expose the logical instruction address too.
-          const logicalPc = (pc - 0x40) >>> 0;
-          const regs = cpu?.registers ? Array.from(cpu.registers.slice(0, 8), (v) => Number(v) >>> 0) : [];
-          const entry = {
-            cycle,
-            pc,
-            logicalPc,
-            index: Number(index) | 0,
-            word: Number(word) & 0xffff,
-            regs
-          };
-          const list = this.siomultiReads[seat];
-          list.push(entry);
-          if (list.length > 1024) list.splice(0, list.length - 1024);
-
-          if (logicalPc >= 0x080C9E00 && logicalPc <= 0x080C9FA0 && regs.length >= 4) {
-            const mem = core?.IOCore?.memory;
-            const raw8 = (address) => {
-              address = Number(address) >>> 0;
-              const region = address >>> 24;
-              if (region === 0x02 && mem?.externalRAM) {
-                return mem.externalRAM[address & 0x3ffff] & 0xff;
-              }
-              if (region === 0x03 && mem?.internalRAM) {
-                return mem.internalRAM[address & 0x7fff] & 0xff;
-              }
-              return null;
-            };
-            const raw32 = (address) => {
-              const b0 = raw8(address);
-              const b1 = raw8((Number(address) + 1) >>> 0);
-              const b2 = raw8((Number(address) + 2) >>> 0);
-              const b3 = raw8((Number(address) + 3) >>> 0);
-              if ([b0,b1,b2,b3].some((v) => v === null)) return null;
-              return (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) >>> 0;
-            };
-            const statePtr = regs[3] >>> 0;
-            const critical = this.criticalSiomultiReads[seat];
-            critical.push({
-              ...entry,
-              statePtr,
-              state: raw8((statePtr + 0x18) >>> 0),
-              playerMask: raw8((statePtr + 0x1e) >>> 0),
-              expected: raw32((statePtr + 4) >>> 0),
-              bus: [
-                this.serials[seat].SIODATA_A & 0xffff,
-                this.serials[seat].SIODATA_B & 0xffff,
-                this.serials[seat].SIODATA_C & 0xffff,
-                this.serials[seat].SIODATA_D & 0xffff
-              ]
-            });
-            if (critical.length > 512) critical.splice(0, critical.length - 512);
-          }
-        };
       }
-    }
-
-    carryTransfer() {
-      const pending = this.pendingTransfer;
-      if (!pending) return false;
-      const childCycles = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
-      if (childCycles < pending.parentCycle) return false;
-      if ((this.serials[1].SIOCNT_MODE | 0) !== 2) {
-        this.pendingTransfer = null;
-        this.serials[0].SIOTransferStarted = false;
+      if (this.rt.attachedCount() !== this.seats) {
+        this.setDebugError(`CABLE ${this.rt.attachedCount()}/${this.seats}`);
         return false;
       }
-
-      const startSkew = childCycles - pending.parentCycle;
-      this.startSkewLast = startSkew;
-      this.startSkewMin = Math.min(this.startSkewMin, startSkew);
-      this.startSkewMax = Math.max(this.startSkewMax, startSkew);
-      this.startSkewTotal += startSkew;
-      this.startSkewCount += 1;
-
-      const currentChildWord = this.serials[1].getLinkSendData() & 0xffff;
-      const childHistory = this.sendWordHistory[1];
-      let timestampedChildWord = currentChildWord;
-      let timestampedCycle = childCycles;
-      for (let i = childHistory.length - 1; i >= 0; --i) {
-        if (childHistory[i].cycle <= pending.parentCycle) {
-          timestampedChildWord = childHistory[i].word & 0xffff;
-          timestampedCycle = childHistory[i].cycle;
-          break;
-        }
+      /* El asiento definitivo lo dice el coordinador, no nosotros. */
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.confirmedSeat[seat] = this.rt.seatOf(this.coreOf(seat));
       }
-
-      const serialSnapshot = this.serials.map((serial, seat) => {
-        let low = 0, high = 0, rcntLow = 0, rcntHigh = 0;
-        try { low = serial?.readSIOCNT0?.() ?? 0; } catch {}
-        try { high = serial?.readSIOCNT1?.() ?? 0; } catch {}
-        try { rcntLow = serial?.readRCNT0?.() ?? 0; } catch {}
-        try { rcntHigh = serial?.readRCNT1?.() ?? 0; } catch {}
-        return {
-          seat,
-          mode: serial?.SIOCNT_MODE ?? null,
-          busy: !!serial?.SIOTransferStarted,
-          irqEnabled: !!serial?.SIOCNT_IRQ,
-          siocnt: ((Number(high) & 0xff) << 8) | (Number(low) & 0xff),
-          rcnt: ((Number(rcntHigh) & 0xff) << 8) | (Number(rcntLow) & 0xff),
-          send: Number(serial?.getLinkSendData?.() ?? 0) & 0xffff,
-          a: Number(serial?.SIODATA_A ?? 0) & 0xffff,
-          b: Number(serial?.SIODATA_B ?? 0) & 0xffff,
-          c: Number(serial?.SIODATA_C ?? 0) & 0xffff,
-          d: Number(serial?.SIODATA_D ?? 0) & 0xffff
-        };
-      });
-
-      const effectiveChildWord = currentChildWord;
-
-      const transferRecord = {
-        frame: this.frame,
-        sequence: pending.sequence,
-        parentCycle: pending.parentCycle,
-        childCycle: childCycles,
-        skew: startSkew,
-        hostWord: pending.word & 0xffff,
-        currentChildWord,
-        effectiveChildWord,
-        timestampedChildWord,
-        timestampedCycle,
-        baud: pending.baud,
-        serial: serialSnapshot
-      };
-
-      this.recentTransfers.push(transferRecord);
-      if (this.recentTransfers.length > 160) this.recentTransfers.shift();
-
-      if (
-        !this.protocolTransition &&
-        (pending.word & 0xffff) === 0xf00f &&
-        currentChildWord === 0xfdfd
-      ) {
-        this.protocolTransition = {
-          detectedAtFrame: this.frame,
-          detectedAtSequence: pending.sequence,
-          before: this.recentTransfers.slice(),
-          after: [],
-          sendHistory: this.sendWordHistory.map((history) => history.slice(-160))
-        };
-        this.protocolTransitionRemaining = 40;
-      } else if (this.protocolTransition && this.protocolTransitionRemaining > 0) {
-        this.protocolTransition.after.push(transferRecord);
-        this.protocolTransitionRemaining -= 1;
-      }
-
-      const childWord = effectiveChildWord;
-      const words = [pending.word, childWord, 0xffff, 0xffff];
-
-      this.serials[1].beginExternalMultiplayerTransfer(1);
-      this.localTransferArmed = true;
-
-      // Host timing starts now but completion remains held until P1 actually
-      // reaches its own hardware-complete event.
-      this.serials[0].completeExternalMultiplayerTransfer(
-        words, 0, false, 1, true, pending.baud, 0,
-        requestedTransferCycles || undefined,
-        progressiveTransfer ? [2840, 5461] : undefined
-      );
-      this.serials[1].completeExternalMultiplayerTransfer(
-        words, 1, false, 1, false, pending.baud,
-        Math.max(0, childCycles - pending.parentCycle),
-        requestedTransferCycles || undefined,
-        progressiveTransfer ? [2840, 5461] : undefined
-      );
-
-      this.pendingTransfer = null;
       return true;
     }
 
-    applyMask(seat, mask) {
-      const core = this.cores[seat];
-      const previous = this.lastApplied[seat] & 0x3ff;
-      mask &= 0x3ff;
-      const changed = previous ^ mask;
-      for (let key = 0; key < 10; key++) {
-        const bit = 1 << key;
-        if (!(changed & bit)) continue;
-        if (mask & bit) core.keyDown(key);
-        else core.keyUp(key);
+    /** Core que atiende un asiento. Mapa explicito, nunca por indice implicito. */
+    coreOf(seat) {
+      return this.seatToCore[seat];
+    }
+
+    /**
+     * Cambia quien se ve y se oye sin tocar la sesion.
+     * Ningun core se reinicia ni se para: solo se mueve la ventana.
+     */
+    setVisibleSeat(seat) {
+      if (seat < 0 || seat >= this.seats) return false;
+      this.visible = this.coreOf(seat);
+      this.rt.setVisible(this.visible);
+      return true;
+    }
+
+    /**
+     * Ajusta la sala a otro numero de jugadores creando o cerrando solo los
+     * asientos que cambian. Devuelve false si no se puede hacer en caliente y
+     * hay que reconstruir.
+     *
+     * Quitar asientos en una sesion ya arrancada cambiaria el reparto de input
+     * a mitad de partida, asi que eso si obliga a reconstruir.
+     */
+    resize(nextSeats, nextMySeat) {
+      if (nextSeats === this.seats) return this.setVisibleSeat(nextMySeat);
+      if (this.started) return false;
+      if (nextSeats < this.seats) return false;
+      if (nextSeats > this.rt.maxSeats()) return false;
+
+      for (let seat = this.seats; seat < nextSeats; seat++) {
+        const core = this.rt.openSeat();
+        if (core < 0) return false;
+        this.seatToCore[seat] = core;
+        if (!this.rt.attachSeat(core, seat)) return false;
       }
+
+      this.seats = nextSeats;
+      this.confirmedSeat = Array.from({ length: nextSeats },
+        (_, seat) => this.rt.seatOf(this.coreOf(seat)));
+      this.ran = Array.from({ length: nextSeats }, (_, seat) => this.ran[seat] || 0);
+      this.lastApplied = Array.from({ length: nextSeats }, (_, seat) => this.lastApplied[seat] || 0);
+      /* El anillo de input se indexa por numero de asientos, asi que hay que
+         rehacerlo con el tamaño nuevo y volver a sembrar el retardo. */
+      this.inputs = new Int16Array(RING * nextSeats).fill(UNKNOWN);
+      for (let frame = this.frame; frame < this.frame + INPUT_DELAY; frame++) {
+        for (let seat = 0; seat < nextSeats; seat++) this.setInput(frame, seat, 0);
+      }
+      this.sentFrames.clear();
+      return this.setVisibleSeat(nextMySeat);
+    }
+
+    applyMask(seat, mask) {
+      /* Una sola llamada por asiento: el shim toma la mascara entera, asi que
+         ya no hace falta traducirla a keyDown/keyUp tecla por tecla. */
+      mask &= 0x3ff;
+      if (this.lastApplied[seat] === mask) return;
       this.lastApplied[seat] = mask;
+      this.rt.setKeys(this.coreOf(seat), mask);
     }
 
     publishLocalInput() {
@@ -829,8 +446,14 @@
       this.sentFrames.add(target);
 
       if (selfTest) {
-        this.setInput(target, 0, selfTestMasks[0]);
-        this.setInput(target, 1, selfTestMasks[1]);
+        /* En autoprueba no hay nadie al otro lado que mande entrada, asi que el
+           teclado fisico mueve TODAS las consolas a la vez. Es lo que permite
+           llevarlas juntas al menu Link del juego desde una sola ventana; sin
+           esto solo respondian a test.setSeatMask, que es para automatizar.
+           El mando por asiento sigue funcionando y se suma. */
+        for (let seat = 0; seat < this.seats; seat++) {
+          this.setInput(target, seat, (selfTestMasks[seat] | localMask) & 0x3ff);
+        }
       } else {
         this.setInput(target, mySeat, localMask);
         sendLocal({
@@ -851,138 +474,278 @@
     acceptRemoteInput(packet) {
       if (!this.started || String(packet.sessionId || "") !== this.sessionId) return;
       const seat = Number(packet.playerNumber) | 0;
-      if (seat === mySeat || seat < 0 || seat > 1) return;
+      if (seat === mySeat || seat < 0 || seat >= this.seats) return;
       this.setInput(Number(packet.frame), seat, Number(packet.mask));
     }
 
     frameReady() {
-      return this.getInput(this.frame, 0) !== UNKNOWN &&
-        this.getInput(this.frame, 1) !== UNKNOWN;
-    }
-
-    stepCore(seat, cycles) {
-      const io = this.cores[seat].IOCore;
-      const before = Number(io.linkCycleCounter) || 0;
-      io.enter(Math.max(1, cycles | 0));
-      const after = Number(io.linkCycleCounter) || 0;
-
-      if (after > before) return true;
-
-      // A tiny negative overrun can legitimately consume a scheduler slice
-      // without advancing hardware. Clear it once and retry on the next round
-      // instead of declaring the whole dual-core session wedged.
-      if ((io.cyclesOveriteratedPreviously | 0) < 0) {
-        io.cyclesOveriteratedPreviously = 0;
-        return true;
+      for (let seat = 0; seat < this.seats; seat++) {
+        if (this.getInput(this.frame, seat) === UNKNOWN) return false;
       }
-      return false;
+      return true;
     }
 
+    /**
+     * Un frame para todos los asientos, con el coordinador nativo repartiendo.
+     *
+     * Se le da tiempo al despierto que menos ha corrido EN ESTA vuelta, sin
+     * atarlo al objetivo del frame: una consola que ya cumplio su frame todavia
+     * tiene que poder correr para que el lockstep despierte a la que espera por
+     * ella. Atarla bloquea a las dos.
+     *
+     * Se ordena por los ciclos que devuelve link_run y no por el reloj emulado,
+     * porque mTiming es un int32 que mGBA reajusta y comparar valores absolutos
+     * entre nucleos no es fiable.
+     */
     runFrame() {
-      const masks = [this.getInput(this.frame, 0), this.getInput(this.frame, 1)];
-      this.applyMask(0, masks[0]);
-      this.applyMask(1, masks[1]);
-
-      // Preserve the emulator shell lifecycle even though the coordinator owns
-      // the clock. Direct IOCore stepping alone skips start/end callbacks used
-      // by renderer/audio glue.
-      for (const core of this.cores) {
-        try { core.runStartJobs?.(); } catch {}
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.applyMask(seat, this.getInput(this.frame, seat));
       }
 
-      const frameTarget = (this.frame + 1) * FRAME_CYCLES;
-      const targets = [frameTarget, frameTarget];
-
+      /* El objetivo es acumulativo, no relativo a esta llamada. Rehacer la
+         base cada frame hacia que el sobrepaso de la ultima rodaja se sumara
+         en vez de compensarse: el juego corria a 69 fps en vez de 59,7. */
+      this.target += FRAME_CYCLES;
       let rounds = 0;
-      let noProgressRounds = 0;
-      const MAX_ROUNDS = 12000;
+      const MAX_ROUNDS = 8192;
+
       while (rounds++ < MAX_ROUNDS) {
-        if (this.pendingTransfer && this.carryTransfer()) continue;
+        if (this.ran.every((cycles) => cycles >= this.target)) break;
 
-        const c0 = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
-        const c1 = Number(this.cores[1].IOCore.linkCycleCounter) || 0;
-        const done0 = c0 >= targets[0];
-        const done1 = c1 >= targets[1];
-        if (done0 && done1 && !this.pendingTransfer) break;
-
-        let seat;
-        if (this.pendingTransfer) {
-          seat = 1;
-        } else if (done0) {
-          seat = 1;
-        } else if (done1) {
-          seat = 0;
-        } else {
-          seat = c0 <= c1 ? 0 : 1;
+        let pick = -1;
+        let least = Infinity;
+        for (let seat = 0; seat < this.seats; seat++) {
+          if (this.rt.isAsleep(this.coreOf(seat))) continue;
+          if (this.ran[seat] < least) { least = this.ran[seat]; pick = seat; }
         }
-
-        const current = Number(this.cores[seat].IOCore.linkCycleCounter) || 0;
-        let remaining = Math.max(1, targets[seat] - current);
-        const multi =
-          (this.serials[0].SIOCNT_MODE | 0) === 2 ||
-          (this.serials[1].SIOCNT_MODE | 0) === 2;
-        // Before MULTI there is no cable edge to catch, so use coarse slices.
-        // In MULTI keep the two local GBAs within roughly 1K cycles so the
-        // child cannot drift most of a transfer ahead of the parent.
-        const slice = multi ? 1024 : 65536;
-
-        if (this.pendingTransfer && seat === 1) {
-          remaining = Math.max(
-            1,
-            Math.min(remaining, Math.max(1, this.pendingTransfer.parentCycle - current))
-          );
-        } else if (multi && seat === 1) {
-          // P0 owns the serial clock. Never let P1 execute beyond P0's current
-          // virtual timestamp, otherwise P1 can run game logic for hundreds of
-          // cycles before seeing a START that should already have made it BUSY.
-          const parentNow = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
-          const childGap = parentNow - current;
-          if (childGap <= 0) {
-            // Give P0 the next slice instead of allowing P1 into the future.
-            const parentCurrent = Number(this.cores[0].IOCore.linkCycleCounter) || 0;
-            const parentRemaining = Math.max(1, targets[0] - parentCurrent);
-            const progressed = this.stepCore(0, Math.min(slice, parentRemaining));
-            if (progressed) {
-              noProgressRounds = 0;
-            } else {
-              noProgressRounds += 1;
-              if (noProgressRounds >= 16) {
-                this.wedged = true;
-                break;
-              }
-            }
-            continue;
-          }
-          remaining = Math.max(1, Math.min(remaining, childGap));
+        if (pick < 0) {
+          /* Nadie despierto: el coordinador garantiza que no pasa, asi que si
+             ocurre es un bloqueo real y hay que verlo, no taparlo. */
+          this.wedged = true;
+          this.setDebugError("TODAS LAS CONSOLAS DORMIDAS");
+          return false;
         }
-
-        const progressed = this.stepCore(seat, Math.min(slice, remaining));
-        if (progressed) {
-          noProgressRounds = 0;
-        } else if (!this.pendingTransfer) {
-          noProgressRounds += 1;
-          if (noProgressRounds >= 16) {
-            this.wedged = true;
-            break;
-          }
-        }
+        /* Se pide solo lo que falta, para no sobrepasar mas de lo justo; si
+           ya llego al objetivo se le da rodaja entera, porque puede tener que
+           correr para despertar a otra. */
+        const falta = this.target - this.ran[pick];
+        const rodaja = falta > 0 ? Math.min(LINK_SLICE, falta) : LINK_SLICE;
+        this.ran[pick] += this.rt.runCycles(this.coreOf(pick), rodaja);
       }
 
-      if (rounds >= MAX_ROUNDS) this.wedged = true;
-
-      try {
-        this.visible.submitAudioBuffer?.();
-        this.hidden.submitAudioBuffer?.();
-      } catch {}
-
-      for (const core of this.cores) {
-        try { core.runEndJobs?.(); } catch {}
+      if (rounds >= MAX_ROUNDS) {
+        this.wedged = true;
+        this.setDebugError("PLANIFICADOR SIN AVANCE");
+        return false;
       }
 
-      this.inputs[this.slot(this.frame, 0)] = UNKNOWN;
-      this.inputs[this.slot(this.frame, 1)] = UNKNOWN;
+      /* Transferencias: flanco de subida de la transferencia activa del
+         coordinador. Antes lo contaba el cable a mano. */
+      const coord = this.rt.coordinatorState();
+      if (coord.transferActive && !this.prevTransferActive) this.transferCount += 1;
+      this.prevTransferActive = coord.transferActive;
+
+      /* Solo la consola de mySeat se pinta y suena; a las demas se les descarta
+         el audio para que su cola no sature. */
+      this.rt.present();
+
       this.frame += 1;
-      return !this.wedged;
+
+      /* El anillo reutiliza el hueco de hace RING frames. Sin vaciarlo, un
+         input que todavia no ha llegado se lee como el de la vuelta anterior y
+         frameReady() da por completo un frame que no lo esta: pasados RING
+         frames el lockstep deja de esperar a nadie y las dos copias divergen
+         en silencio. Se libera el hueco que se acaba de consumir. */
+      const libre = this.frame + RING - 1;
+      for (let seat = 0; seat < this.seats; seat++) {
+        this.inputs[this.slot(libre, seat)] = UNKNOWN;
+      }
+
+      this.compruebaSincronia();
+      return true;
+    }
+
+    /* ------------------------------------------------------- medicion */
+
+    /**
+     * Una muestra por segundo durante toda la partida.
+     *
+     * Va por reloj real y no por frame, para que una parada quede registrada
+     * como tal en vez de desaparecer. Guarda por separado lo que es CPU (fps
+     * de cada lado, cola de audio) y lo que es red (latencia, desfase de
+     * frames, esperas por falta de input): confundirlos es lo que hace que
+     * una prueba de dos dispositivos no sirva para nada.
+     */
+    arrancaRegistro() {
+      clearInterval(this.registroTimer);
+      this.muestras = [];
+      this.registroDesde = Date.now();
+      this.ultimaRed = null;
+      this.frameAnterior = 0;
+      this.stallsAnteriores = 0;
+      this.holdsAnteriores = 0;
+
+      this.ultimaMuestraAt = performance.now();
+
+      this.registroTimer = setInterval(() => {
+        /* La latencia se pide sin esperar: llega para la muestra siguiente. */
+        Promise.resolve(window.ML3DLinkNet?.medida?.())
+          .then((red) => { if (red) this.ultimaRed = red; })
+          .catch(() => {});
+
+        const otro = Object.values(this.statsRemotas)[0] || null;
+        const fresco = otro && (Date.now() - otro.at) < 4000;
+        /* El intervalo no dispara exactamente cada segundo, y con el navegador
+           ocupado se va bastante. Dividir por el tiempo real evita que los fps
+           del panel mientan justo cuando mas importa. */
+        const ahora = performance.now();
+        const seg = Math.max(0.2, (ahora - this.ultimaMuestraAt) / 1000);
+        this.ultimaMuestraAt = ahora;
+        this.fpsMedidos = Math.round(((this.frame - this.frameAnterior) / seg) * 10) / 10;
+        this.muestras.push({
+          s: Math.round((Date.now() - this.registroDesde) / 1000),
+          frame: this.frame,
+          fps: Math.round(((this.frame - this.frameAnterior) / seg) * 10) / 10,
+          stalls: this.stallCount - this.stallsAnteriores,
+          holds: (this.audioHolds || 0) - this.holdsAnteriores,
+          audioMs: Math.round(this.rt.audioBacklogMs()),
+          rttMs: this.ultimaRed?.rttMs ?? null,
+          otroFps: fresco ? otro.fps : null,
+          otroAudioMs: fresco ? otro.audioMs : null,
+          otroFrame: fresco ? otro.frame : null,
+          desfase: fresco ? this.frame - otro.frame : null,
+          desync: Boolean(this.desync)
+        });
+        this.frameAnterior = this.frame;
+        this.stallsAnteriores = this.stallCount;
+        this.holdsAnteriores = this.audioHolds || 0;
+
+        /* Dos horas de muestras bastan de sobra; mas seria fuga de memoria. */
+        if (this.muestras.length > 7200) this.muestras.shift();
+      }, 1000);
+    }
+
+    /** Resumen de lo registrado, con CPU y red separadas. */
+    resumen() {
+      const m = this.muestras || [];
+      if (!m.length) return null;
+      const num = (lista) => lista.filter((v) => typeof v === "number" && Number.isFinite(v));
+      const stat = (lista) => {
+        const v = num(lista).sort((a, b) => a - b);
+        if (!v.length) return null;
+        return {
+          min: v[0],
+          p50: v[Math.floor(v.length * 0.5)],
+          p95: v[Math.floor(v.length * 0.95)],
+          max: v[v.length - 1],
+          media: Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10
+        };
+      };
+      /* El primer par de muestras coge el arranque y no dice nada del regimen. */
+      const util = m.slice(2);
+      return {
+        duracionSegundos: m.length,
+        cpu: {
+          fpsAqui: stat(util.map((x) => x.fps)),
+          fpsAlli: stat(util.map((x) => x.otroFps)),
+          audioMsAqui: stat(util.map((x) => x.audioMs)),
+          audioMsAlli: stat(util.map((x) => x.otroAudioMs)),
+          frenosAudio: util.reduce((a, x) => a + x.holds, 0)
+        },
+        red: {
+          rttMs: stat(util.map((x) => x.rttMs)),
+          desfaseFrames: stat(util.map((x) => x.desfase)),
+          esperasPorInput: util.reduce((a, x) => a + x.stalls, 0),
+          segundosSinNoticias: util.filter((x) => x.otroFps === null).length
+        },
+        divergencia: {
+          hubo: util.some((x) => x.desync),
+          primerSegundo: util.findIndex((x) => x.desync)
+        },
+        peoresSegundos: util.slice().sort((a, b) => a.fps - b.fps).slice(0, 5)
+      };
+    }
+
+    /* ------------------------------------------------- desincronizacion */
+
+    /**
+     * Cada SYNC_EVERY frames se publica la huella del estado de todas las
+     * consolas y se compara con la de los demas navegadores.
+     *
+     * Vale con comparar de vez en cuando: una divergencia no se arregla sola,
+     * asi que si esta ahi seguira estando en la siguiente ronda. Hacerlo cada
+     * frame costaria un savestate por consola y por frame para no enterarse
+     * antes de nada util.
+     */
+    compruebaSincronia() {
+      /* En autoprueba no hay nadie al otro lado con quien comparar. */
+      if (selfTest || this.desync) return;
+      if (this.frame % SYNC_EVERY !== 0) return;
+
+      const huella = this.rt.allStateHash();
+      this.miHuella.set(this.frame, huella);
+      sendLocal({
+        type: "gba:lockstep:sync",
+        sessionId: this.sessionId,
+        playerNumber: mySeat,
+        frame: this.frame,
+        hash: huella,
+        /* Las cifras del que envia viajan con la huella, que ya va cada
+           segundo. Es la unica forma de ver desde el PC como le va al movil
+           sin tener que mirarle la pantalla. */
+        stats: {
+          fps: Math.round((this.rt.status().fps || 0) * 10) / 10,
+          stalls: this.stallCount,
+          holds: this.audioHolds || 0,
+          audioMs: Math.round(this.rt.audioBacklogMs())
+        }
+      });
+      this.comparaHuellas(this.frame);
+
+      /* Las huellas viejas ya no sirven: el que iba retrasado o las mando o
+         no las va a mandar. */
+      const viejo = this.frame - SYNC_EVERY * 8;
+      for (const frame of this.miHuella.keys()) if (frame < viejo) this.miHuella.delete(frame);
+      for (const frame of this.suHuella.keys()) if (frame < viejo) this.suHuella.delete(frame);
+    }
+
+    acceptRemoteSync(packet) {
+      if (!this.started || String(packet.sessionId || "") !== this.sessionId) return;
+      const asiento = Number(packet.playerNumber) | 0;
+      if (asiento === mySeat || asiento < 0 || asiento > 3) return;
+      const frame = Number(packet.frame);
+      if (!Number.isSafeInteger(frame) || frame < 0) return;
+      if (!this.suHuella.has(frame)) this.suHuella.set(frame, {});
+      this.suHuella.get(frame)[asiento] = Number(packet.hash) >>> 0;
+      if (packet.stats) {
+        this.statsRemotas[asiento] = { ...packet.stats, frame, at: Date.now() };
+      }
+      this.comparaHuellas(frame);
+    }
+
+    /* Solo compara lo que ya tiene de los dos lados: al que aun no ha llegado
+       a ese frame no se le da por divergente. */
+    comparaHuellas(frame) {
+      if (this.desync) return;
+      const mia = this.miHuella.get(frame);
+      const suyas = this.suHuella.get(frame);
+      if (mia === undefined || !suyas) return;
+      for (const asiento of Object.keys(suyas)) {
+        if (suyas[asiento] === mia) continue;
+        const hx = (v) => (v >>> 0).toString(16).padStart(8, "0");
+        this.desync = {
+          frame,
+          seat: Number(asiento),
+          mine: mia >>> 0,
+          theirs: suyas[asiento] >>> 0
+        };
+        mostrarDesync(
+          "frame " + frame + " · P" + mySeat + " " + hx(mia) +
+          " ≠ P" + asiento + " " + hx(suyas[asiento])
+        );
+        this.renderDebug();
+        return;
+      }
     }
 
     tick() {
@@ -992,6 +755,17 @@
       }
 
       this.publishLocalInput();
+
+      /* El temporizador dispara a ~62,5 Hz y el GBA va a 59,7275, asi que sin
+         frenar se corre un 4,6% y el audio se descarta sin parar. Cuando hay
+         audio sonando, manda su cola: si va sobrada, esta vuelta no avanza.
+         No cuenta como stall, que es otra cosa: ahi no se pudo avanzar. */
+      const backlog = this.rt.audioBacklogMs();
+      if (backlog > AUDIO_TARGET_MS) {
+        this.audioHolds = (this.audioHolds || 0) + 1;
+        this.renderDebug();
+        return;
+      }
 
       let ran = 0;
       if (this.frameReady()) {
@@ -1027,29 +801,61 @@
 
     renderDebug() {
       if (!this.debug) return;
-      const s0 = this.serials?.[0];
-      const s1 = this.serials?.[1];
-      const c0 = Number(this.cores?.[0]?.IOCore?.linkCycleCounter) || 0;
-      const c1 = Number(this.cores?.[1]?.IOCore?.linkCycleCounter) || 0;
+      /* Mismo formato de siempre; los registros vienen ahora del shim en vez
+         de leerse de los objetos serial de IodineGBA. */
+      const a = this.rt.coreState(this.coreOf(0));
+      const b = this.seats > 1 ? this.rt.coreState(this.coreOf(1)) : null;
+      const coord = this.rt.coordinatorState();
       const current0 = this.getInput(this.frame, 0);
       const current1 = this.getInput(this.frame, 1);
-      let s0v = 0, s1v = 0, r0v = 0, r1v = 0;
-      try { s0v = s0?.readSIOCNT0?.() ?? 0; } catch {}
-      try { s1v = s1?.readSIOCNT0?.() ?? 0; } catch {}
-      try { r0v = s0?.readRCNT0?.() ?? 0; } catch {}
-      try { r1v = s1?.readRCNT0?.() ?? 0; } catch {}
       const hx = (value) => (Number(value) & 0xff).toString(16).padStart(2, "0");
-      this.debug.textContent =
-        `LOCAL LINK ${role === "host" ? "H" : "G"} P${mySeat} ${this.started ? "RUN" : "SYNC"}\n` +
-        (!this.started ? `ESPERANDO PEER:${this.remoteReady ? "OK" : "..."} ROM:${this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "..."}\n` : "") +
-        `F:${this.frame} IN:${current0 === UNKNOWN ? "-" : current0.toString(16)}/${current1 === UNKNOWN ? "-" : current1.toString(16)} D:${INPUT_DELAY}\n` +
-        `M:${s0?.SIOCNT_MODE ?? "-"}/${s1?.SIOCNT_MODE ?? "-"} BUSY:${s0?.SIOTransferStarted ? 1 : 0}/${s1?.SIOTransferStarted ? 1 : 0} S:${hx(s0v)}/${hx(s1v)} R:${hx(r0v)}/${hx(r1v)}\n` +
-        `XFER:${this.transferCount} HS:${this.finishSyncCount} PEND:${this.pendingTransfer ? 1 : 0}/${this.localTransferArmed ? 1 : 0} Δ:${Math.round(c0 - c1)} SK:${this.startSkewCount ? `${this.startSkewLast}/${this.startSkewMin}..${this.startSkewMax}` : "-"} T:${Math.round((this.frame + 1) * FRAME_CYCLES - Math.min(c0, c1))} STALL:${this.stallCount}` +
-        (this.lastLinkError ? `\nADAPTER ERROR: ${this.lastLinkError.split("\n")[0]}` : "") +
-        (this.wedged ? "\nWEDGED" : "");
+      const busy = (s) => (s && (s.siocnt & 0x80)) ? 1 : 0;
+      const delta = Math.round((this.ran[0] || 0) - (this.ran[1] || 0));
+      const ink = (v) => v === UNKNOWN ? "-" : v.toString(16);
+      const lines = [
+        `LOCAL LINK ${role === "host" ? "H" : "G"} P${mySeat} ${this.started ? "RUN" : "SYNC"}`,
+      ];
+      if (!this.started) {
+        const rom = this.remoteHash ? (this.remoteHash === this.romHash ? "OK" : "DIFF") : "...";
+        lines.push(`ESPERANDO PEERS:${this.readySeats.size}/${this.seats - 1} ROM:${rom}`);
+      }
+      lines.push(`F:${this.frame} IN:${ink(current0)}/${ink(current1)} D:${INPUT_DELAY}`);
+
+      /* Linea para leer a simple vista durante una prueba, sin consola y sin
+         cronometro: fps de aqui, fps del otro y latencia real de la red. */
+      const otro = Object.values(this.statsRemotas || {})[0];
+      const otroVivo = otro && (Date.now() - otro.at) < 4000;
+      const rtt = this.ultimaRed?.rttMs;
+      /* audioBacklogMs da -1 cuando todavia no suena nada: mostrar "-1ms"
+         parece una medida rara en vez de lo que es, que no hay audio. */
+      const aud = Math.round(this.rt.audioBacklogMs());
+      const estadoAudio = this.rt.audioState?.() || "?";
+      lines.push(
+        `FPS:${this.fpsMedidos ?? "-"}` +
+        ` OTRO:${otroVivo ? otro.fps : "-"}` +
+        ` RED:${rtt === null || rtt === undefined ? "-" : rtt + "ms"}` +
+        ` AUD:${aud >= 0 ? aud + "ms" : estadoAudio}`
+      );
+      lines.push(`M:${a?.mode ?? "-"}/${b?.mode ?? "-"} BUSY:${busy(a)}/${busy(b)}` +
+        ` S:${hx(a?.siocnt)}/${hx(b?.siocnt)} R:${hx(a?.rcnt)}/${hx(b?.rcnt)}`);
+      lines.push(`XFER:${this.transferCount} SEATS:${this.confirmedSeat.join("/")}` +
+        ` ACT:${coord.transferActive} D:${delta}` +
+        ` T:${Math.round(FRAME_CYCLES - ((this.ran[0] || 0) % FRAME_CYCLES))} STALL:${this.stallCount}`);
+      if (this.lastLinkError) {
+        lines.push("ADAPTER ERROR: " + this.lastLinkError.split("\n")[0]);
+      }
+      if (this.wedged) lines.push("WEDGED");
+      this.debug.textContent = lines.join("\n");
     }
 
     status() {
+      /* Se conserva la forma del contrato y todo lo que el lobby y la linea
+         base miran. Lo que desaparece son los volcados internos de IodineGBA
+         —registros de CPU, trazas de SIOCNT/RCNT— que solo existian porque el
+         cable estaba hecho a mano; mGBA no los expone y ya no hacen falta.
+         Los campos se mantienen a null en vez de quitarse, para no romper a
+         quien los lea. */
+      const coord = this.rt.coordinatorState();
       return {
         roomId,
         mySeat,
@@ -1058,112 +864,156 @@
         sessionId: this.sessionId,
         frame: this.frame,
         transfers: this.transferCount,
-        finishSyncs: this.finishSyncCount,
-        normalTransfers: this.normalTransferCount,
-        normalTrace: this.normalTrace.slice(),
-        normalAttemptTrace: this.normalAttemptTrace.slice(),
-        normalPrepared: this.normalPrepared.map((entry) => entry ? { ...entry } : null),
-        pendingTransfer: Boolean(
-          this.pendingTransfer ||
-          this.localTransferArmed ||
-          this.normalPrepared[0] ||
-          this.normalPrepared[1]
-        ),
-        remoteReady: this.remoteReady,
+        seats: this.seats,
+        readySeats: [...this.readySeats],
+        remoteReady: this.readySeats.size >= this.seats - 1,
         romHash: this.romHash,
         remoteHash: this.remoteHash,
         wedged: this.wedged,
         stalls: this.stallCount,
+        /* Diagnostico del ritmo: un tick que no avanza o es un stall (falta
+           input de alguien) o es un freno de audio (la cola va sobrada).
+           Distinguirlos es lo unico que dice quien manda cuando el juego se
+           arrastra. */
+        audioHolds: this.audioHolds || 0,
+        audioBacklogMs: Math.round(this.rt.audioBacklogMs()),
+        faltaInput: Array.from({ length: this.seats },
+          (_, seat) => this.getInput(this.frame, seat) === UNKNOWN),
         transferCycles: requestedTransferCycles || null,
         progressiveTransfer,
-        coreExecution: this.cores.map((core, seat) => {
-          const io = core?.IOCore;
-          const cpu = io?.cpu;
-          const regs = cpu?.registers;
-          const mem = io?.memory;
+        cable: {
+          attached: coord.attached,
+          transferActive: Boolean(coord.transferActive),
+          transferMode: coord.transferMode,
+          multiData: coord.multiData.slice(),
+          waiting: coord.waiting,
+          confirmedSeats: this.confirmedSeat.slice()
+        },
+        coreExecution: Array.from({ length: this.seats }, (_, seat) => {
+          const core = this.coreOf(seat);
+          const st = this.rt.coreState(core);
           return {
             seat,
-            pc: regs ? (Number(regs[15]) >>> 0) : null,
-            sp: regs ? (Number(regs[13]) >>> 0) : null,
-            lr: regs ? (Number(regs[14]) >>> 0) : null,
-            r0: regs ? (Number(regs[0]) >>> 0) : null,
-            r1: regs ? (Number(regs[1]) >>> 0) : null,
-            modeFlags: cpu ? (Number(cpu.modeFlags) & 0xff) : null,
-            thumb: cpu ? !!(Number(cpu.modeFlags) & 0x20) : null,
-            systemStatus: io ? (Number(io.systemStatus) | 0) : null,
-            halted: io ? !!((Number(io.systemStatus) | 0) & 0x20) : null,
-            stopped: io ? !!((Number(io.systemStatus) | 0) & 0x40) : null,
-            irq: io?.irq ? {
-              ie: Number(io.irq.interruptsEnabled) | 0,
-              if: Number(io.irq.interruptsRequested) | 0,
-              ime: Number(io.irq.IME) | 0,
-              match: (Number(io.irq.interruptsEnabled) | 0) & (Number(io.irq.interruptsRequested) | 0)
-            } : null,
-            ewramC0: mem?.externalRAM
-              ? Array.from(mem.externalRAM.slice(0xc0, 0xe0), (v) => Number(v) & 0xff)
-              : null,
-            recentInstructions: (this.instructionRing[seat] || []).slice(-16)
+            core,
+            visible: core === this.visible,
+            frames: st?.frames ?? null,
+            cycles: this.ran[seat] | 0,
+            asleep: st?.asleep ?? null,
+            confirmedSeat: this.confirmedSeat[seat],
+            sioMode: st?.mode ?? null,
+            siocnt: st?.siocnt ?? null,
+            rcnt: st?.rcnt ?? null,
+            siomulti: st?.multi ?? null,
+            siomltSend: st?.send ?? null,
+            /* Solo IodineGBA los exponia; se dejan declarados para no romper
+               a quien los lea, pero ya no hay de donde sacarlos. */
+            pc: null, sp: null, lr: null, modeFlags: null, thumb: null,
+            systemStatus: null, halted: null, stopped: null, irq: null
           };
-        }),
-        startSkew: {
-          last: this.startSkewLast,
-          min: Number.isFinite(this.startSkewMin) ? this.startSkewMin : null,
-          max: Number.isFinite(this.startSkewMax) ? this.startSkewMax : null,
-          avg: this.startSkewCount ? this.startSkewTotal / this.startSkewCount : null,
-          count: this.startSkewCount
-        },
-        recentTransfers: this.recentTransfers.slice(),
-        protocolTransition: this.protocolTransition ? {
-          detectedAtFrame: this.protocolTransition.detectedAtFrame,
-          detectedAtSequence: this.protocolTransition.detectedAtSequence,
-          before: this.protocolTransition.before.slice(),
-          after: this.protocolTransition.after.slice(),
-          sendHistory: this.protocolTransition.sendHistory.map((history) => history.slice())
-        } : null,
-        siocntWrites: this.siocntWrites.map((list) => list.slice()),
-        siocntReads: this.siocntReads.map((list) => list.slice()),
-        rcntWrites: this.rcntWrites.map((list) => list.slice()),
-        siomultiReads: this.siomultiReads.map((list) => list.slice()),
-        criticalSiomultiReads: this.criticalSiomultiReads.map((list) => list.slice()),
-        comparisonTrace: this.comparisonTrace.map((list) => list.slice()),
-        mainReturnTrace: this.mainReturnTrace.map((list) => list.slice()),
-        error60Trace: this.error60Trace.map((list) => list.slice()),
-        resetTrace: this.resetTrace.map((list) => list.slice())
+        })
       };
     }
 
     destroy() {
       clearInterval(this.readyTimer);
       clearInterval(this.tickTimer);
+      clearInterval(this.registroTimer);
       this.readyTimer = null;
       this.tickTimer = null;
-      try {
-        this.serials[0]?.detachLinkCable?.();
-        this.serials[1]?.detachLinkCable?.();
-      } catch {}
-      try {
-        this.hidden?.stop?.();
-      } catch {}
+      this.registroTimer = null;
+      /* Soltar el cable y cerrar los cores; el runtime normal queda usable. */
+      try { this.rt.detachAll(); } catch {}
+      try { this.rt.destroy(); } catch {}
       this.debug?.remove();
+      quitarDesync();
+      dejaApagarPantalla();
       this.started = false;
     }
   }
 
-  async function bootLocalDual() {
-    const runtime = window.ML3DLinkRuntime;
-    const visible = runtime?.emulator;
-    const rom = runtime?.romBytes;
-    if (!visible || !rom || !rom.byteLength) return;
+  /* Ruta del WASM multi-instancia. Es el fork propio, no el paquete publicado:
+     el cable exige que las cuatro consolas vivan en el mismo modulo. */
+  const MGBA_DIR = "link-mgba/dist/multi/";
 
+  /* iPhone y iPad quedan fuera de momento.
+     app.js ya deja el juego normal en el nucleo antiguo en iOS, porque mGBA se
+     atasca al poco de arrancar bajo WebKit. El Cable Link usa nuestro propio
+     mGBA, que esta compilado de otra forma y quiza no sufra lo mismo, pero eso
+     no se ha probado en un iPhone. Mejor decirlo que dejar a alguien con la
+     partida colgada. Quitar esta guarda en cuanto se pruebe. */
+  function esIOS() {
+    const ua = navigator.userAgent || "";
+    const macTactil = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    return /iPad|iPhone|iPod/i.test(ua) || macTactil;
+  }
+
+  function avisaLinkNoDisponible() {
+    if (document.getElementById("ml3d-link-sin-ios")) return;
+    const el = document.createElement("div");
+    el.id = "ml3d-link-sin-ios";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+      "background:rgba(20,20,28,.92);color:#fff;text-align:center;padding:24px;" +
+      "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+    const t = document.createElement("div");
+    t.style.cssText = "font-size:22px;letter-spacing:.03em";
+    t.textContent = "CABLE LINK NO DISPONIBLE AQUI";
+    const c = document.createElement("div");
+    c.style.cssText = "font-weight:normal;max-width:34ch";
+    c.textContent =
+      "El Cable Link todavia no funciona en iPhone ni iPad. El resto del " +
+      "emulador si: puedes jugar de un jugador con normalidad.";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = "ENTENDIDO";
+    b.style.cssText =
+      "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
+      "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
+    b.addEventListener("click", () => el.remove());
+    el.append(t, c, b);
+    document.documentElement.appendChild(el);
+    setTimeout(() => el.remove(), 15000);
+  }
+
+  async function bootLocalDual() {
+    if (returningToNormal) return;
+    if (!roomId && !selfTest) return;
+    if (esIOS()) {
+      console.warn("ML3D Local Link: desactivado en iOS hasta poder probarlo.");
+      avisaLinkNoDisponible();
+      roomId = "";
+      enabled = false;
+      return;
+    }
+    const runtime = window.ML3DLinkRuntime;
+    const rom = runtime?.romBytes;
+    if (!rom || !rom.byteLength) return;
+    if (typeof window.ML3DMgbaLink !== "function") {
+      console.error("ML3D Local Link: falta el runtime mGBA multi-instancia.");
+      return;
+    }
+
+    /* El camino normal suelta la pantalla: durante la partida Link la conduce
+       el runtime multi-instancia, que es quien tiene las cuatro consolas. */
     runtime.stopTimers?.();
-    try {
-      window.ML3DLinkCable?.detachEmulator?.(visible);
-    } catch {}
+    try { await window.ML3DMgbaCompat?.stop?.(); } catch {}
+    try { window.ML3DLinkCable?.detachEmulator?.(runtime.emulator); } catch {}
 
     const hash = await fingerprint(rom);
-    const hidden = makeHiddenCore(rom);
     controller?.destroy?.();
-    controller = new LocalDualLink(visible, hidden, hash);
+    controller = null;
+
+    const rt = await window.ML3DMgbaLink.create({
+      wasmDir: MGBA_DIR,
+      rom,
+      seats: seatCount,
+      canvas: document.getElementById("screen"),
+      link: false                      /* el enganche lo hace attachCable, por asiento */
+    });
+    await rt.startAudio();
+
+    controller = new LocalDualLink(rt, hash);
 
     if (pendingStart) {
       const start = pendingStart;
@@ -1172,9 +1022,119 @@
     }
   }
 
+  /* Configuración en caliente desde el lobby integrado. La sesión Link exige
+     que los dos núcleos de cada jugador arranquen desde la ROM limpia, así que
+     al entrar en una sala se reinicia la ROM actual sin partida guardada; el
+     evento ml3d-rom-started encadena después con bootLocalDual(). */
+  let configuring = false;
+  let configuredKey = roomId ? `${roomId}:${mySeat}:${role}` : "";
+
+  let configuredGame = "";
+
+  function configureSession(packet) {
+    const nextRoom = String(packet.roomId || "");
+    if (!nextRoom || configuring) return;
+    const nextSeat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
+    const nextRole = packet.role === "host" ? "host" : "guest";
+    const nextSeats = Math.max(2, Math.min(4, Number(packet.players) | 0 || 2));
+    const nextGame = String(packet.game || "");
+    const key = `${nextRoom}:${nextSeat}:${nextRole}:${nextSeats}:${nextGame}`;
+    if (key === configuredKey) return;
+
+    /* Qué ha cambiado decide cuánto se rehace. Reconstruir la sesión entera por
+       un cambio de asiento tiraría una partida en marcha sin necesidad. */
+    const sameRoom = roomId === nextRoom && Boolean(controller);
+    const gameChanged = nextGame !== configuredGame;
+    const seatsChanged = nextSeats !== seatCount;
+    const mySeatChanged = nextSeat !== mySeat;
+
+    configuredKey = key;
+    configuredGame = nextGame;
+    roomId = nextRoom;
+    role = nextRole;
+    enabled = true;
+
+    /* Caso 1: solo cambia quién soy. La sesión sigue viva y solo se mueve la
+       consola que se ve y se oye. */
+    if (sameRoom && !gameChanged && !seatsChanged && mySeatChanged) {
+      mySeat = nextSeat;
+      controller.setVisibleSeat(mySeat);
+      controller.renderDebug();
+      return;
+    }
+
+    /* Caso 2: cambia el número de jugadores sin cambiar de juego. Se ajustan
+       solo los asientos que sobran o faltan. */
+    if (sameRoom && !gameChanged && seatsChanged) {
+      mySeat = nextSeat;
+      seatCount = nextSeats;
+      if (controller.resize(nextSeats, mySeat)) {
+        controller.renderDebug();
+        return;
+      }
+      /* Si no se pudo ajustar, se cae al camino completo de abajo. */
+    }
+
+    /* Caso 3: juego distinto, sala distinta o ajuste imposible. Se reconstruye
+       limpiamente con la ROM que pida la sala. */
+    mySeat = nextSeat;
+    seatCount = nextSeats;
+    controller?.destroy?.();
+    controller = null;
+    pendingStart = null;
+
+    const runtime = window.ML3DLinkRuntime;
+    configuring = true;
+    const prepare = runtime?.prepareForLink
+      ? runtime.prepareForLink(packet.game)
+      : runtime?.restartForLink?.();
+    Promise.resolve(prepare)
+      .catch((error) => console.error("ML3D Local Link (reinicio):", error))
+      .finally(() => { configuring = false; });
+  }
+
+  function disconnectSession(packet) {
+    if (packet.roomId && packet.roomId !== roomId) return;
+    controller?.destroy?.();
+    controller = null;
+    pendingStart = null;
+    roomId = "";
+    configuredKey = "";
+    enabled = selfTest;
+    /* destroy() ya soltó el cable, cerró los cores y paró el planificador. Falta
+       devolver la pantalla al núcleo normal, que el runtime multi-instancia se
+       había quedado durante la partida. */
+    try { window.ML3DLinkRuntime?.startTimers?.(); } catch {}
+    returningToNormal = true;
+    Promise.resolve(window.ML3DLinkRuntime?.resumeNormal?.())
+      .catch((error) => console.error("ML3D Local Link (volver al juego):", error))
+      .finally(() => { returningToNormal = false; });
+  }
+
   bus.addEventListener("message", (event) => {
     const packet = event.data;
-    if (!packet || packet.source !== "lobby" || packet.roomId !== roomId) return;
+    if (!packet || packet.source !== "lobby") return;
+
+    if (packet.type === "gba:link:configure") {
+      configureSession(packet);
+      return;
+    }
+    if (packet.type === "gba:link:disconnect") {
+      disconnectSession(packet);
+      return;
+    }
+
+    /* El cable se ha caido: avisar y soltar la partida. Sin esto la sesion se
+       quedaba viva esperando input que ya no iba a llegar, con la pantalla
+       congelada y sin decir nada. */
+    if (packet.type === "gba:link:peer-lost") {
+      if (packet.roomId && packet.roomId !== roomId) return;
+      if (!controller) return;
+      mostrarCaida(String(packet.motivo || ""));
+      disconnectSession(packet);
+      return;
+    }
+    if (packet.roomId !== roomId) return;
 
     if (packet.type === "gba:lockstep:remote-ready") {
       controller?.acceptRemoteReady(packet);
@@ -1193,6 +1153,11 @@
 
     if (packet.type === "gba:lockstep:remote-input") {
       controller?.acceptRemoteInput(packet);
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:remote-sync") {
+      controller?.acceptRemoteSync(packet);
       return;
     }
 

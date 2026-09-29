@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="rooms.css?v=4">
   <link rel="stylesheet" href="rooms-theme-ml3d-v2.css?v=3">
   <link rel="stylesheet" href="avatar-final.css?v=5">
+  <!-- Solo actúa con ?embed=1, cuando el lobby va dentro de la pantalla del emulador. -->
+  <link rel="stylesheet" href="embed.css?v=1">
 </head>
 <body data-state="idle">
 <main>
@@ -45,22 +47,24 @@
       </div>
       <div class="grid">
         <div><label for="roomPassword">Contraseña (opcional)</label><input id="roomPassword" type="password" maxlength="64" placeholder="Sin contraseña"></div>
-        <div><label for="maxPlayers">Jugadores</label><select id="maxPlayers"><option value="2" selected>2</option></select></div>
+        <div><label for="maxPlayers">Jugadores</label><select id="maxPlayers"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select></div>
       </div>
       <button id="createRoom" class="primary top-gap">CREAR SALA CERCA DE MÍ</button>
     </section>
 
-    <section class="card">
+    <section class="card" id="searchCard">
       <h2>Buscar salas</h2>
-      <div class="grid">
+      <div class="grid" id="searchNearbyBlock">
         <div><label for="radius">Radio de búsqueda</label><select id="radius"><option value="0.5">500 m</option><option value="1" selected>1 km</option><option value="5">5 km</option><option value="10">10 km</option></select></div>
         <div class="bottom-align"><button id="searchRooms" class="primary">BUSCAR CERCA DE MÍ</button></div>
       </div>
-      <div class="grid top-gap">
-        <div><label for="roomCode">Código de sala</label><input id="roomCode" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Ej. A1B2C3D4"></div>
-        <div class="bottom-align"><button id="joinByCode" class="primary">ENTRAR POR CÓDIGO</button></div>
+      <div id="codeJoinBlock">
+        <div class="grid top-gap">
+          <div><label for="roomCode">Código de sala</label><input id="roomCode" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Ej. A1B2C3D4"></div>
+          <div class="bottom-align"><button id="joinByCode" class="primary">ENTRAR POR CÓDIGO</button></div>
+        </div>
+        <p class="hint">Con código no hace falta estar cerca ni dar ubicación.</p>
       </div>
-      <p class="hint">Con código no hace falta estar cerca ni dar ubicación.</p>
       <div id="roomsList" class="top-gap"><p class="hint">Todavía no has buscado.</p></div>
     </section>
 
@@ -175,7 +179,7 @@
         <label for="hostRoomNameInput">Nombre de sala</label>
         <input id="hostRoomNameInput" maxlength="48">
         <label for="hostMaxPlayers">Jugadores máximos</label>
-        <select id="hostMaxPlayers"><option value="2" selected>2</option></select>
+        <select id="hostMaxPlayers"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select>
         <label for="hostPasswordInput">Nueva contraseña</label>
         <input id="hostPasswordInput" type="password" maxlength="64" placeholder="Dejar vacío = sin cambiar">
         <div class="grid compact-gap top-gap">
@@ -225,5 +229,7 @@
 <script src="rooms-touch-fix.js?v=4"></script>
 <script src="avatar-motion-smoothing.js?v=5"></script>
 <script src="rooms-arena-final.js?v=2"></script>
+<script src="embed-games.js?v=1"></script>
+<script src="embed.js?v=2"></script>
 </body>
 </html>

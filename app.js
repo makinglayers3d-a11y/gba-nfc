@@ -233,6 +233,11 @@ function loadGameType(name, callback) {
   };
 
   function pressKey(keyName) {
+  /* Con el lobby abierto sobre la pantalla, los botones son suyos. Va lo
+     primero: si no, no hay forma de manejar el lobby desde un movil, donde el
+     unico mando son los botones de la propia pantalla. */
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, true)) return;
+
   if (window.ML3DMgbaCompat?.isActive?.()) {
     window.ML3DMgbaCompat.press(keyName);
     return;
@@ -251,21 +256,28 @@ function loadGameType(name, callback) {
     return;
   }
 
-  if (!emulator) return;
-
   const value = keyMap[keyName];
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby la
+     configura en caliente, así que se consulta siempre. Va antes de mirar
+     `emulator`, que es null cuando el juego corre sobre mGBA: la sesión
+     tiene sus propios núcleos y no necesita el de IodineGBA. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, true);
     if (consumed) return;
   }
+
+  if (!emulator) return;
 
   emulator.keyDown(value);
 }
 
  function releaseKey(keyName) {
+  /* Igual que en pressKey: el lobby abierto se queda los botones. */
+  if (window.ML3DLobbyOverlay?.handleKey(keyName, false)) return;
+
   if (window.ML3DMgbaCompat?.isActive?.()) {
     window.ML3DMgbaCompat.release(keyName);
     return;
@@ -284,16 +296,20 @@ function loadGameType(name, callback) {
     return;
   }
 
-  if (!emulator) return;
-
   const value = keyMap[keyName];
 
   if (value === undefined) return;
 
-  if (linkRoomActive && window.ML3DLocalLinkSession?.handleLocalKey) {
+  /* La sesión Link ya no depende de parámetros en la URL: el lobby la
+     configura en caliente, así que se consulta siempre. Va antes de mirar
+     `emulator`, que es null cuando el juego corre sobre mGBA: la sesión
+     tiene sus propios núcleos y no necesita el de IodineGBA. */
+  if (window.ML3DLocalLinkSession?.handleLocalKey) {
     const consumed = window.ML3DLocalLinkSession.handleLocalKey(value, false);
     if (consumed) return;
   }
+
+  if (!emulator) return;
 
   emulator.keyUp(value);
 } 
@@ -452,6 +468,38 @@ function startGbaTimers() {
   }, 10000);
 }
   
+/* --- Soporte para el juego que pide la sala Link ---------------------------
+   Traído de test/lobby-en-emulador-2026-09-23 (cee9f8b), que es donde vive el
+   lobby de cuatro jugadores. Solo esto: el resto de aquel app.js no sirve
+   porque se cortó antes de que mGBA llegara a main y quita sus ganchos. */
+function normalizeGameName(value) {
+  return String(value || "")
+    .replace(/\.(gba|gbc|gb)$/i, "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+let libraryCatalog = null;
+
+async function findLibraryRom(normalizedName) {
+  if (!libraryCatalog) {
+    try {
+      const response = await fetch("games-catalog.json", { cache: "no-store" });
+      const entries = await response.json();
+      libraryCatalog = (Array.isArray(entries) ? entries : [])
+        .map((entry) => String(entry?.name || entry || ""))
+        .filter((name) => /\.(gba|gbc|gb)$/i.test(name));
+    } catch (error) {
+      console.warn("ML3D Link: no se pudo leer el catálogo de juegos.", error);
+      libraryCatalog = [];
+    }
+  }
+  return libraryCatalog.find((name) => normalizeGameName(name) === normalizedName) || "";
+}
+
 window.ML3DLinkRuntime = {
   get emulator() {
     return emulator;
@@ -464,6 +512,58 @@ window.ML3DLinkRuntime = {
   },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
+  /* Abre el juego que la sala ha elegido, si no es el que ya está puesto, y si
+     lo es lo reinicia limpio. Lo llama LocalLinkSession al configurarse. */
+  async prepareForLink(game) {
+    const wanted = normalizeGameName(game);
+    if (!wanted || wanted === normalizeGameName(selected?.name)) {
+      return this.restartForLink();
+    }
+
+    const filename = await findLibraryRom(wanted);
+    if (!filename) {
+      console.warn("ML3D Link: la sala pide un juego que no está en esta biblioteca:", game);
+      return this.restartForLink();
+    }
+
+    const response = await fetch("games/" + encodeURIComponent(filename), { cache: "force-cache" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return startRomFromBytes(bytes, filename, {
+      system: systemFromFilename(filename),
+      saveId: filename.replace(/\.(gba|gbc|gb)$/i, ""),
+      displayName: filename.replace(/\.(gba|gbc|gb)$/i, ""),
+      source: "remote",
+      romPath: "games/" + filename,
+      skipSaveRestore: true
+    });
+  },
+  /* Devuelve la pantalla al camino normal cuando la sesión Link termina: el
+     runtime multi-instancia se la ha quedado y hay que recuperar el núcleo de
+     siempre, esta vez restaurando la partida guardada. */
+  async resumeNormal() {
+    if (currentSystem !== "gba" || !currentGbaRomBytes || !currentGbaRomFilename) return false;
+    return startRomFromBytes(currentGbaRomBytes.slice(), currentGbaRomFilename, {
+      system: "gba",
+      saveId: currentSaveId,
+      displayName: selected.name,
+      source: currentSource,
+      romPath: selected.rom
+    });
+  },
+  /* Reinicia la ROM actual sin partida guardada, que es como debe empezar una
+     sesión Link: LocalLinkSession lo llama al configurarse desde el lobby. */
+  async restartForLink() {
+    if (currentSystem !== "gba" || !currentGbaRomBytes || !currentGbaRomFilename) return false;
+    return startRomFromBytes(currentGbaRomBytes.slice(), currentGbaRomFilename, {
+      system: "gba",
+      saveId: currentSaveId,
+      displayName: selected.name,
+      source: currentSource,
+      romPath: selected.rom,
+      skipSaveRestore: true
+    });
+  },
   flushAudio() {
     try {
       emulator?.submitAudioBuffer?.();
@@ -728,6 +828,14 @@ window.addEventListener(
       ? { bytes: rom.slice(), filename, system, saveId: currentSaveId, displayName: selected.name }
       : null;
 
+    /* Antes de bifurcar por núcleo: la sesión Link pide la ROM por
+       ML3DLinkRuntime.romBytes, y solo se guardaba en la rama de IodineGBA.
+       Con el juego normal en mGBA salía null y el enlace no llegaba a armarse. */
+    if (system === "gba") {
+      currentGbaRomBytes = rom.slice();
+      currentGbaRomFilename = filename;
+    }
+
     if (shouldUseMgbaCompat()) {
       if (!window.ML3DMgbaCompat?.start) {
         throw new Error("Falta el núcleo mGBA de compatibilidad.");
@@ -800,8 +908,6 @@ window.addEventListener(
       const blitter = new GfxGlueCode(240, 160);
       blitter.attachCanvas(canvas);
       emulator.attachGraphicsFrameHandler(blitter);
-      currentGbaRomBytes = rom.slice();
-      currentGbaRomFilename = filename;
       emulator.attachROM(rom);
       if (audioInput) {
         emulator.attachAudioHandler(audioInput);
@@ -809,7 +915,9 @@ window.addEventListener(
       }
       emulator.play();
 
-      if (!linkRoomActive) {
+      /* En una partida Link los núcleos de cada jugador arrancan desde la ROM
+         limpia: restaurar la partida guardada los desincronizaría. */
+      if (!linkRoomActive && options.skipSaveRestore !== true) {
         try {
           const gameName = emulator.getGameName();
           if (gameName) {

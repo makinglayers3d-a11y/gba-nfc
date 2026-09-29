@@ -1,0 +1,17 @@
+# dist/ es salida del build, no fuente. En subdirectorio por fase, asi que el
+# patron tiene que cubrir el arbol entero y no solo el primer nivel.
+dist/
+.tmp/
+
+# Excepcion: el motor que el sitio publicado necesita servir.
+# GitHub Pages publica lo que hay en la rama, asi que si mgba.wasm no se
+# versiona, el Cable Link se queda sin motor en produccion. Va acompanado de su
+# aviso de licencia, como exige la MPL-2.0 al distribuir la forma ejecutable.
+!dist/
+!dist/multi/
+!dist/multi/mgba.js
+!dist/multi/mgba.wasm
+!dist/multi/LEEME-LICENCIA.txt
+
+# Los registros de las pruebas no: se regeneran y solo ensucian el historial.
+dist/**/*.log

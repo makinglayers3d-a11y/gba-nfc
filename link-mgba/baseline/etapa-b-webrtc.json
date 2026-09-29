@@ -1,0 +1,50 @@
+{
+  "rama": "test/mgba-link-lobby-integration-2026-09-28",
+  "fecha": "2026-09-29",
+  "tipo": "etapa B: dos navegadores aislados, WebRTC real, sin red externa",
+
+  "montaje": {
+    "jugadorA": "http://localhost:8765/ (host, asiento 0)",
+    "jugadorB": "http://localhost:8766/ (invitado, asiento 1)",
+    "porQueDosPuertos": "BroadcastChannel se comparte por origen; dos puertos = dos buses aislados, equivalente a dos PCs",
+    "aislamientoComprobado": "un mensaje enviado en 8765 no llega a 8766 (0 de 1)",
+    "ubicacion": "coordenadas de prueba (40.4168, -3.7038), no la real del usuario",
+    "sala": "creada y cerrada en el worker del usuario al terminar"
+  },
+
+  "falloEncontrado": {
+    "que": "el anillo de input nunca se invalidaba",
+    "donde": "user_scripts/LocalLinkSession.js, runFrame()",
+    "sintoma": "pasados RING=256 frames, frameReady() siempre daba true porque cada hueco conservaba el valor de la vuelta anterior",
+    "consecuencia": "el lockstep dejaba de esperar a nadie: cada navegador jugaba su propia partida y un input que llegaba tarde se perdia en silencio",
+    "comoSeVio": "el invitado tenia 0 stalls desde el arranque y el host solo stalleaba durante los primeros ~256 frames; al pulsar una tecla en el invitado, las copias divergieron y salto el cartel en los dos lados",
+    "arreglo": "al avanzar de frame se vacia el hueco que se acaba de consumir (frame + RING - 1)",
+    "nota": "venia del diseño original de la sesion, no de la migracion a mGBA"
+  },
+
+  "medidoTrasElArreglo": {
+    "fpsHost": 59.71,
+    "fpsInvitado": 59.82,
+    "stallsPorSegHost": 2.8,
+    "stallsPorSegInvitado": 0,
+    "colaAudioMs": [112, 103],
+    "huellasComparadas": 53,
+    "huellasDistintas": 0,
+    "cartelDesync": false,
+    "inputCruzado": "A pulsa Abajo y B ve IN:80/0; B pulsa A y las huellas siguen coincidiendo"
+  },
+
+  "trampaDelEntorno": {
+    "que": "Chrome estrangula los temporizadores de una pestaña oculta a 1 Hz",
+    "efecto": "medidas de 1 fps que no tenian nada que ver con el codigo",
+    "comoSeEvita": "un clic real en cada pestaña activa el audio y Chrome deja de estrangular; con audio sonando la pestaña oculta mantiene 59,8 fps",
+    "paraLaEtapaC": "con dos PCs no aplica, pero conviene no dejar ninguna ventana minimizada"
+  },
+
+  "noValidado": [
+    "latencia de red real: entre dos pestañas del mismo PC no es representativa",
+    "3 y 4 jugadores sobre WebRTC",
+    "reconexion tras caida del canal",
+    "partida larga: la prueba mas larga fue de unos 90 segundos"
+  ]
+}

@@ -1,0 +1,31 @@
+/* ML3D Link dentro de la pantalla del emulador.
+   El lobby vive en un iframe que cubre .screen-frame; se oculta al volver al
+   juego, nunca se destruye, para que la sesión WebRTC siga viva. */
+
+.lobby-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #02060b;
+}
+
+.lobby-overlay[hidden] {
+  display: none !important;
+}
+
+.lobby-overlay-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #02060b;
+}
+
+/* Entrada al lobby desde el menú ☰: sin nada nuevo sobre la pantalla ni sobre
+   los controles. */
+#menu #open-lobby-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}

@@ -4,7 +4,9 @@
   if (window.ML3DLinkCable) return;
 
   const params = new URLSearchParams(location.search);
-  if (params.get("linkTransport") === "dual") {
+  /* El lobby configura la sesión en caliente, sin parámetros en la URL, así que
+     el transporte también se puede fijar con un global antes de cargar esto. */
+  if (params.get("linkTransport") === "dual" || window.ML3D_LINK_TRANSPORT === "dual") {
     window.ML3DLinkCable = {
       attachEmulator() { return false; },
       detachEmulator() {},
