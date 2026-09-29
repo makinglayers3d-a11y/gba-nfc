@@ -106,10 +106,26 @@
       letter-spacing:0;
     }
 
-    #menu .ml3d-graphics-modes button.active{
-      border-color:#d8ffff!important;
-      box-shadow:0 0 14px #63f4ff,inset 0 0 12px #a9ffff45!important;
-      filter:brightness(1.16);
+    #menu .ml3d-graphics-modes button.active,
+    #menu .ml3d-graphics-modes button[aria-pressed="true"]{
+      border:2px solid #fff!important;
+      outline:2px solid #63f4ff!important;
+      outline-offset:1px;
+      background:linear-gradient(145deg,#22c4e8,#08728d)!important;
+      color:#fff!important;
+      box-shadow:0 0 18px #63f4ff,inset 0 0 0 2px #d8ffff80!important;
+      filter:brightness(1.22);
+      transform:scale(1.04);
+    }
+
+    #menu .ml3d-graphics-modes button.active::before,
+    #menu .ml3d-graphics-modes button[aria-pressed="true"]::before{
+      content:"✓";
+      display:inline-block;
+      margin-right:3px;
+      font-size:.72rem;
+      font-weight:1000;
+      line-height:1;
     }
 
     .ml3d-graphics-note{
