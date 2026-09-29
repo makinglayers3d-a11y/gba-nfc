@@ -140,46 +140,55 @@ try {
       break
     }
 
-    $path = [System.Uri]::UnescapeDataString($context.Request.Url.AbsolutePath)
+    # Una peticion que falla no puede tumbar el servidor. Si el navegador corta
+    # la descarga a medias -recargar mientras baja la ROM o el wasm, o un movil
+    # que cambia de red-, el Write revienta; sin este try se salia del bucle y
+    # el servidor moria en silencio, justo en mitad de una prueba larga.
+    try {
+      $path = [System.Uri]::UnescapeDataString($context.Request.Url.AbsolutePath)
 
-    if ($path -eq "/api" -or $path.StartsWith("/api/")) {
-      $rest = $path.Substring(4)
-      if (-not $rest) { $rest = "/" }
-      try {
-        Send-ToWorker $context ($ApiTarget + $rest + $context.Request.Url.Query)
-      } catch {
-        $context.Response.StatusCode = 502
-        $msg = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"proxy: ' + $_.Exception.Message.Replace('"', "'") + '"}')
-        $context.Response.ContentType = "application/json; charset=utf-8"
+      if ($path -eq "/api" -or $path.StartsWith("/api/")) {
+        $rest = $path.Substring(4)
+        if (-not $rest) { $rest = "/" }
+        try {
+          Send-ToWorker $context ($ApiTarget + $rest + $context.Request.Url.Query)
+        } catch {
+          $context.Response.StatusCode = 502
+          $msg = [System.Text.Encoding]::UTF8.GetBytes('{"ok":false,"error":"proxy: ' + $_.Exception.Message.Replace('"', "'") + '"}')
+          $context.Response.ContentType = "application/json; charset=utf-8"
+          $context.Response.OutputStream.Write($msg, 0, $msg.Length)
+        }
+        $context.Response.OutputStream.Close()
+        continue
+      }
+
+      if ($path -eq "/") { $path = "/index.html" }
+      $file = Join-Path $Root ($path.TrimStart("/") -replace "/", "\")
+
+      # Nada fuera de la carpeta del repo.
+      $full = [System.IO.Path]::GetFullPath($file)
+      $inside = $full.StartsWith([System.IO.Path]::GetFullPath($Root), [System.StringComparison]::OrdinalIgnoreCase)
+
+      if ($inside -and (Test-Path -LiteralPath $full -PathType Leaf)) {
+        $ext = [System.IO.Path]::GetExtension($full).ToLower()
+        $type = $types[$ext]
+        if (-not $type) { $type = "application/octet-stream" }
+        $bytes = [System.IO.File]::ReadAllBytes($full)
+        $context.Response.ContentType = $type
+        $context.Response.Headers.Add("Cache-Control", "no-store")
+        $context.Response.ContentLength64 = $bytes.Length
+        $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+      } else {
+        $context.Response.StatusCode = 404
+        $msg = [System.Text.Encoding]::UTF8.GetBytes("404 $path")
         $context.Response.OutputStream.Write($msg, 0, $msg.Length)
       }
+
       $context.Response.OutputStream.Close()
-      continue
+    } catch {
+      Write-Output ("aviso: peticion fallida (" + $_.Exception.Message + ")")
+      try { $context.Response.Abort() } catch { }
     }
-
-    if ($path -eq "/") { $path = "/index.html" }
-    $file = Join-Path $Root ($path.TrimStart("/") -replace "/", "\")
-
-    # Nada fuera de la carpeta del repo.
-    $full = [System.IO.Path]::GetFullPath($file)
-    $inside = $full.StartsWith([System.IO.Path]::GetFullPath($Root), [System.StringComparison]::OrdinalIgnoreCase)
-
-    if ($inside -and (Test-Path -LiteralPath $full -PathType Leaf)) {
-      $ext = [System.IO.Path]::GetExtension($full).ToLower()
-      $type = $types[$ext]
-      if (-not $type) { $type = "application/octet-stream" }
-      $bytes = [System.IO.File]::ReadAllBytes($full)
-      $context.Response.ContentType = $type
-      $context.Response.Headers.Add("Cache-Control", "no-store")
-      $context.Response.ContentLength64 = $bytes.Length
-      $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-    } else {
-      $context.Response.StatusCode = 404
-      $msg = [System.Text.Encoding]::UTF8.GetBytes("404 $path")
-      $context.Response.OutputStream.Write($msg, 0, $msg.Length)
-    }
-
-    $context.Response.OutputStream.Close()
   }
 } finally {
   $listener.Stop()
