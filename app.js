@@ -937,6 +937,44 @@ window.addEventListener(
     menu.showModal();
   });
 
+  // Safari/iOS can intermittently lose or delay synthetic click events inside
+  // the modal menu. Convert a clean touch release into the button's native
+  // click and suppress the delayed ghost click. Sliders/selects keep their
+  // native touch behaviour.
+  if (isIOSWebKit() && menu) {
+    let lastMenuTouchClick = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    menu.addEventListener("touchstart", (event) => {
+      if (event.touches.length !== 1) return;
+      touchStartX = event.touches[0].clientX;
+      touchStartY = event.touches[0].clientY;
+    }, { passive: true, capture: true });
+
+    menu.addEventListener("touchend", (event) => {
+      const target = event.target instanceof Element
+        ? event.target.closest("button")
+        : null;
+      if (!target || !menu.contains(target) || target.disabled) return;
+
+      const touch = event.changedTouches && event.changedTouches[0];
+      if (!touch) return;
+      if (Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY) > 12) return;
+
+      event.preventDefault();
+      lastMenuTouchClick = performance.now();
+      target.click();
+    }, { passive: false, capture: true });
+
+    menu.addEventListener("click", (event) => {
+      if (performance.now() - lastMenuTouchClick < 450 && event.detail !== 0) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }, true);
+  }
+
   speedSelect.addEventListener("change", () => {
     const speed = Number(speedSelect.value);
 
