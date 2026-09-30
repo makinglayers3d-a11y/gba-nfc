@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ML3Demuler</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; gap:16px; padding:24px;
+         background:#10141b; color:#eef2f8; text-align:center;
+         font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif }
+  h1 { margin:0; font-size:20px; letter-spacing:.02em }
+  p { margin:0; max-width:44ch; opacity:.85 }
+  a { color:#7db8ff }
+</style>
+</head>
+<body>
+
+<h1>Un momento…</h1>
+<p id="mensaje">Abriendo el emulador.</p>
+<p><a href="index.html">Ir al emulador</a></p>
+
+<script>
+/* Compatibilidad con las etiquetas NFC ya grabadas.
+ *
+ * Los juegos vivian en una carpeta publica del sitio, asi que hay etiquetas
+ * por ahi que apuntan directamente a un archivo. Esos archivos ya no estan
+ * ahi: ahora los entrega el worker despues de comprobar el acceso.
+ *
+ * Reprogramar etiquetas que ya estan pegadas a un cartucho no es una opcion,
+ * asi que esta pagina recoge cualquier direccion que ya no exista y, si se
+ * puede adivinar a que juego se referia, abre el emulador con ese juego. Si no,
+ * lleva al emulador a secas.
+ *
+ * GitHub Pages sirve este fichero ante cualquier direccion que no encuentre,
+ * conservando la original, que es lo que hace posible el rescate.
+ */
+(function () {
+  "use strict";
+
+  var ruta = decodeURIComponent(location.pathname || "");
+  var busca = new URLSearchParams(location.search);
+
+  /* La base del sitio: /gba-nfc/ al publicar, / en local. */
+  var base = ruta.indexOf("/gba-nfc/") === 0 ? "/gba-nfc/" : "/";
+
+  function alEmulador(parametros) {
+    var url = base + "index.html";
+    var q = parametros.toString();
+    location.replace(q ? url + "?" + q : url);
+  }
+
+  var salida = new URLSearchParams();
+
+  /* Lo que ya venia en la direccion se conserva: si la etiqueta traia
+     parametros propios, no se pierden por el camino. */
+  busca.forEach(function (valor, clave) { salida.set(clave, valor); });
+
+  /* Caso 1: apunta a un archivo de juego.
+     .../games/Mario Kart - Super Circuit.gba  ->  index.html?rom=<nombre> */
+  var juego = ruta.match(/\/games\/(.+\.(?:gba|gbc|gb))$/i);
+  if (juego) {
+    salida.set("rom", juego[1]);
+    alEmulador(salida);
+    return;
+  }
+
+  /* Caso 2: apunta a una caratula. Se abre el juego correspondiente, que es lo
+     que la persona esperaba al acercar el movil al cartucho. */
+  var caratula = ruta.match(/\/covers\/(.+)\.(?:jpg|jpeg|png|webp)$/i);
+  if (caratula) {
+    salida.set("rom", caratula[1] + ".gba");
+    alEmulador(salida);
+    return;
+  }
+
+  /* Caso 3: el nombre del juego viene como ultimo trozo de la direccion,
+     sin extension. Por ejemplo .../gba-nfc/Mario Kart - Super Circuit */
+  var ultimo = ruta.replace(/\/+$/, "").split("/").pop() || "";
+  if (ultimo && !/\.[a-z0-9]{1,5}$/i.test(ultimo) && ultimo !== "gba-nfc") {
+    salida.set("rom", ultimo + ".gba");
+    alEmulador(salida);
+    return;
+  }
+
+  /* No se reconoce: al emulador tal cual, que es mejor que un error. */
+  document.getElementById("mensaje").textContent =
+    "Esta direccion ya no existe. Te llevamos al emulador.";
+  setTimeout(function () { alEmulador(salida); }, 1200);
+})();
+</script>
+
+</body>
+</html>

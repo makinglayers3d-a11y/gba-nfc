@@ -179,9 +179,21 @@ try {
         $context.Response.ContentLength64 = $bytes.Length
         $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
       } else {
+        # Como GitHub Pages: ante una direccion que no existe se sirve 404.html
+        # conservando la original, que es lo que permite rescatar las etiquetas
+        # NFC antiguas. Sin esto, en local no se puede probar ese camino.
+        $notFound = Join-Path $Root "404.html"
         $context.Response.StatusCode = 404
-        $msg = [System.Text.Encoding]::UTF8.GetBytes("404 $path")
-        $context.Response.OutputStream.Write($msg, 0, $msg.Length)
+        if (Test-Path -LiteralPath $notFound -PathType Leaf) {
+          $bytes = [System.IO.File]::ReadAllBytes($notFound)
+          $context.Response.ContentType = "text/html; charset=utf-8"
+          $context.Response.Headers.Add("Cache-Control", "no-store")
+          $context.Response.ContentLength64 = $bytes.Length
+          $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+        } else {
+          $msg = [System.Text.Encoding]::UTF8.GetBytes("404 $path")
+          $context.Response.OutputStream.Write($msg, 0, $msg.Length)
+        }
       }
 
       $context.Response.OutputStream.Close()
