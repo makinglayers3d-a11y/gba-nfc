@@ -99,7 +99,13 @@
   async function loadConfig() {
     const response = await fetch(`${CONFIG_URL}?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`No se pudo cargar la configuración de acceso (${response.status})`);
-    return response.json();
+    const config = await response.json();
+    /* La direccion del worker la necesita tambien quien pide el contenido
+       protegido, y no tiene por que volver a leer la configuracion. */
+    if (config?.apiBase) {
+      window.dispatchEvent(new CustomEvent("ml3d-access-config", { detail: { apiBase: config.apiBase } }));
+    }
+    return config;
   }
 
   async function api(config, path, options = {}) {
@@ -240,7 +246,10 @@
         window.ml3dAccessIdentity = {
           deviceId: String(result.deviceId || identity.deviceId || ""),
           sessionId: getSessionId(),
-          displayName: String(result.displayName || "")
+          displayName: String(result.displayName || ""),
+          /* Pase para pedir juegos, caratulas y carcasas al worker sin volver
+             a firmar un desafio por cada archivo. Lo recoge ml3d-contenido.js. */
+          contentPass: String(result.contentPass || "")
         };
         window.dispatchEvent(new CustomEvent("ml3d-access-identity", { detail: window.ml3dAccessIdentity }));
         startUsageTracking(config, identity);
