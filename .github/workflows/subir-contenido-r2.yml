@@ -1,0 +1,126 @@
+# Sube el contenido protegido al bucket privado de R2.
+#
+# Se hace desde GitHub Actions y no desde un PC porque aqui ya estan las
+# credenciales de Cloudflare como secretos, y porque el contenido todavia vive
+# en el repositorio: no hay que moverlo a ningun sitio antes.
+#
+# Es idempotente: subir dos veces deja el bucket igual. Se puede repetir sin
+# miedo si algo falla a mitad.
+name: Subir contenido protegido a R2
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket:
+        description: "Nombre del bucket de R2"
+        required: false
+        default: "ml3d-contenido"
+  # Tambien al tocar este mismo fichero, para poder lanzarlo sin entrar en la
+  # web de GitHub. Filtrado a proposito: no queremos resubir 584 MB en cada
+  # commit del proyecto.
+  push:
+    paths:
+      - ".github/workflows/subir-contenido-r2.yml"
+
+jobs:
+  subir:
+    runs-on: ubuntu-24.04
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BUCKET: ${{ github.event.inputs.bucket || 'ml3d-contenido' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar credenciales
+        shell: bash
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::Falta el secreto CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          echo "Credenciales presentes."
+
+      - name: Comprobar que el bucket existe
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! npx --yes wrangler@latest r2 bucket list 2>&1 | tee /tmp/buckets.txt | grep -q "$BUCKET"; then
+            echo "::error::No se encuentra el bucket $BUCKET. ¿Esta creado y tiene el token permiso sobre R2?"
+            sed -n '1,40p' /tmp/buckets.txt
+            exit 2
+          fi
+          echo "Bucket $BUCKET encontrado."
+
+      - name: Subir juegos, caratulas y carcasas
+        shell: bash
+        run: |
+          set -uo pipefail
+          subidos=0; fallidos=0
+          subir() {
+            local origen="$1" destino="$2"
+            # --remote: al bucket de verdad, no a la copia local de desarrollo.
+            if npx --yes wrangler@latest r2 object put "$BUCKET/$destino" \
+                 --file "$origen" --remote >/dev/null 2>/tmp/err.txt; then
+              subidos=$((subidos+1))
+              printf '  ok  %s\n' "$destino"
+            else
+              fallidos=$((fallidos+1))
+              printf '::warning::fallo %s -- %s\n' "$destino" "$(tail -1 /tmp/err.txt)"
+            fi
+          }
+
+          echo "--- juegos ---"
+          while IFS= read -r f; do subir "$f" "$f"; done < <(find games -type f \( -iname '*.gba' -o -iname '*.gbc' -o -iname '*.gb' \) | sort)
+
+          echo "--- caratulas ---"
+          while IFS= read -r f; do subir "$f" "$f"; done < <(find covers -type f | sort)
+
+          echo "--- carcasas y tapas ---"
+          # La de ML3D tambien se sube: el worker la sirve a todo el mundo desde
+          # el mismo sitio, para no tener el contenido repartido en dos lugares.
+          while IFS= read -r f; do subir "$f" "$f"; done < <(find assets -maxdepth 1 -name 'gba-sp-*' | sort)
+          while IFS= read -r f; do subir "$f" "$f"; done < <(find assets/sp-lids -type f | sort)
+
+          echo
+          echo "Subidos: $subidos   Fallidos: $fallidos"
+          echo "subidos=$subidos" >> "$GITHUB_STEP_SUMMARY"
+          echo "fallidos=$fallidos" >> "$GITHUB_STEP_SUMMARY"
+          [ "$fallidos" -eq 0 ] || exit 3
+
+      - name: Comprobar que estan en el bucket
+        shell: bash
+        run: |
+          set -uo pipefail
+          # No basta con que la subida no diera error: se comprueba que unos
+          # cuantos objetos se pueden volver a leer y pesan lo mismo.
+          fallos=0
+          comprobar() {
+            local clave="$1"
+            local esperado
+            esperado=$(stat -c%s "$clave")
+            if npx --yes wrangler@latest r2 object get "$BUCKET/$clave" --file /tmp/bajado --remote >/dev/null 2>&1; then
+              local real
+              real=$(stat -c%s /tmp/bajado)
+              if [ "$real" = "$esperado" ]; then
+                printf '  ok  %s (%s bytes)\n' "$clave" "$real"
+              else
+                printf '::error::%s pesa %s en el bucket y %s aqui\n' "$clave" "$real" "$esperado"
+                fallos=$((fallos+1))
+              fi
+            else
+              printf '::error::no se pudo leer %s del bucket\n' "$clave"
+              fallos=$((fallos+1))
+            fi
+          }
+          comprobar "games/Mario Kart - Super Circuit.gba"
+          comprobar "assets/gba-sp-ml3d.webp"
+          find covers -type f | sort | head -1 | while IFS= read -r c; do comprobar "$c"; done
+          [ "$fallos" -eq 0 ] || exit 4
+          echo "Comprobacion de integridad correcta."
+
+      - name: Contar lo que hay en el bucket
+        shell: bash
+        run: |
+          npx --yes wrangler@latest r2 object list "$BUCKET" --remote 2>/dev/null | head -5 || true
+          echo "Subida terminada."
