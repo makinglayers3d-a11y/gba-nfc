@@ -327,3 +327,7 @@ jobs:
             link-mgba/dist/${{ env.STAGE }}/traffic.log
             link-mgba/dist/${{ env.STAGE }}/runtime.log
           if-no-files-found: error
+          # Se borran solos: son compilaciones, no copias de seguridad. El motor
+          # que el sitio necesita esta versionado en el repositorio, asi que
+          # perder estos artefactos no pierde nada.
+          retention-days: 7
