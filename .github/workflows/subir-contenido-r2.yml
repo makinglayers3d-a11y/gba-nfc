@@ -44,10 +44,21 @@ jobs:
       - name: Comprobar que el bucket existe
         shell: bash
         run: |
-          set -o pipefail
-          if ! npx --yes wrangler@latest r2 bucket list 2>&1 | tee /tmp/buckets.txt | grep -q "$BUCKET"; then
-            echo "::error::No se encuentra el bucket $BUCKET. ¿Esta creado y tiene el token permiso sobre R2?"
-            sed -n '1,40p' /tmp/buckets.txt
+          # La salida de wrangler se saca como anotacion porque los registros
+          # completos de Actions no se pueden leer sin autenticacion, y sin ver
+          # el error de Cloudflare no hay forma de saber si falta el bucket o
+          # le falta permiso al token.
+          set +e
+          salida=$(npx --yes wrangler@latest r2 bucket list 2>&1)
+          codigo=$?
+          resumen=$(printf '%s' "$salida" | tr -s '[:space:]' ' ' | cut -c1-700)
+          echo "::notice::wrangler r2 bucket list (codigo $codigo): $resumen"
+          if [ $codigo -ne 0 ]; then
+            echo "::error::wrangler no pudo listar los buckets. Lo mas probable es que el token CLOUDFLARE_API_TOKEN no tenga permiso de R2."
+            exit 2
+          fi
+          if ! printf '%s' "$salida" | grep -q "$BUCKET"; then
+            echo "::error::El token si lista buckets, pero no aparece ninguno llamado $BUCKET."
             exit 2
           fi
           echo "Bucket $BUCKET encontrado."
