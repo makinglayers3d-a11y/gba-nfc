@@ -7,5 +7,8 @@
   "sizeBytes": 7861910,
   "changelog": [
     "Mejorar selector y cuenta atrás de demos"
-  ]
+  ],
+  "minVersionCode": 36,
+  "updateRequiredMessage": "Esta version ya no puede ver el catalogo de juegos. Actualiza la app para seguir grabando etiquetas.",
+  "catalogApi": "https://ml3d-dev-access.makinglayers3d.workers.dev/v1/content/catalog"
 }
