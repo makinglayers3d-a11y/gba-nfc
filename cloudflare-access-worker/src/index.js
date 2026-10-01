@@ -1,4 +1,7 @@
-import { emitePase, quienPide, puedeVerJuego, entrega, claveDeJuego, CARCASA_PUBLICA } from "./content.js";
+import {
+  emitePase, quienPide, puedeVerJuego, entrega, claveDeJuego, CARCASA_PUBLICA,
+  hayAlmacen, almacenGuarda, almacenBorra, almacenExiste, almacenLeeTexto, almacenLista
+} from "./content.js";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const encoder = new TextEncoder();
@@ -307,8 +310,30 @@ function normalizedCoverExtension(value) {
   return ext;
 }
 
+/* Guardar y borrar van al almacen cuando existe, y al repositorio mientras no.
+   Tenerlo en un solo sitio evita que una de las cuatro operaciones de la app se
+   quede escribiendo donde no debe. */
+async function guardaContenido(env, ruta, base64, mensaje) {
+  if (hayAlmacen(env)) return almacenGuarda(env, ruta, base64);
+  return putRepoFile(env, ruta, base64, mensaje);
+}
+
+async function borraContenido(env, ruta, mensaje) {
+  if (hayAlmacen(env)) return almacenBorra(env, ruta);
+  return deleteRepoFile(env, ruta, mensaje);
+}
+
 async function gameManagement(env) {
-  const root = await readRepoJson(env, "game-management.json", { schemaVersion: 1, updatedAt: "", games: {} });
+  /* El estado de los juegos (nombre para mostrar, suspendidos, caratula) vive
+     junto a los juegos: si se quedara en el repositorio, un juego podria estar
+     suspendido en un sitio y activo en el otro. */
+  let root;
+  if (hayAlmacen(env)) {
+    const texto = await almacenLeeTexto(env, "game-management.json");
+    root = texto ? JSON.parse(texto) : { schemaVersion: 1, updatedAt: "", games: {} };
+  } else {
+    root = await readRepoJson(env, "game-management.json", { schemaVersion: 1, updatedAt: "", games: {} });
+  }
   if (!root.games || typeof root.games !== "object" || Array.isArray(root.games)) root.games = {};
   root.schemaVersion = 1;
   return root;
@@ -317,10 +342,20 @@ async function gameManagement(env) {
 async function saveGameManagement(env, management, message) {
   management.schemaVersion = 1;
   management.updatedAt = nowIso();
-  await putRepoFile(env, "game-management.json", utf8ToBase64(JSON.stringify(management, null, 2) + "\n"), message);
+  const texto = JSON.stringify(management, null, 2) + "\n";
+  if (hayAlmacen(env)) {
+    await almacenGuarda(env, "game-management.json", texto, { esBase64: false });
+    return;
+  }
+  await putRepoFile(env, "game-management.json", utf8ToBase64(texto), message);
 }
 
 async function syncGamesCatalog(env) {
+  /* games-catalog.json es el respaldo publico que usan la web y la app cuando
+     no hay almacen. Con almacen ya no manda nadie sobre el, y reescribirlo
+     obligaria a dar permiso de escritura en el repositorio a algo que ya no lo
+     necesita. */
+  if (hayAlmacen(env)) return;
   const files = (await listRepoDir(env, "games"))
     .filter((item) => item.type === "file" && /\.(gba|gbc|gb)$/i.test(item.name || ""))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
@@ -334,11 +369,19 @@ async function syncGamesCatalog(env) {
 }
 
 async function listManagedGames(env, request) {
-  const [files, covers, management] = await Promise.all([
-    listRepoDir(env, "games"),
-    listRepoDir(env, "covers"),
-    gameManagement(env)
-  ]);
+  /* Se lista del mismo sitio donde se guarda; si no, la app enseñaria lo que
+     hay en el repositorio mientras el emulador sirve lo que hay en el almacen. */
+  const [files, covers, management] = hayAlmacen(env)
+    ? await Promise.all([
+        almacenLista(env, "games/").then((n) => n.map((name) => ({ name, type: "file" }))),
+        almacenLista(env, "covers/").then((n) => n.map((name) => ({ name, type: "file" }))),
+        gameManagement(env)
+      ])
+    : await Promise.all([
+        listRepoDir(env, "games"),
+        listRepoDir(env, "covers"),
+        gameManagement(env)
+      ]);
   const coverNames = new Set(covers.filter((item) => item.type === "file").map((item) => item.name));
   const games = files
     .filter((item) => item.type === "file" && /\.(gba|gbc|gb)$/i.test(item.name || ""))
@@ -367,14 +410,20 @@ async function addManagedGame(env, request) {
   const filename = normalizedRomFilename(body.filename);
   const romBase64 = String(body.romBase64 || "").replace(/\s/g, "");
   if (!romBase64 || romBase64.length > MAX_GAME_ROM_BASE64) return bad(env, request, "ROM vacía o demasiado grande", 413);
-  try {
-    await repoContents(env, `games/${filename}`);
-    return bad(env, request, "Ya existe un juego con ese archivo", 409);
-  } catch (error) {
-    if (error.status !== 404) throw error;
+  if (hayAlmacen(env)) {
+    if (await almacenExiste(env, `games/${filename}`)) {
+      return bad(env, request, "Ya existe un juego con ese archivo", 409);
+    }
+  } else {
+    try {
+      await repoContents(env, `games/${filename}`);
+      return bad(env, request, "Ya existe un juego con ese archivo", 409);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
   }
 
-  await putRepoFile(env, `games/${filename}`, romBase64, `Add game ${filename}`);
+  await guardaContenido(env, `games/${filename}`, romBase64, `Add game ${filename}`);
 
   const management = await gameManagement(env);
   const base = romBaseName(filename);
@@ -388,7 +437,7 @@ async function addManagedGame(env, request) {
     if (coverBase64.length > MAX_GAME_COVER_BASE64) return bad(env, request, "Carátula demasiado grande", 413);
     const extension = normalizedCoverExtension(body.coverExtension);
     const coverPath = `covers/${base}.${extension}`;
-    await putRepoFile(env, coverPath, coverBase64, `Add cover for ${filename}`);
+    await guardaContenido(env, coverPath, coverBase64, `Add cover for ${filename}`);
     entry.cover = coverPath;
   }
 
@@ -415,7 +464,7 @@ async function updateManagedGame(env, request, filenameValue) {
     if (coverBase64.length > MAX_GAME_COVER_BASE64) return bad(env, request, "Carátula demasiado grande", 413);
     const extension = normalizedCoverExtension(body.coverExtension);
     const coverPath = `covers/${romBaseName(filename)}.${extension}`;
-    await putRepoFile(env, coverPath, coverBase64, `Update cover for ${filename}`);
+    await guardaContenido(env, coverPath, coverBase64, `Update cover for ${filename}`);
     entry.cover = coverPath;
   }
 
@@ -448,7 +497,7 @@ async function deleteManagedGame(env, request, filenameValue) {
   const current = management.games[filename] || {};
   const deleted = [];
 
-  if (await deleteRepoFile(env, `games/${filename}`, `Delete game ${filename}`)) {
+  if (await borraContenido(env, `games/${filename}`, `Delete game ${filename}`)) {
     deleted.push(`games/${filename}`);
   } else {
     return bad(env, request, "Juego no encontrado", 404);
@@ -460,6 +509,8 @@ async function deleteManagedGame(env, request, filenameValue) {
     const previewBase = String(item.name || "").replace(/\.[^.]+$/, "");
     if (previewBase === base) {
       const previewPath = `previews/${item.name}`;
+      /* Las vistas previas de cartuchos no son contenido protegido: siguen
+         viviendo en el repositorio, asi que su borrado va alli. */
       if (await deleteRepoFile(env, previewPath, `Delete preview for ${filename}`)) deleted.push(previewPath);
     }
   }
@@ -472,7 +523,7 @@ async function deleteManagedGame(env, request, filenameValue) {
       `covers/${base}.webp`
     ].filter((value) => value && value !== "covers/coverml3d.png"));
     for (const coverPath of coverPaths) {
-      if (await deleteRepoFile(env, coverPath, `Delete cover for ${filename}`)) deleted.push(coverPath);
+      if (await borraContenido(env, coverPath, `Delete cover for ${filename}`)) deleted.push(coverPath);
     }
   }
 

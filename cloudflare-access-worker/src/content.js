@@ -179,6 +179,74 @@ function tipoDe(nombre) {
  * archivo no tiene nunca una dirección que alguien pueda copiar y repartir, ni
  * siquiera una temporal.
  */
+/* --------------------------------------------- escritura en el almacen
+ *
+ * La app de gestion anade, cambia y borra juegos. Hasta ahora eso escribia
+ * ficheros en el repositorio publico, que era donde vivian. Ahora viven aqui,
+ * asi que estas operaciones tienen que ir al mismo sitio: si no, se añadiria un
+ * juego al repositorio y no apareceria, o se borraria de un sitio y seguiria en
+ * el otro. Dos almacenes desincronizados y sin avisar.
+ *
+ * Mientras no haya bucket, quien llama se queda con el camino de siempre, para
+ * que la transicion no rompa nada.
+ */
+
+export function hayAlmacen(env) {
+  return Boolean(env.CONTENIDO);
+}
+
+function bytesDesdeBase64(base64) {
+  const binario = atob(String(base64 || ""));
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  return bytes;
+}
+
+/** Guarda un fichero. `contenido` puede ser base64 o texto plano. */
+export async function almacenGuarda(env, clave, contenido, { esBase64 = true } = {}) {
+  if (!env.CONTENIDO) return false;
+  const cuerpo = esBase64 ? bytesDesdeBase64(contenido) : new TextEncoder().encode(String(contenido));
+  await env.CONTENIDO.put(clave, cuerpo, {
+    httpMetadata: { contentType: tipoDe(clave) }
+  });
+  return true;
+}
+
+/** Borra un fichero. Devuelve si existia. */
+export async function almacenBorra(env, clave) {
+  if (!env.CONTENIDO) return false;
+  const existia = await env.CONTENIDO.head(clave);
+  if (!existia) return false;
+  await env.CONTENIDO.delete(clave);
+  return true;
+}
+
+/** ¿Existe ya este fichero? Se usa para no pisar un juego por error. */
+export async function almacenExiste(env, clave) {
+  if (!env.CONTENIDO) return false;
+  return Boolean(await env.CONTENIDO.head(clave));
+}
+
+/** Lee un fichero de texto (JSON de gestion). */
+export async function almacenLeeTexto(env, clave) {
+  if (!env.CONTENIDO) return null;
+  const objeto = await env.CONTENIDO.get(clave);
+  return objeto ? objeto.text() : null;
+}
+
+/** Nombres de fichero bajo un prefijo, sin el prefijo. */
+export async function almacenLista(env, prefijo) {
+  if (!env.CONTENIDO) return [];
+  const salida = [];
+  let cursor;
+  do {
+    const pagina = await env.CONTENIDO.list({ prefix: prefijo, cursor, limit: 1000 });
+    for (const o of pagina.objects) salida.push(o.key.slice(prefijo.length));
+    cursor = pagina.truncated ? pagina.cursor : null;
+  } while (cursor);
+  return salida;
+}
+
 export async function entrega(env, request, clave, cors) {
   if (!env.CONTENIDO) {
     return new Response(JSON.stringify({ error: "El almacén de contenido no está configurado" }), {
