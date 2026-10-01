@@ -137,3 +137,5 @@ jobs:
           echo "Subida terminada."
 
 # Relanzado para comprobar el permiso del token.
+
+# Reintento tras anadir el permiso R2 al token.
