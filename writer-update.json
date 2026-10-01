@@ -1,11 +1,13 @@
 {
   "enabled": true,
-  "versionCode": 36,
-  "versionName": "0.11.18",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.11.18/ml3d-nfc-writer-0.11.18.apk",
-  "sha256": "671f616ff83911296eb42c6c181582d56f6516514821b1e5d53a9dca1ec13768",
-  "sizeBytes": 7861910,
+  "versionCode": 37,
+  "versionName": "0.12.0",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.12.0/ml3d-nfc-writer-0.12.0.apk",
+  "sha256": "2462e111d77a8d09f6c60d8264eb1f4629975f4ec45c41fda4efd462aab217d3",
+  "sizeBytes": 7878298,
   "changelog": [
-    "Mejorar selector y cuenta atrás de demos"
-  ]
+    "El catalogo de juegos lo sirve el worker, con control de acceso"
+  ],
+  "minVersionCode": 36,
+  "updateRequiredMessage": "Esta version ya no puede ver el catalogo de juegos. Actualiza la app para seguir grabando etiquetas."
 }
