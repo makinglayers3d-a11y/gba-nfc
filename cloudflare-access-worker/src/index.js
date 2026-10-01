@@ -1798,6 +1798,11 @@ async function rutaContenido(env, request, url) {
   const resto = decodeURIComponent(trozos.slice(3).join("/") || "");
   const cabeceras = cors(env, request);
 
+  /* El escritor de etiquetas NFC es la herramienta del administrador, no la de
+     los testers: se identifica con el token de admin y no con la firma de un
+     dispositivo. Si viene con ese token, ve todo el contenido. */
+  const esAdmin = await adminAuthorized(env, request);
+
   /* La carcasa de ML3D no pide nada a nadie. */
   if (que === "skin" && resto.split("/")[0] === CARCASA_PUBLICA) {
     const cual = CARCASAS[CARCASA_PUBLICA];
@@ -1805,7 +1810,9 @@ async function rutaContenido(env, request, url) {
     return entrega(env, request, pieza, cabeceras);
   }
 
-  const quien = await quienPide(env, request);
+  const quien = esAdmin
+    ? { ok: true, deviceId: "admin", modo: "all", juegos: [], carcasas: true }
+    : await quienPide(env, request);
 
   /* El catalogo se responde siempre: quien no tiene acceso recibe una lista
      vacia y el aviso, que es justo lo que la pantalla necesita para
@@ -1853,9 +1860,31 @@ async function rutaContenido(env, request, url) {
    ahora. Se cachea un rato porque listar es caro y cambia poco. */
 let cacheJuegos = { lista: null, hasta: 0 };
 
+/* Respaldo para la transicion: el catalogo publico del repositorio. Se cae a
+   esto solo si no hay bucket configurado. */
+async function listaDeJuegosDelRepo(env) {
+  try {
+    const repo = env.GITHUB_REPO || DEFAULT_GITHUB_REPO;
+    const url = `https://raw.githubusercontent.com/${repo}/main/games-catalog.json`;
+    const res = await fetch(url, { cf: { cacheTtl: 300 } });
+    if (!res.ok) return [];
+    const datos = await res.json();
+    return (Array.isArray(datos) ? datos : [])
+      .map((x) => String(x?.name || x || ""))
+      .filter((n) => /\.(gba|gbc|gb)$/i.test(n))
+      .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  } catch (_) {
+    return [];
+  }
+}
+
 async function listaDeJuegos(env) {
   if (cacheJuegos.lista && cacheJuegos.hasta > Date.now()) return cacheJuegos.lista;
-  if (!env.CONTENIDO) return [];
+  /* Mientras el contenido no este en R2, la lista sale del catalogo publico que
+     todavia vive en el repositorio. Asi el catalogo funciona durante toda la
+     transicion y se puede probar la app antes de mover un solo fichero. Cuando
+     el bucket exista, manda el bucket. */
+  if (!env.CONTENIDO) return listaDeJuegosDelRepo(env);
   const salida = [];
   let cursor;
   do {

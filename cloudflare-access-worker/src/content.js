@@ -132,6 +132,10 @@ export async function quienPide(env, request) {
   const device = await env.DB.prepare("SELECT * FROM devices WHERE id = ?").bind(deviceId).first();
   if (!device) return { ok: false, motivo: "desconocido" };
   if (device.status !== "approved") return { ok: false, motivo: "sin_acceso" };
+  /* Pausar NO cambia el status: deja 'approved' y pone paused = 1. Mirar solo
+     el status dejaria entrar a un dispositivo pausado, que es justo lo que se
+     quiso evitar al pausarlo. El resto del worker lo comprueba igual. */
+  if (Number(device.paused || 0) !== 0) return { ok: false, motivo: "en_pausa" };
 
   return {
     ok: true,
