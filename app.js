@@ -55,6 +55,30 @@ let selected =
       }
     : (gameConfig[game] || gameConfig.pokemon);
 
+/* De donde se baja de verdad un juego o una caratula.
+ *
+ * Las rutas logicas ("games/X.gba") se conservan tal cual en todo el codigo:
+ * de ellas cuelgan el identificador de las partidas guardadas, el sistema y el
+ * nombre que se muestra. Cambiarlas por direcciones del worker romperia las
+ * partidas de quien ya tiene alguna. Asi que solo se traducen en el momento de
+ * descargar, y nada mas. */
+function urlDeContenido(rutaLogica) {
+  const contenido = window.ML3DContenido;
+  const ruta = String(rutaLogica || "");
+  if (contenido) {
+    if (ruta.startsWith("games/")) {
+      const url = contenido.urlJuego(ruta.slice("games/".length));
+      if (url) return url;
+    } else if (ruta.startsWith("covers/")) {
+      const url = contenido.urlCaratula(ruta.slice("covers/".length));
+      if (url) return url;
+    }
+  }
+  /* Sin acceso o sin worker: la ruta publica de siempre, que sigue existiendo
+     mientras no se retire el contenido del repositorio. */
+  return ruta;
+}
+
 function systemFromFilename(filename) {
   const lower = String(filename || "").toLowerCase();
   if (lower.endsWith(".gbc")) return "gbc";
@@ -526,7 +550,7 @@ window.ML3DLinkRuntime = {
       return this.restartForLink();
     }
 
-    const response = await fetch("games/" + encodeURIComponent(filename), { cache: "force-cache" });
+    const response = await fetch(urlDeContenido("games/" + filename), { cache: "force-cache" });
     if (!response.ok) throw new Error("HTTP " + response.status);
     const bytes = new Uint8Array(await response.arrayBuffer());
     return startRomFromBytes(bytes, filename, {
@@ -1013,7 +1037,7 @@ window.addEventListener(
 
       await applyManagedRemoteGameState();
 
-      const response = await fetch(selected.rom, {
+      const response = await fetch(urlDeContenido(selected.rom), {
         cache: "no-store"
       });
 

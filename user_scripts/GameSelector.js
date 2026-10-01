@@ -1212,8 +1212,17 @@ function updateCoverBackground() {
     ? path + (path.includes("?") ? "&" : "?") + "v=" + revision
     : path;
 
-  const jpgPath = "covers/" + encodeURIComponent(baseName + ".jpg");
-  const pngPath = "covers/" + encodeURIComponent(baseName + ".png");
+  /* Las carátulas también son contenido protegido: si hay acceso se piden al
+     worker, y si no se deja la ruta pública de siempre, que sigue existiendo
+     mientras no se retire del repositorio. La de respaldo es de ML3D y no se
+     protege, para que nunca quede un hueco. */
+  const deContenido = (ruta) => {
+    const url = window.ML3DContenido?.urlCaratula?.(ruta.slice("covers/".length));
+    return url || ruta;
+  };
+
+  const jpgPath = deContenido("covers/" + encodeURIComponent(baseName + ".jpg"));
+  const pngPath = deContenido("covers/" + encodeURIComponent(baseName + ".png"));
   const fallbackPath = "covers/coverml3d.png";
 
   const oldImage = overlay.querySelector(".gba-cover-background");
