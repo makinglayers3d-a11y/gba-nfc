@@ -592,3 +592,27 @@ body.ml3d-embed .embed-share-button {
   background: #000;
   object-fit: cover;
 }
+
+/* Lista de juegos recibidos de otros jugadores. */
+.embed-received {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 0.4em;
+  font-size: 0.8em;
+}
+
+.embed-received span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embed-received button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 2em;
+  padding: 0.2em 0.6em;
+}

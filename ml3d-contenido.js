@@ -43,6 +43,38 @@
     if (url) base = url;
   });
 
+  /* La dirección del worker llega con dev=1. El emulador público también la
+     necesita para leer los ajustes generales, así que si no ha llegado se lee
+     del mismo fichero de configuración. */
+  async function direccion() {
+    if (base) return base;
+    try {
+      const config = await (await fetch("dev-access-config.json", { cache: "no-store" })).json();
+      const url = ["localhost", "127.0.0.1"].includes(location.hostname)
+        ? location.origin + "/acceso"
+        : String(config?.apiBase || "");
+      if (url && !base) base = url.replace(/\/+$/, "");
+    } catch (_) {}
+    return base;
+  }
+
+  /* Ajustes generales del emulador. Hoy uno: si el envío de juegos entre
+     jugadores está permitido. Lo decide el interruptor de la app de gestión.
+     Si el worker no contesta, apagado. */
+  async function ajustes() {
+    let envioRoms = false;
+    try {
+      const url = await direccion();
+      if (url) {
+        const respuesta = await fetch(url + "/v1/settings", { cache: "no-store" });
+        if (respuesta.ok) envioRoms = (await respuesta.json()).envioRoms === true;
+      }
+    } catch (_) {}
+    window.ML3D_ENVIO_ROMS = envioRoms;
+    return { envioRoms };
+  }
+  ajustes();
+
   function avisa() {
     for (const f of oyentes) {
       try { f(catalogo || SIN_ACCESO); } catch (e) { console.error(e); }
@@ -251,6 +283,42 @@
       oyentes.add(funcion);
       if (catalogo) { try { funcion(catalogo); } catch (e) { console.error(e); } }
       return () => oyentes.delete(funcion);
+    },
+
+    ajustes,
+
+    /**
+     * Un tester pide un juego de la biblioteca que su acceso no incluye. Llega
+     * a la app de gestión. Devuelve { ok, status } o { ok: false, reason }.
+     */
+    async pideJuego(nombre) {
+      if (!base || !pase) return { ok: false, reason: "sin_acceso" };
+      try {
+        const respuesta = await fetch(base + "/v1/access/game-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-ML3D-Content-Pass": pase },
+          body: JSON.stringify({ game: String(nombre || "") })
+        });
+        const datos = await respuesta.json().catch(() => ({}));
+        return respuesta.ok ? datos : { ok: false, reason: datos.reason || "error" };
+      } catch (_) {
+        return { ok: false, reason: "sin_conexion" };
+      }
+    },
+
+    /** Las peticiones de juego de este dispositivo y cómo han quedado. */
+    async misPeticiones() {
+      if (!base || !pase) return [];
+      try {
+        const respuesta = await fetch(base + "/v1/access/game-requests", {
+          headers: { "X-ML3D-Content-Pass": pase }, cache: "no-store"
+        });
+        if (!respuesta.ok) return [];
+        const datos = await respuesta.json();
+        return Array.isArray(datos.requests) ? datos.requests : [];
+      } catch (_) {
+        return [];
+      }
     },
 
     /** Solo para pruebas: fija la dirección del worker a mano. */

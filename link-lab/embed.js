@@ -27,13 +27,14 @@
     { id: "code", label: "ENTRAR POR CÓDIGO", nodes: ["#codeJoinBlock"] },
     { id: "qr", label: "ESCANEAR QR", nodes: [] },
     { id: "nearby", label: "BUSCAR CERCA", nodes: ["#searchNearbyBlock", "#roomsList"] },
+    { id: "received", label: "JUEGOS RECIBIDOS", nodes: [], hidden: true },
     { id: "settings", label: "AJUSTES", nodes: [".api-card", ".log-card"] },
     { id: "join", label: "UNIRSE A LA SALA", nodes: ["#joinCard"], hidden: true }
   ];
 
   let cursorIndex = 0;
   let activePanel = null;
-  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {} };
+  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {}, envioRoms: false, recibidas: [], acceso: false };
 
   const games = () => window.ML3DRoomGames;
   const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
@@ -131,7 +132,7 @@
     const menu = byId("embedMenu");
     menu.textContent = "";
     for (const item of MENU) {
-      if (item.hidden) continue;
+      if (item.hidden && !(item.id === "received" && context.recibidas.length)) continue;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "embed-menu-item";
@@ -559,6 +560,8 @@
     games()?.onCheck(() => revisaMiJuego(true));
     games()?.onRequest(atiendePeticion);
     games()?.onTransfer(sigueEnvio);
+    games()?.onOffer(llegaOferta);
+    games()?.onAccept(ofertaAceptada);
   }
 
   /* ---------- diálogo ---------- */
@@ -618,18 +621,37 @@
 
   /* ---------- quien no tiene el juego de la sala ---------- */
 
-/* Envío de juegos entre jugadores: apagado hasta que esté completo. Con
-     esto en false no se ofrece pedir un juego, no se atiende ninguna petición
-     y no se acepta ninguno que llegue. */
-  const ENVIO_ROMS = false;
+/* Envío de juegos entre jugadores. Lo enciende o lo apaga la página del
+     emulador (context.envioRoms). Apagado no se ofrece pedir un juego, no se
+     atiende ninguna petición y no se acepta ninguno que llegue. */
+  const envioRoms = () => context.envioRoms === true;
 
   let avisadoDe = "";
 
   /* Jugadores que tienen cargado el juego de la sala desde un archivo suyo:
      son los únicos que pueden enviarlo. */
   function quienPuedeEnviar(wanted) {
-    if (!ENVIO_ROMS) return [];
+    if (!envioRoms()) return [];
     return (games()?.peers() || []).filter((peer) => peer.origen === "local" && gameKey(peer.game) === wanted);
+  }
+
+  /* El juego de la sala es de la biblioteca de testers si algún jugador lo
+     tiene en la suya o lo lleva abierto desde ella. */
+  function esDeBiblioteca(wanted) {
+    return (games()?.peers() || []).some((peer) =>
+      (peer.library || []).some((name) => gameKey(name) === wanted) ||
+      (peer.origen === "remote" && gameKey(peer.game) === wanted));
+  }
+
+  function respuestaPeticion(resultado) {
+    const textos = {
+      pending: "PETICIÓN ENVIADA · TE AVISAREMOS CUANDO SE RESUELVA",
+      ya_lo_tiene: "YA TIENES ESE JUEGO · RECARGA EL EMULADOR",
+      no_es_de_la_biblioteca: "ESE JUEGO NO ESTÁ EN LA BIBLIOTECA",
+      demasiadas_peticiones: "TIENES DEMASIADAS PETICIONES PENDIENTES",
+      sin_conexion: "SIN CONEXIÓN · NO SE PUDO ENVIAR LA PETICIÓN"
+    };
+    toast(textos[resultado?.status] || textos[resultado?.reason] || "NO SE PUDO ENVIAR LA PETICIÓN", 5000);
   }
 
   function revisaMiJuego(forzar) {
@@ -653,6 +675,7 @@
 
     const origen = quienPuedeEnviar(wanted)[0] || null;
     const botones = [];
+    let aviso = "";
     if (mios.length) {
       botones.push({
         texto: "ES ESTE",
@@ -666,19 +689,35 @@
       botones.push({
         texto: "SOLICITAR ROM",
         accion: () => {
+          pedidoA = origen.name;
           const enviado = games()?.request(origen.name, nombre);
           toast(enviado ? `PETICIÓN ENVIADA A ${origen.name.toUpperCase()}` : "NO SE PUDO ENVIAR LA PETICIÓN", 3200);
         }
       });
     }
+    /* Juego de la biblioteca de testers: no se envía. Un tester puede pedir
+       que se lo añadan; quien no lo es no puede pedirlo desde aquí. */
+    const deBiblioteca = !origen && esDeBiblioteca(wanted);
+    if (deBiblioteca && context.acceso) {
+      botones.push({
+        texto: "SOLICITAR ACCESO A ESTE JUEGO",
+        accion: () => {
+          toast("ENVIANDO LA PETICIÓN…", 6000);
+          post({ type: "game-access-request", game: nombre });
+        }
+      });
+    }
     botones.push({ texto: "CANCELAR" });
+    if (origen) aviso = " COMPARTE SOLO JUEGOS SOBRE LOS QUE TENGAS DERECHOS.";
+    else if (deBiblioteca && !context.acceso) aviso = " ESTE JUEGO ES SOLO PARA TESTERS.";
+    else if (deBiblioteca) aviso = " ES UN JUEGO DE LA BIBLIOTECA Y TU ACCESO NO LO INCLUYE.";
 
     let texto = `LA SALA JUEGA A «${nombre.toUpperCase()}» Y NO LO ENCUENTRO CON ESE NOMBRE EN TU DISPOSITIVO.`;
     if (mios.length) texto += " SI LO TIENES CON OTRO NOMBRE, ELÍGELO.";
     if (origen) texto += ` SI NO LO TIENES, ${origen.name.toUpperCase()} PUEDE ENVIÁRTELO.`;
-    else if (!mios.length) texto += " CÁRGALO EN TU EMULADOR PARA JUGAR.";
+    else if (!mios.length && !esDeBiblioteca(wanted)) texto += " CÁRGALO EN TU EMULADOR PARA JUGAR.";
 
-    dialogo({ texto, opciones: mios, botones });
+    dialogo({ texto: texto + aviso, opciones: mios, botones });
   }
 
   /* Lo que este jugador cuenta a los demás sobre sus juegos. */
@@ -696,54 +735,138 @@
 
   /* ---------- envío del juego ---------- */
 
-  let enviandoA = "";
+  let enviandoA = "";   /* a quién ha dicho este jugador que le envía */
+  let oferta = null;    /* juego declarado y ofrecido, a la espera de que lo acepten */
+  let pedidoA = "";     /* a quién le ha pedido el juego este jugador */
+
+  const megas = (bytes) => (bytes / 1048576).toFixed(1).replace(".", ",") + " MB";
 
   /* Alguien pide el juego. Solo se ofrece si es el de la sala y se cargó desde
      un archivo propio; la página del emulador lo vuelve a comprobar antes de
-     dar los bytes. */
+     dar los bytes, y no entrega uno recibido de otro jugador. Antes de enviar,
+     quien envía declara que tiene derecho a compartirlo. */
   function atiendePeticion({ from, game }) {
-    const mio = ENVIO_ROMS && context.romLoaded && context.source === "local" && gameKey(context.game) === gameKey(game);
+    const mio = envioRoms() && context.romLoaded && context.source === "local" && gameKey(context.game) === gameKey(game);
     if (!mio) {
       games()?.deny(from, "ESE JUEGO NO SE PUEDE ENVIAR.");
       return;
     }
+    const no = () => games()?.deny(from, "NO HA QUERIDO ENVIARLO.");
     dialogo({
-      texto: `${from.toUpperCase()} NO TIENE «${String(game).toUpperCase()}» Y TE LO PIDE. ¿SE LO ENVÍAS?`,
+      texto: `${from.toUpperCase()} NO TIENE «${String(game).toUpperCase()}» Y TE LO PIDE. AL ENVIARLO DECLARAS QUE TIENES DERECHO A COMPARTIR ESTE JUEGO Y QUE LO COMPARTES BAJO TU RESPONSABILIDAD.`,
       botones: [
-        { texto: "ENVIAR", principal: true, accion: () => { enviandoA = from; post({ type: "rom-request" }); } },
-        { texto: "NO", accion: () => games()?.deny(from, "EL ANFITRIÓN NO HA QUERIDO ENVIARLO.") }
+        { texto: "NO ENVIAR", principal: true, accion: no },
+        { texto: "DECLARO QUE TENGO DERECHO Y LO ENVÍO", accion: () => { enviandoA = from; post({ type: "rom-request" }); } }
       ],
-      alCancelar: () => games()?.deny(from, "EL ANFITRIÓN NO HA QUERIDO ENVIARLO.")
+      alCancelar: no
     });
   }
 
+  /* La página entrega el juego cargado, con su huella. No se envía todavía:
+     se ofrece, y solo sale cuando el otro lo acepta. */
   function entregaRom(data) {
     const destino = enviandoA;
     enviandoA = "";
     if (!destino) return;
-    if (data.denied || !data.bytes) {
+    if (data.denied || !data.bytes || !data.hash) {
       games()?.deny(destino, "ESE JUEGO NO SE PUEDE ENVIAR.");
-      toast("ESE JUEGO NO SE PUEDE ENVIAR", 3200);
+      toast(data.reason === "recibida"
+        ? "ESE JUEGO LO RECIBISTE DE OTRO JUGADOR: NO SE PUEDE REENVIAR"
+        : "ESE JUEGO NO SE PUEDE ENVIAR", 4200);
       return;
     }
-    games()?.sendRom(destino, {
-      bytes: new Uint8Array(data.bytes),
-      name: String(data.filename || "juego.gba"),
-      system: String(data.system || "gba")
-    }).catch((error) => console.error("ML3D Link: envío del juego:", error));
+    const bytes = new Uint8Array(data.bytes);
+    oferta = {
+      destino,
+      rom: { bytes, name: String(data.filename || "juego.gba"), system: String(data.system || "gba") }
+    };
+    games()?.offer(destino, { name: oferta.rom.name, size: bytes.length, hash: String(data.hash) });
+    toast(`ESPERANDO A QUE ${destino.toUpperCase()} ACEPTE`, 6000);
   }
 
-  function sigueEnvio(paso) {
-    if (!ENVIO_ROMS) return;
+  function ofertaAceptada({ from }) {
+    if (!envioRoms() || !oferta || oferta.destino !== from) return;
+    const { rom } = oferta;
+    oferta = null;
+    games()?.sendRom(from, rom).catch((error) => console.error("ML3D Link: envío del juego:", error));
+  }
+
+  /* Al que lo pidió le llega qué le van a enviar. Solo se atiende si viene de
+     quien se lo pidió, y no se recibe nada hasta que acepte. */
+  function llegaOferta({ from, name, size, hash }) {
+    if (!envioRoms() || pedidoA !== from || !hash || size <= 0) {
+      games()?.deny(from, "NO HABÍA PEDIDO ESE JUEGO.");
+      return;
+    }
+    pedidoA = "";
+    const no = () => games()?.deny(from, "NO HA ACEPTADO EL JUEGO.");
+    dialogo({
+      texto: `${from.toUpperCase()} QUIERE ENVIARTE «${name.replace(/\.(gba|gbc|gb)$/i, "").toUpperCase()}» (${megas(size)}). SE GUARDARÁ SOLO EN ESTE DISPOSITIVO Y NO PODRÁS REENVIARLO. AL ACEPTAR TE HACES RESPONSABLE DE SU USO.`,
+      botones: [
+        { texto: "RECHAZAR", principal: true, accion: no },
+        { texto: "ACEPTAR Y RECIBIR", accion: () => games()?.accept(from, { size, hash }) }
+      ],
+      alCancelar: no
+    });
+  }
+
+  async function sigueEnvio(paso) {
+    if (!envioRoms()) return;
     const tanto = Math.round((paso.progress || 0) * 100);
     if (paso.state === "start") toast(`RECIBIENDO «${String(paso.name).toUpperCase()}»…`, 4000);
     else if (paso.state === "progress") toast(`RECIBIENDO ${tanto}%`, 4000);
     else if (paso.state === "sending") toast(`ENVIANDO ${tanto}%`, 4000);
     else if (paso.state === "sent") toast("JUEGO ENVIADO", 3200);
-    else if (paso.state === "denied") toast(paso.reason || "NO SE HA ENVIADO EL JUEGO", 4200);
-    else if (paso.state === "done") {
-      toast("JUEGO RECIBIDO · ABRIÉNDOLO", 3200);
-      post({ type: "load-rom", bytes: paso.bytes.buffer, filename: paso.name }, [paso.bytes.buffer]);
+    else if (paso.state === "denied") {
+      oferta = null;
+      toast(paso.reason || "NO SE HA ENVIADO EL JUEGO", 4200);
+    } else if (paso.state === "done") {
+      /* Lo que ha llegado tiene que ser lo que se aceptó. */
+      const digest = await crypto.subtle.digest("SHA-256", paso.bytes);
+      const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (!paso.hash || hash !== paso.hash) {
+        toast("EL JUEGO RECIBIDO NO COINCIDE CON EL ANUNCIADO · DESCARTADO", 5000);
+        return;
+      }
+      toast("JUEGO RECIBIDO · GUARDÁNDOLO", 4000);
+      post({ type: "load-rom", bytes: paso.bytes.buffer, filename: paso.name, hash, de: paso.from }, [paso.bytes.buffer]);
+    }
+  }
+
+  /* ---------- juegos recibidos ---------- */
+
+  function pintaRecibidos() {
+    const panel = panelFor("received");
+    if (!panel) return;
+    panel.querySelectorAll(".embed-received, .hint").forEach((el) => el.remove());
+    const nota = document.createElement("p");
+    nota.className = "hint";
+    nota.textContent = context.recibidas.length
+      ? "Guardados solo en este dispositivo. No se pueden reenviar."
+      : "No hay juegos recibidos.";
+    panel.append(nota);
+    for (const juego of context.recibidas) {
+      const fila = document.createElement("div");
+      fila.className = "embed-received";
+      const nombre = document.createElement("span");
+      nombre.textContent = `${juego.nombre.replace(/\.(gba|gbc|gb)$/i, "")} · ${megas(juego.size || 0)}${juego.de ? " · de " + juego.de : ""}`;
+      const jugar = document.createElement("button");
+      jugar.type = "button";
+      jugar.textContent = "JUGAR";
+      jugar.addEventListener("click", () => post({ type: "play-received", name: juego.nombre }));
+      const borrar = document.createElement("button");
+      borrar.type = "button";
+      borrar.className = "danger";
+      borrar.textContent = "BORRAR";
+      borrar.addEventListener("click", () => dialogo({
+        texto: `¿BORRAR «${juego.nombre.toUpperCase()}» DE ESTE DISPOSITIVO?`,
+        botones: [
+          { texto: "NO", principal: true },
+          { texto: "BORRAR", accion: () => post({ type: "delete-received", name: juego.nombre }) }
+        ]
+      }));
+      fila.append(nombre, jugar, borrar);
+      panel.append(fila);
     }
   }
 
@@ -931,8 +1054,18 @@
       system: String(data.system || "gba"),
       library: Array.isArray(data.library) ? data.library.map(String) : context.library,
       source: String(data.romSource || ""),
-      aliases: data.aliases && typeof data.aliases === "object" ? data.aliases : context.aliases
+      aliases: data.aliases && typeof data.aliases === "object" ? data.aliases : context.aliases,
+      envioRoms: data.envioRoms === true,
+      acceso: data.acceso === true,
+      recibidas: Array.isArray(data.recibidas) ? data.recibidas : []
     };
+    const firma = context.recibidas.map((juego) => juego.nombre).join("|");
+    if (firma !== applyContext.firma) {
+      applyContext.firma = firma;
+      buildMenu();
+      pintaRecibidos();
+      paintCursor();
+    }
 
     const note = byId("embedNote");
     if (note) {
@@ -961,6 +1094,10 @@
     else if (data.type === "context") applyContext(data);
     else if (data.type === "rom-bytes") entregaRom(data);
     else if (data.type === "hash-result") llegaHuella(data);
+    else if (data.type === "game-access-result") respuestaPeticion(data.result);
+    else if (data.type === "rom-saved") {
+      toast(data.ok ? "JUEGO GUARDADO EN ESTE DISPOSITIVO" : "NO SE PUDO GUARDAR EL JUEGO", 4200);
+    }
     else if (data.type === "visible" && data.visible) {
       refreshView();
       paintCursor();
