@@ -174,7 +174,13 @@
     const title = byId("embedTitle");
     if (!title) return;
     const roomName = byId("lobbyRoomName")?.textContent?.trim();
-    title.textContent = inRoom() && roomName ? roomName : "ML3D LINK";
+    /* El código de la sala va en la barra: es lo que hay que decirle a quien
+       quiere entrar, y la barra de la sala donde lo pinta rooms.js está oculta
+       en esta vista. Va delante del nombre para que nunca lo corte el borde. */
+    const roomCode = byId("lobbyRoomCode")?.textContent?.trim();
+    title.textContent = inRoom() && roomName
+      ? [roomCode, roomName].filter(Boolean).join(" · ")
+      : "ML3D LINK";
   }
 
   function refreshHelp() {
@@ -535,6 +541,12 @@
     const roomName = byId("lobbyRoomName");
     if (roomName) {
       new MutationObserver(refreshTitle).observe(roomName, {
+        childList: true, characterData: true, subtree: true
+      });
+    }
+    const roomCode = byId("lobbyRoomCode");
+    if (roomCode) {
+      new MutationObserver(refreshTitle).observe(roomCode, {
         childList: true, characterData: true, subtree: true
       });
     }
