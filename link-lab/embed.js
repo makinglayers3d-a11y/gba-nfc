@@ -34,7 +34,7 @@
 
   let cursorIndex = 0;
   let activePanel = null;
-  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {}, envioRoms: false, recibidas: [] };
+  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {}, envioRoms: false, recibidas: [], acceso: false };
 
   const games = () => window.ML3DRoomGames;
   const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
@@ -635,6 +635,25 @@
     return (games()?.peers() || []).filter((peer) => peer.origen === "local" && gameKey(peer.game) === wanted);
   }
 
+  /* El juego de la sala es de la biblioteca de testers si algún jugador lo
+     tiene en la suya o lo lleva abierto desde ella. */
+  function esDeBiblioteca(wanted) {
+    return (games()?.peers() || []).some((peer) =>
+      (peer.library || []).some((name) => gameKey(name) === wanted) ||
+      (peer.origen === "remote" && gameKey(peer.game) === wanted));
+  }
+
+  function respuestaPeticion(resultado) {
+    const textos = {
+      pending: "PETICIÓN ENVIADA · TE AVISAREMOS CUANDO SE RESUELVA",
+      ya_lo_tiene: "YA TIENES ESE JUEGO · RECARGA EL EMULADOR",
+      no_es_de_la_biblioteca: "ESE JUEGO NO ESTÁ EN LA BIBLIOTECA",
+      demasiadas_peticiones: "TIENES DEMASIADAS PETICIONES PENDIENTES",
+      sin_conexion: "SIN CONEXIÓN · NO SE PUDO ENVIAR LA PETICIÓN"
+    };
+    toast(textos[resultado?.status] || textos[resultado?.reason] || "NO SE PUDO ENVIAR LA PETICIÓN", 5000);
+  }
+
   function revisaMiJuego(forzar) {
     if (!inRoom()) { avisadoDe = ""; return; }
     const nombre = roomGame();
@@ -676,13 +695,27 @@
         }
       });
     }
+    /* Juego de la biblioteca de testers: no se envía. Un tester puede pedir
+       que se lo añadan; quien no lo es no puede pedirlo desde aquí. */
+    const deBiblioteca = !origen && esDeBiblioteca(wanted);
+    if (deBiblioteca && context.acceso) {
+      botones.push({
+        texto: "SOLICITAR ACCESO A ESTE JUEGO",
+        accion: () => {
+          toast("ENVIANDO LA PETICIÓN…", 6000);
+          post({ type: "game-access-request", game: nombre });
+        }
+      });
+    }
     botones.push({ texto: "CANCELAR" });
     if (origen) aviso = " COMPARTE SOLO JUEGOS SOBRE LOS QUE TENGAS DERECHOS.";
+    else if (deBiblioteca && !context.acceso) aviso = " ESTE JUEGO ES SOLO PARA TESTERS.";
+    else if (deBiblioteca) aviso = " ES UN JUEGO DE LA BIBLIOTECA Y TU ACCESO NO LO INCLUYE.";
 
     let texto = `LA SALA JUEGA A «${nombre.toUpperCase()}» Y NO LO ENCUENTRO CON ESE NOMBRE EN TU DISPOSITIVO.`;
     if (mios.length) texto += " SI LO TIENES CON OTRO NOMBRE, ELÍGELO.";
     if (origen) texto += ` SI NO LO TIENES, ${origen.name.toUpperCase()} PUEDE ENVIÁRTELO.`;
-    else if (!mios.length) texto += " CÁRGALO EN TU EMULADOR PARA JUGAR.";
+    else if (!mios.length && !esDeBiblioteca(wanted)) texto += " CÁRGALO EN TU EMULADOR PARA JUGAR.";
 
     dialogo({ texto: texto + aviso, opciones: mios, botones });
   }
@@ -1023,6 +1056,7 @@
       source: String(data.romSource || ""),
       aliases: data.aliases && typeof data.aliases === "object" ? data.aliases : context.aliases,
       envioRoms: data.envioRoms === true,
+      acceso: data.acceso === true,
       recibidas: Array.isArray(data.recibidas) ? data.recibidas : []
     };
     const firma = context.recibidas.map((juego) => juego.nombre).join("|");
@@ -1060,6 +1094,7 @@
     else if (data.type === "context") applyContext(data);
     else if (data.type === "rom-bytes") entregaRom(data);
     else if (data.type === "hash-result") llegaHuella(data);
+    else if (data.type === "game-access-result") respuestaPeticion(data.result);
     else if (data.type === "rom-saved") {
       toast(data.ok ? "JUEGO GUARDADO EN ESTE DISPOSITIVO" : "NO SE PUDO GUARDAR EL JUEGO", 4200);
     }

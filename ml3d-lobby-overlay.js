@@ -107,6 +107,8 @@
       system: /\.(gbc|gb)$/i.test(filename) ? filename.toLowerCase().endsWith(".gbc") ? "gbc" : "gb" : "gba",
       library: [...(library || []), ...guardadas.map((item) => item.nombre.replace(/[.](gba|gbc|gb)$/i, ""))],
       envioRoms: envioRoms(),
+      /* Tester con biblioteca: puede pedir un juego que su acceso no incluye. */
+      acceso: Boolean(window.ML3DContenido?.hayAcceso),
       recibidas: guardadas.map((item) => ({ nombre: item.nombre, size: item.size, de: item.de })),
       /* De dónde viene el juego cargado y qué juegos de sala ha dicho este
          jugador que tiene con otro nombre. */
@@ -184,6 +186,9 @@
     document.body.classList.add("ml3d-lobby-open");
     if (!linkRunning()) window.ML3DLinkRuntime?.stopTimers?.();
     sendContext();
+    /* El interruptor del envío de juegos se vuelve a leer cada vez que se
+       abre el lobby: apagarlo en la app tiene que notarse sin recargar. */
+    Promise.resolve(window.ML3DContenido?.ajustes?.()).then(() => post(context())).catch(() => {});
     post({ type: "visible", visible: true });
   }
 
@@ -235,6 +240,12 @@
       Promise.resolve(window.ML3DLinkRuntime?.gameHash?.(String(data.name || "")))
         .catch(() => "")
         .then((hash) => post({ type: "hash-result", id, hash: String(hash || "") }));
+      return;
+    }
+    if (data.type === "game-access-request") {
+      Promise.resolve(window.ML3DContenido?.pideJuego?.(String(data.game || "")))
+        .catch(() => null)
+        .then((resultado) => post({ type: "game-access-result", result: resultado || { ok: false, reason: "error" } }));
       return;
     }
     if (data.type === "play-received") {

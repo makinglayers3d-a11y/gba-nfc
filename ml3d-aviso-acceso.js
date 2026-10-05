@@ -67,4 +67,47 @@
 
   /* En el emulador público no hay nada que esperar. */
   if (window.ML3DContenido?.publico) mostrar("");
+
+  /* Peticiones de juego resueltas: el tester se entera una vez de cada una.
+     Denegada, se le dice que no se ha concedido; aprobada, que ya lo tiene. */
+  const VISTAS = "ml3d-peticiones-juego-vistas";
+  let peticionesMiradas = false;
+
+  function avisoBreve(texto) {
+    const caja = document.createElement("div");
+    caja.setAttribute("role", "status");
+    caja.style.cssText =
+      "position:fixed;left:50%;top:18px;transform:translateX(-50%);" +
+      "z-index:2147483000;max-width:min(92vw,520px);box-sizing:border-box;" +
+      "padding:12px 16px;border-radius:12px;background:rgba(16,22,30,.96);" +
+      "color:#eef2f8;border:1px solid rgba(255,255,255,.14);" +
+      "box-shadow:0 10px 30px rgba(0,0,0,.45);text-align:center;cursor:pointer;" +
+      "font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif";
+    caja.textContent = texto;
+    caja.addEventListener("click", () => caja.remove());
+    document.body.append(caja);
+    setTimeout(() => caja.remove(), 12000);
+  }
+
+  async function miraPeticiones() {
+    if (peticionesMiradas || !window.ML3DContenido?.hayAcceso) return;
+    peticionesMiradas = true;
+    let vistas = [];
+    try { vistas = JSON.parse(localStorage.getItem(VISTAS) || "[]"); } catch (_) {}
+    const resueltas = (await window.ML3DContenido.misPeticiones())
+      .filter((p) => (p.status === "approved" || p.status === "rejected") && !vistas.includes(p.id));
+    if (!resueltas.length) return;
+    const nombre = (p) => String(p.game || "").replace(/[.](gba|gbc|gb)$/i, "");
+    const si = resueltas.filter((p) => p.status === "approved").map(nombre);
+    const no = resueltas.filter((p) => p.status === "rejected").map(nombre);
+    const frases = [];
+    if (si.length) frases.push("Acceso concedido: " + si.join(", ") + ".");
+    if (no.length) frases.push("No se ha concedido el acceso a: " + no.join(", ") + ".");
+    avisoBreve(frases.join(" "));
+    try {
+      localStorage.setItem(VISTAS, JSON.stringify([...vistas, ...resueltas.map((p) => p.id)].slice(-200)));
+    } catch (_) {}
+  }
+
+  window.addEventListener("ml3d-contenido", miraPeticiones);
 })();
