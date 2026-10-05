@@ -554,6 +554,20 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			return Boolean(ok);
 		}
 
+		/* ------------------------------------------------------------ reloj */
+
+		/**
+		 * Pone el reloj del cartucho de una consola a una hora de partida común
+		 * y lo hace avanzar con la emulación, no con el reloj del dispositivo.
+		 * Con el cable todas las copias tienen que leer la misma hora. Devuelve
+		 * false si el núcleo cargado todavía no lo ofrece.
+		 */
+		setClock(index, epochMs) {
+			const s = this.seats[index];
+			if (!s || typeof this.M._mgbawasm_rtc_set !== "function") return false;
+			return this.M._mgbawasm_rtc_set(s.id, 2, Number(epochMs)) === 1;
+		}
+
 		/* ------------------------------------------------- desincronizacion */
 
 		/**
