@@ -1537,6 +1537,11 @@ line-height: 1;
   transform: scale(1.035);
 }
 
+/* Segundo botón de la columna, debajo de CARGAR JUEGO. */
+.gba-local-rom-button.gba-link-lobby-button {
+  top: calc(3.5% + 38px);
+}
+
 .gba-local-rom-button:disabled {
   cursor: wait;
   opacity: .72;
@@ -2121,4 +2126,11 @@ line-height: 1;
 }
 #menu .menu-card > button#social-link {
   margin-top: -34px !important;
+}
+
+/* ML3D LINK en la biblioteca, en pantallas estrechas. */
+@media (max-width: 420px) {
+  .gba-local-rom-button.gba-link-lobby-button {
+    top: calc(3% + 33px);
+  }
 }
