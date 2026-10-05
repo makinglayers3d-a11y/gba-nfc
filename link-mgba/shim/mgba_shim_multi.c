@@ -105,6 +105,12 @@ struct Instance {
 	 * each console has its own cartridge save. */
 	void* sramData;
 	size_t sramSize;
+
+	/* A console can run its own cartridge instead of the shared one (two
+	 * different games on one device). The image belongs to the instance and
+	 * is freed when it closes. NULL means it maps the shared ROM. */
+	void* ownRom;
+	size_t ownRomSize;
 };
 
 static struct Instance instances[MGBAWASM_MAX_INSTANCES];
@@ -129,6 +135,9 @@ static int instanceCount = 0;
  */
 static void* sharedRom = NULL;
 static size_t sharedRomSize = 0;
+/* Cartridge handed over for the next console to be opened; see rom_next(). */
+static void* nextRom = NULL;
+static size_t nextRomSize = 0;
 
 static void* sharedBios = NULL;
 static size_t sharedBiosSize = 0;
@@ -240,6 +249,32 @@ EXPORT int mgbawasm_rom_size(void) {
 	return (int) sharedRomSize;
 }
 
+/**
+ * Hands over a cartridge for the NEXT console to be opened, and only that one.
+ *
+ * Over the cable every console normally runs the same game, so they all map
+ * the shared ROM. A local room pairs two different games (Ruby and Emerald)
+ * on one device: each console then needs its own image. The copy is owned by
+ * the instance that takes it and is freed when that instance closes.
+ *
+ * Returns the byte count, or 0 on failure. Passing NULL cancels a pending one.
+ */
+EXPORT int mgbawasm_rom_next(const void* rom, int bytes) {
+	free(nextRom);
+	nextRom = NULL;
+	nextRomSize = 0;
+	if (!rom || bytes <= 0) {
+		return 0;
+	}
+	nextRom = malloc((size_t) bytes);
+	if (!nextRom) {
+		return 0;
+	}
+	memcpy(nextRom, rom, (size_t) bytes);
+	nextRomSize = (size_t) bytes;
+	return (int) nextRomSize;
+}
+
 /* -------------------------------------------------------------- instances */
 
 /* ---------------------------------------------------------------- cable ---
@@ -285,6 +320,10 @@ static void _closeInstance(struct Instance* inst) {
 	free(inst->sramData);
 	inst->sramData = NULL;
 	inst->sramSize = 0;
+	/* After unloadROM: the core's VFile pointed into this buffer. */
+	free(inst->ownRom);
+	inst->ownRom = NULL;
+	inst->ownRomSize = 0;
 	inst->videoWidth = 0;
 	inst->videoHeight = 0;
 }
@@ -299,7 +338,7 @@ static void _closeInstance(struct Instance* inst) {
  * while it maps the cartridge.
  */
 EXPORT int mgbawasm_instance_open(int platform, const char* gbModel, int skipBios) {
-	if (!sharedRom || !sharedRomSize) {
+	if ((!sharedRom || !sharedRomSize) && (!nextRom || !nextRomSize)) {
 		return -1;
 	}
 
@@ -314,10 +353,27 @@ EXPORT int mgbawasm_instance_open(int platform, const char* gbModel, int skipBio
 	}
 	struct Instance* inst = &instances[id];
 
-	/* One VFile per instance over the one shared buffer. VFileFromMemory does
-	 * not copy and does not own, so the instances do not fight over it. */
-	struct VFile* romVf = VFileFromMemory(sharedRom, sharedRomSize);
+	/* A cartridge handed over with rom_next() goes to this console and to no
+	 * other. From here on the instance owns it, also on the failure paths:
+	 * _closeInstance frees it, and the early returns below do it by hand. */
+	void* romData = sharedRom;
+	size_t romSize = sharedRomSize;
+	if (nextRom && nextRomSize) {
+		inst->ownRom = nextRom;
+		inst->ownRomSize = nextRomSize;
+		nextRom = NULL;
+		nextRomSize = 0;
+		romData = inst->ownRom;
+		romSize = inst->ownRomSize;
+	}
+
+	/* One VFile per instance over the buffer. VFileFromMemory does not copy
+	 * and does not own, so the instances do not fight over the shared one. */
+	struct VFile* romVf = VFileFromMemory(romData, romSize);
 	if (!romVf) {
+		free(inst->ownRom);
+		inst->ownRom = NULL;
+		inst->ownRomSize = 0;
 		return -1;
 	}
 
@@ -328,6 +384,9 @@ EXPORT int mgbawasm_instance_open(int platform, const char* gbModel, int skipBio
 	}
 	if (!inst->core) {
 		romVf->close(romVf);
+		free(inst->ownRom);
+		inst->ownRom = NULL;
+		inst->ownRomSize = 0;
 		return -1;
 	}
 
@@ -338,6 +397,9 @@ EXPORT int mgbawasm_instance_open(int platform, const char* gbModel, int skipBio
 		romVf->close(romVf);
 		mCoreConfigDeinit(&inst->core->config);
 		inst->core = NULL;
+		free(inst->ownRom);
+		inst->ownRom = NULL;
+		inst->ownRomSize = 0;
 		return -1;
 	}
 	++instanceCount;
