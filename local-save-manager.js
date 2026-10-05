@@ -852,6 +852,7 @@
       empty.textContent = "Todavía no hay archivos .sav.";
       host.appendChild(empty);
       renderLegacySaves(host);
+      await renderCableBackups(host);
       return;
     }
 
@@ -908,10 +909,168 @@
     });
 
     renderLegacySaves(host);
+    await renderCableBackups(host);
   }
 
   /* Las partidas del núcleo anterior, debajo de las actuales: se pueden
      copiar fuera del navegador, pero aquí no hay botón de eliminar. */
+  /* ------------------------------------------------ partidas y cable Link
+
+     Una sesión de cable carga la partida del jugador en el núcleo del cable y
+     la devuelve aquí al guardar. Antes de cada sesión se saca una copia, por
+     si el cable se cae a mitad de un intercambio. Todo vive en este
+     dispositivo. */
+
+  const BACKUP_FOLDER = "copias-cable";
+  const BACKUPS_PER_GAME = 5;
+
+  async function backupDirectory(create) {
+    const dir = await getInternalMl3dDirectory(create);
+    if (!dir) return null;
+    try {
+      return await dir.getDirectoryHandle(BACKUP_FOLDER, { create });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** La partida con la que este juego arrancaría ahora mismo, o null. */
+  async function cableReadSave(namespace, displayName) {
+    const filename = sanitizeFilename(displayName);
+    const enNucleo = await readMgbaBrowserSram(namespace);
+    if (hasSaveData(enNucleo) && localStorage.getItem(OWNER_PREFIX + namespace) === filename) return enNucleo;
+    try {
+      const interna = await readInternalSave(filename);
+      if (hasSaveData(interna)) return interna;
+    } catch (_) {}
+    return null;
+  }
+
+  /** Guarda la partida del jugador donde el juego normal la buscará después. */
+  async function cableWriteSave(namespace, displayName, bytes) {
+    if (!hasSaveData(bytes)) return false;
+    const filename = sanitizeFilename(displayName);
+    let ok = false;
+    try { ok = await writeInternalSave(bytes, filename); } catch (_) {}
+    if (localStorage.getItem(OWNER_PREFIX + namespace) === filename) {
+      ok = (await writeMgbaBrowserSram(namespace, bytes)) || ok;
+    }
+    /* Con carpeta física, al arrancar manda su .sav: se actualiza también. */
+    if (localStorage.getItem(MODE_KEY) === "external" && supportsDirectoryAccess()) {
+      try { await writeToDirectory(bytes, filename, false); } catch (_) {}
+    }
+    return ok;
+  }
+
+  function backupStamp(date) {
+    const dos = (n) => String(n).padStart(2, "0");
+    return date.getFullYear() + dos(date.getMonth() + 1) + dos(date.getDate()) + "-" +
+      dos(date.getHours()) + dos(date.getMinutes()) + dos(date.getSeconds());
+  }
+
+  async function cableBackupList() {
+    const dir = await backupDirectory(false);
+    const rows = [];
+    if (!dir) return rows;
+    for await (const [name, handle] of dir.entries()) {
+      const partes = /^(.*)__(\d{8}-\d{6})\.sav$/.exec(name);
+      if (handle.kind !== "file" || !partes) continue;
+      const file = await handle.getFile();
+      rows.push({ name, game: partes[1], size: file.size, modified: file.lastModified });
+    }
+    rows.sort((a, b) => b.modified - a.modified);
+    return rows;
+  }
+
+  /** Copia de la partida antes de una sesión de cable. Guarda las 5 últimas. */
+  async function cableBackup(displayName, bytes) {
+    if (!hasSaveData(bytes)) return false;
+    const dir = await backupDirectory(true);
+    if (!dir) return false;
+    const game = sanitizeFilename(displayName).replace(/\.sav$/i, "");
+    const handle = await dir.getFileHandle(game + "__" + backupStamp(new Date()) + ".sav", { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    const viejas = (await cableBackupList()).filter((row) => row.game === game).slice(BACKUPS_PER_GAME);
+    for (const row of viejas) {
+      try { await dir.removeEntry(row.name); } catch (_) {}
+    }
+    return true;
+  }
+
+  async function cableBackupRead(name) {
+    const dir = await backupDirectory(false);
+    if (!dir) return null;
+    try {
+      const file = await (await dir.getFileHandle(name, { create: false })).getFile();
+      return new Uint8Array(await file.arrayBuffer());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Devuelve una copia a su sitio: será la partida del juego al abrirlo. */
+  async function cableBackupRestore(name) {
+    const partes = /^(.*)__\d{8}-\d{6}\.sav$/.exec(name);
+    const bytes = partes ? await cableBackupRead(name) : null;
+    if (!hasSaveData(bytes)) return false;
+    const filename = partes[1] + ".sav";
+    await writeInternalSave(bytes, filename);
+    /* Si la carpeta de mGBA tiene ahora mismo la partida de este juego, se
+       cambia también: si no, al abrirlo mandaría la vieja. */
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && key.startsWith(OWNER_PREFIX) && localStorage.getItem(key) === filename) {
+        await writeMgbaBrowserSram(key.slice(OWNER_PREFIX.length), bytes);
+      }
+    }
+    if (localStorage.getItem(MODE_KEY) === "external" && supportsDirectoryAccess()) {
+      try { await writeToDirectory(bytes, filename, false); } catch (_) {}
+    }
+    return true;
+  }
+
+  async function renderCableBackups(host) {
+    const copias = await cableBackupList().catch(() => []);
+    if (!copias.length) return;
+
+    const title = document.createElement("div");
+    title.style.cssText = "padding:14px 2px 8px;color:#9ca8ba;font-size:.78rem";
+    title.textContent = "Copias de antes de jugar con cable (solo en este dispositivo)";
+    host.appendChild(title);
+
+    copias.forEach((copia) => {
+      const row = document.createElement("div");
+      row.className = "ml3d-save-data-row";
+      row.innerHTML = `
+        <div><strong></strong><small></small></div>
+        <button type="button" data-restore>Restaurar</button>
+        <button type="button" data-export>Exportar</button>
+      `;
+      row.querySelector("strong").textContent = copia.game;
+      row.querySelector("small").textContent = humanSize(copia.size) + " · " + new Date(copia.modified).toLocaleString("es-ES");
+      row.querySelector("[data-restore]").addEventListener("click", async () => {
+        const seguro = await promptDialog(
+          "Restaurar copia",
+          "La partida actual de " + copia.game + " se sustituirá por esta copia del " +
+            new Date(copia.modified).toLocaleString("es-ES") + ". Cierra el juego antes si lo tienes abierto.",
+          [{ label: "Cancelar", value: false }, { label: "Restaurar", value: true, primary: true }]
+        );
+        if (!seguro) return;
+        const ok = await cableBackupRestore(copia.name).catch(() => false);
+        await promptDialog("Restaurar copia", ok ? "Copia restaurada. Vuelve a abrir el juego." : "No se pudo restaurar la copia.", [
+          { label: "Aceptar", value: true, primary: true }
+        ]);
+      });
+      row.querySelector("[data-export]").addEventListener("click", async () => {
+        const bytes = await cableBackupRead(copia.name);
+        if (bytes?.length) downloadBytes(bytes, copia.name).catch((error) => console.error("ML3D save data:", error));
+      });
+      host.appendChild(row);
+    });
+  }
+
   function renderLegacySaves(host) {
     const saves = legacySaveList();
     if (!saves.length) return;
@@ -975,6 +1134,11 @@
     listInternalSaves,
     legacySaveList,
     exportLegacyBackup,
+    cableReadSave,
+    cableWriteSave,
+    cableBackup,
+    cableBackupList,
+    cableBackupRestore,
     getMode: () => localStorage.getItem(MODE_KEY) || "browser",
     resetChoice() {
       localStorage.removeItem(MODE_KEY);

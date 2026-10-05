@@ -476,6 +476,21 @@
     }
   }
 
+  function savePacket(packet, roomId, playerNumber) {
+    return {
+      type: "gba:lockstep:save",
+      roomId,
+      playerNumber,
+      kind: packet.kind === "chunk" ? "chunk" : "meta",
+      hash: String(packet.hash || ""),
+      size: Number(packet.size) | 0,
+      total: Number(packet.total) | 0,
+      index: Number(packet.index) | 0,
+      data: typeof packet.data === "string" ? packet.data : "",
+      time: Date.now()
+    };
+  }
+
   function handleLocalGbaLinkMessage(event) {
     const packet = event.data;
     if (!packet || packet.source !== "emulator") return;
@@ -490,6 +505,11 @@
         role: String(packet.role || ""),
         romHash: String(packet.romHash || ""),
         protocol: String(packet.protocol || ""),
+        /* Partidas: quien acepta compartir la suya y cuales tiene ya. */
+        consent: packet.consent === true,
+        declined: packet.declined === true,
+        go: packet.go === true,
+        have: String(packet.have || ""),
         time: Date.now()
       };
       if (hostSession) {
@@ -509,10 +529,26 @@
         sessionId: String(packet.sessionId || ""),
         delay: Number(packet.delay) | 0,
         romHash: String(packet.romHash || ""),
+        clock: Number(packet.clock) || 0,
         time: Date.now()
       };
       for (const peer of hostSession.peers.values()) {
         if (peer.channel?.readyState === "open") safeSend(peer.channel, outgoing);
+      }
+      return;
+    }
+
+    /* La partida de un jugador, a trozos, para las copias de su consola en
+       los demas dispositivos. Mismo camino que las teclas: directo entre
+       jugadores, nunca por el servidor de salas. */
+    if (packet.type === "gba:lockstep:save") {
+      const outgoing = savePacket(packet, roomId, Number(packet.playerNumber) | 0);
+      if (hostSession) {
+        for (const peer of hostSession.peers.values()) {
+          if (peer.channel?.readyState === "open") safeSend(peer.channel, outgoing);
+        }
+      } else if (joinSession?.channel?.readyState === "open") {
+        safeSend(joinSession.channel, outgoing);
       }
       return;
     }
@@ -915,8 +951,20 @@
         ready: true,
         playerNumber: Math.max(1, Math.min(3, Number(peer.linkSlot) | 0)),
         romHash: String(packet.romHash || ""),
-        protocol: String(packet.protocol || "")
+        protocol: String(packet.protocol || ""),
+        consent: packet.consent === true,
+        declined: packet.declined === true,
+        have: String(packet.have || "")
       });
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:save") {
+      /* El asiento lo pone el host: un invitado no puede hacerse pasar por otro. */
+      const slot = Math.max(1, Math.min(3, Number(peer.linkSlot) | 0));
+      const relayed = savePacket(packet, hostSession.room.id, slot);
+      postLocalLink({ ...relayed, type: "gba:lockstep:remote-save" });
+      sendAll(relayed, joinId);
       return;
     }
 
@@ -1071,8 +1119,19 @@
         ready: true,
         playerNumber: 0,
         romHash: String(packet.romHash || ""),
-        protocol: String(packet.protocol || "")
+        protocol: String(packet.protocol || ""),
+        consent: packet.consent === true,
+        declined: packet.declined === true,
+        go: packet.go === true,
+        have: String(packet.have || "")
       });
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:save") {
+      const relayed = savePacket(packet, packet.roomId || joinSession?.room?.id || "",
+        Math.max(0, Math.min(3, Number(packet.playerNumber) | 0)));
+      postLocalLink({ ...relayed, type: "gba:lockstep:remote-save" });
       return;
     }
 
@@ -1082,7 +1141,8 @@
         roomId: packet.roomId || joinSession?.room?.id || "",
         sessionId: String(packet.sessionId || ""),
         delay: Number(packet.delay) | 0,
-        romHash: String(packet.romHash || "")
+        romHash: String(packet.romHash || ""),
+        clock: Number(packet.clock) || 0
       });
       return;
     }

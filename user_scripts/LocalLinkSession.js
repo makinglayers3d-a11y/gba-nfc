@@ -70,6 +70,98 @@
     document.getElementById("ml3d-link-desync")?.remove();
   }
 
+  /* Partidas guardadas y cable.
+
+     Cada navegador emula su consola y una copia de la de cada compañero. Para
+     que las copias hagan lo mismo, todos necesitan la partida de todos: se
+     intercambian al empezar, directas entre los dispositivos.
+
+     - Nadie envia nada hasta que todos han aceptado este aviso.
+     - La partida ajena vive solo en memoria mientras dura la sesion. No se
+       escribe en disco y no hay forma de verla ni exportarla.
+     - Cada jugador guarda solo la de su propia consola. */
+  function pideConsentimiento(tienePartida) {
+    return new Promise((resolve) => {
+      document.getElementById("ml3d-link-consent")?.remove();
+      const el = document.createElement("div");
+      el.id = "ml3d-link-consent";
+      el.style.cssText =
+        "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+        "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+        "background:rgba(20,20,28,.94);color:#fff;text-align:center;padding:24px;" +
+        "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+      const titulo = document.createElement("div");
+      titulo.style.cssText = "font-size:20px;max-width:30ch";
+      titulo.textContent = "Tu partida se compartirá con el otro jugador durante esta sesión";
+      const cuerpo = document.createElement("div");
+      cuerpo.style.cssText = "font-weight:normal;font-size:15px;max-width:38ch";
+      cuerpo.textContent =
+        (tienePartida
+          ? "Va directa a su dispositivo y solo se usa mientras dura la sesión: no se guarda allí ni en ningún servidor. Antes se ha hecho una copia de tu partida. "
+          : "No tienes partida guardada de este juego. ") +
+        "Tú recibirás la suya igual: solo durante la sesión.";
+      const fila = document.createElement("div");
+      fila.style.cssText = "display:flex;gap:12px;margin-top:6px";
+      const boton = (texto, fondo, valor) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = texto;
+        b.style.cssText =
+          "padding:10px 22px;font:bold 15px system-ui,sans-serif;color:#fff;border:0;" +
+          "border-radius:8px;cursor:pointer;background:" + fondo;
+        b.addEventListener("click", () => { el.remove(); resolve(valor); });
+        return b;
+      };
+      fila.append(boton("CANCELAR", "#555b66", false), boton("ACEPTAR", "#3b6fd4", true));
+      el.append(titulo, cuerpo, fila);
+      document.documentElement.appendChild(el);
+    });
+  }
+
+  function avisaSinSesion(texto) {
+    document.getElementById("ml3d-link-consent")?.remove();
+    let el = document.getElementById("ml3d-link-sin-sesion");
+    if (el) return;
+    el = document.createElement("div");
+    el.id = "ml3d-link-sin-sesion";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
+      "flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+      "background:rgba(20,20,28,.92);color:#fff;text-align:center;padding:24px;" +
+      "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
+    const titulo = document.createElement("div");
+    titulo.style.cssText = "font-size:22px;letter-spacing:.03em";
+    titulo.textContent = "LA SESIÓN NO EMPIEZA";
+    const cuerpo = document.createElement("div");
+    cuerpo.style.cssText = "font-weight:normal;max-width:34ch";
+    cuerpo.textContent = texto + " No se ha compartido ninguna partida.";
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.textContent = "ENTENDIDO";
+    boton.style.cssText =
+      "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
+      "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
+    boton.addEventListener("click", () => el.remove());
+    el.append(titulo, cuerpo, boton);
+    document.documentElement.appendChild(el);
+    setTimeout(() => el.remove(), 15000);
+  }
+
+  const SAVE_CHUNK = 12 * 1024;
+  const SAVE_MAX_BYTES = 1024 * 1024;
+  const SAVE_WRITE_MS = 3000;
+  const PROTOCOLO = "dual-core-v2";
+
+  /* Suma rapida para saber si la partida ha cambiado desde la ultima vez. */
+  function sumaRapida(bytes) {
+    let h = 2166136261;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0) + ":" + bytes.length;
+  }
+
   /* Aviso de cable caido.
      Se parece al de divergencia pero dice otra cosa: alli las dos copias
      seguian corriendo y habian dejado de coincidir; aqui no hay nadie al otro
@@ -218,10 +310,26 @@
      * @param rt   adaptador del runtime mGBA multi-instancia (ver mgbaRuntime)
      * @param hash huella de la ROM, para que los dos lados comparen cartucho
      */
-    constructor(rt, hash) {
+    constructor(rt, hash, partida = null) {
       this.rt = rt;
       this.romHash = hash;
       this.seats = seatCount;
+
+      /* Partidas. `saves[asiento]`: undefined = aun no se sabe, null = ese
+         jugador no tiene, bytes = su partida. La propia sale del disco; las
+         demas llegan por el cable y solo viven aqui, en memoria. */
+      this.partida = partida;                 /* { bytes, hash, namespace, nombre } o null */
+      this.saves = new Array(4).fill(undefined);
+      this.saves[mySeat] = partida?.bytes || null;
+      this.myHash = partida?.hash || "-";
+      this.consent = false;
+      this.declined = false;
+      this.go = false;                        /* todos han aceptado */
+      this.sentSave = false;
+      this.remotos = new Map();               /* asiento -> { consent, have } */
+      this.entrantes = new Map();             /* asiento -> partida a medio llegar */
+      this.saveTimer = null;
+      this.ultimaEscrita = partida?.bytes ? sumaRapida(partida.bytes) : "";
 
       /* Mapa explícito asiento → core. El id que devuelve instance_open no
          tiene por qué coincidir con el asiento, y el asiento definitivo lo
@@ -271,7 +379,173 @@
         this.readyTimer = setInterval(() => {
           if (!this.started) this.publishReady();
         }, 500);
+        /* La sesion se monta al entrar en la sala, con el lobby delante. El
+           aviso espera a que el lobby se quite (al iniciar la conexion o al
+           volver al juego): es entonces cuando la partida esta por empezar. */
+        const lobbyDelante = () => window.ML3DLobbyOverlay?.isOpen === true;
+        const pregunta = () => pideConsentimiento(Boolean(partida?.bytes)).then((acepta) => {
+          if (this.destroyed) return;
+          if (acepta) {
+            this.consent = true;
+            this.revisaPartidas();
+            this.publishReady();
+            return;
+          }
+          /* Sin aceptar no sale nada de aqui. Se avisa al otro y se vuelve al
+             juego normal. */
+          this.declined = true;
+          this.publishReady();
+          setTimeout(() => { this.publishReady(); cancelaSesion(); }, 300);
+        });
+        if (!lobbyDelante()) pregunta();
+        else {
+          this.consentTimer = setInterval(() => {
+            if (lobbyDelante()) return;
+            clearInterval(this.consentTimer);
+            this.consentTimer = null;
+            if (!this.destroyed && !this.started) pregunta();
+          }, 300);
+        }
       }
+    }
+
+    /* ------------------------------------------------------------ partidas */
+
+    /** Huella conjunta de las partidas que tiene este dispositivo, o "". */
+    haveDigest() {
+      const trozos = [];
+      for (let seat = 0; seat < this.seats; seat++) {
+        const save = this.saves[seat];
+        if (save === undefined) return "";
+        trozos.push(seat === mySeat ? this.myHash : (this.hashes?.[seat] || "-"));
+      }
+      return trozos.join("|");
+    }
+
+    todosAceptan() {
+      if (!this.consent) return false;
+      for (let seat = 1; seat < this.seats; seat++) {
+        if (!this.remotos.get(seat)?.consent) return false;
+      }
+      return true;
+    }
+
+    /* El host decide cuando han aceptado todos; los demas se enteran por su
+       paquete de listo. Solo entonces sale la partida propia. */
+    revisaPartidas() {
+      if (role === "host") this.go = this.todosAceptan();
+      if (!this.go || !this.consent || this.sentSave) return;
+      this.sentSave = true;
+      const bytes = this.partida?.bytes || null;
+      const total = bytes ? Math.ceil(bytes.length / SAVE_CHUNK) : 0;
+      sendLocal({
+        type: "gba:lockstep:save", playerNumber: mySeat, kind: "meta",
+        hash: this.myHash, size: bytes ? bytes.length : 0, total
+      });
+      for (let index = 0; index < total; index++) {
+        const slice = bytes.subarray(index * SAVE_CHUNK, (index + 1) * SAVE_CHUNK);
+        let binary = "";
+        for (let i = 0; i < slice.length; i++) binary += String.fromCharCode(slice[i]);
+        sendLocal({ type: "gba:lockstep:save", playerNumber: mySeat, kind: "chunk", index, data: btoa(binary) });
+      }
+    }
+
+    /* Llega la partida de otro jugador. Solo se acepta si aqui tambien se ha
+       aceptado compartir, y se comprueba contra la huella anunciada. */
+    acceptRemoteSave(packet) {
+      if (this.started || !this.consent) return;
+      const seat = Number(packet.playerNumber) | 0;
+      if (seat === mySeat || seat < 0 || seat >= this.seats) return;
+
+      if (packet.kind === "meta") {
+        const size = Number(packet.size) | 0;
+        if (size < 0 || size > SAVE_MAX_BYTES) return;
+        this.hashes = this.hashes || {};
+        this.hashes[seat] = String(packet.hash || "-");
+        if (size === 0) {
+          this.saves[seat] = null;
+          this.entrantes.delete(seat);
+          this.despuesDePartida();
+          return;
+        }
+        this.entrantes.set(seat, { size, total: Number(packet.total) | 0, partes: [], recibido: 0, hash: this.hashes[seat] });
+        return;
+      }
+
+      if (packet.kind === "chunk") {
+        const entrada = this.entrantes.get(seat);
+        if (!entrada) return;
+        const binary = atob(String(packet.data || ""));
+        if (entrada.recibido + binary.length > entrada.size) { this.entrantes.delete(seat); return; }
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        entrada.partes[Number(packet.index) | 0] = bytes;
+        entrada.recibido += bytes.length;
+        if (entrada.recibido < entrada.size) return;
+
+        this.entrantes.delete(seat);
+        const todo = new Uint8Array(entrada.size);
+        let offset = 0;
+        for (const parte of entrada.partes) {
+          if (!parte) continue;
+          todo.set(parte, offset);
+          offset += parte.length;
+        }
+        fingerprint(todo).then((hash) => {
+          if (this.destroyed || this.started) return;
+          if (offset !== entrada.size || hash !== entrada.hash) {
+            this.setDebugError("PARTIDA DEL ASIENTO " + seat + " DAÑADA");
+            return;
+          }
+          this.saves[seat] = todo;
+          this.despuesDePartida();
+        });
+      }
+    }
+
+    despuesDePartida() {
+      this.publishReady();
+      this.renderDebug();
+      this.maybeHostStart();
+    }
+
+    /* Cada consola arranca con la partida de su jugador y con el mismo reloj
+       en todos los dispositivos. Va antes del primer frame. */
+    cargaPartidas(clock) {
+      for (let seat = 0; seat < this.seats; seat++) {
+        const core = this.coreOf(seat);
+        const save = this.saves[seat];
+        if (save && save.length) this.rt.loadSram?.(core, save);
+        /* Sin reloj comun las copias divergen con una partida cargada: mejor
+           no empezar que empezar mal. */
+        if (clock > 0 && this.rt.setClock?.(core, clock) !== true) {
+          this.setDebugError("NÚCLEO ANTIGUO: RECARGA LA PÁGINA");
+          return false;
+        }
+      }
+    }
+
+    /* Solo se escribe la partida de la consola propia, y solo si ha cambiado. */
+    guardaMiPartida() {
+      if (!this.partidaDestino) return;
+      const bytes = this.rt.sram?.(this.coreOf(mySeat));
+      if (!bytes || !bytes.length) return;
+      const suma = sumaRapida(bytes);
+      if (suma === this.ultimaEscrita) return;
+      this.ultimaEscrita = suma;
+      const { namespace, nombre } = this.partidaDestino;
+      Promise.resolve(window.ML3DLocalSave?.cableWriteSave?.(namespace, nombre, bytes))
+        .catch((error) => console.error("ML3D Local Link (guardar partida):", error));
+    }
+
+    /** Suelta las partidas ajenas: no deben sobrevivir a la sesion. */
+    olvidaPartidas() {
+      for (let seat = 0; seat < this.saves.length; seat++) {
+        const save = this.saves[seat];
+        if (seat !== mySeat && save instanceof Uint8Array) save.fill(0);
+        this.saves[seat] = undefined;
+      }
+      this.entrantes.clear();
     }
 
     slot(frame, seat) {
@@ -295,7 +569,11 @@
         playerNumber: mySeat,
         role,
         romHash: this.romHash,
-        protocol: "dual-core-v1"
+        protocol: PROTOCOLO,
+        consent: this.consent,
+        declined: this.declined,
+        go: role === "host" ? this.go : false,
+        have: this.haveDigest()
       });
     }
 
@@ -307,15 +585,28 @@
         this.setDebugError("ROM DISTINTA");
         return;
       }
+      /* Nadie empieza hasta que todos han aceptado y cada dispositivo tiene
+         las mismas partidas que el host. */
+      if (!selfTest) {
+        if (!this.go) return;
+        const mias = this.haveDigest();
+        if (!mias) return;
+        for (let seat = 1; seat < this.seats; seat++) {
+          if (this.remotos.get(seat)?.have !== mias) return;
+        }
+      }
       const sessionId =
         (crypto.randomUUID?.() || (Date.now().toString(36) + "-" + Math.random().toString(36).slice(2)));
+      /* Hora de partida del reloj del juego, la misma para todos. */
+      const clock = Date.now();
       sendLocal({
         type: "gba:lockstep:start",
         sessionId,
         delay: INPUT_DELAY,
-        romHash: this.romHash
+        romHash: this.romHash,
+        clock
       });
-      this.start(sessionId, INPUT_DELAY);
+      this.start(sessionId, INPUT_DELAY, clock);
     }
 
     acceptRemoteReady(packet) {
@@ -323,11 +614,27 @@
       if (packet.ready === false) this.readySeats.delete(seat);
       else if (seat !== mySeat) this.readySeats.add(seat);
       this.remoteHash = String(packet.romHash || "");
+
+      if (!this.started && seat !== mySeat) {
+        if (String(packet.protocol || "") !== PROTOCOLO) {
+          this.setDebugError("VERSIÓN DISTINTA: RECARGAD LOS DOS LA PÁGINA");
+          return;
+        }
+        if (packet.declined) {
+          avisaSinSesion("El otro jugador no ha aceptado compartir su partida.");
+          cancelaSesion();
+          return;
+        }
+        this.remotos.set(seat, { consent: packet.consent === true, have: String(packet.have || "") });
+        if (role !== "host" && seat === 0 && packet.go === true) this.go = true;
+        this.revisaPartidas();
+      }
+
       this.renderDebug();
       this.maybeHostStart();
     }
 
-    start(sessionId, delay) {
+    start(sessionId, delay, clock = 0) {
       if (this.started) return;
       if (Number(delay) !== INPUT_DELAY) {
         this.setDebugError("DELAY INCOMPATIBLE");
@@ -338,6 +645,17 @@
       this.started = true;
       clearInterval(this.readyTimer);
       this.readyTimer = null;
+      document.getElementById("ml3d-link-consent")?.remove();
+      if (this.cargaPartidas(Number(clock) || 0) === false) {
+        this.started = false;
+        return;
+      }
+      /* A partir de aqui la partida propia se guarda sola. Sin sitio donde
+         guardarla (nucleo sin partidas), la sesion sigue sin guardar. */
+      if (this.partida?.namespace) {
+        this.partidaDestino = { namespace: this.partida.namespace, nombre: this.partida.nombre };
+        this.saveTimer = setInterval(() => this.guardaMiPartida(), SAVE_WRITE_MS);
+      }
       this.frame = 0;
       this.miHuella = new Map();    /* frame -> huella propia */
       this.suHuella = new Map();    /* frame -> { asiento: huella } */
@@ -871,6 +1189,14 @@
         remoteHash: this.remoteHash,
         wedged: this.wedged,
         stalls: this.stallCount,
+        /* Partidas: solo estado, nunca contenido. */
+        partidas: {
+          acepto: this.consent,
+          todosAceptan: this.go,
+          enviada: this.sentSave,
+          tengo: this.haveDigest(),
+          desync: this.desync ? true : false
+        },
         /* Diagnostico del ritmo: un tick que no avanza o es un stall (falta
            input de alguien) o es un freno de audio (la cola va sobrada).
            Distinguirlos es lo unico que dice quien manda cuando el juego se
@@ -915,9 +1241,20 @@
     }
 
     destroy() {
+      this.destroyed = true;
       clearInterval(this.readyTimer);
       clearInterval(this.tickTimer);
       clearInterval(this.registroTimer);
+      clearInterval(this.saveTimer);
+      clearInterval(this.consentTimer);
+      this.saveTimer = null;
+      this.consentTimer = null;
+      document.getElementById("ml3d-link-consent")?.remove();
+      /* Lo ultimo jugado, antes de cerrar las consolas. */
+      if (this.started) {
+        try { this.guardaMiPartida(); } catch {}
+      }
+      this.olvidaPartidas();
       this.readyTimer = null;
       this.tickTimer = null;
       this.registroTimer = null;
@@ -994,6 +1331,31 @@
       return;
     }
 
+    /* La partida de este jugador, antes de soltar el nucleo normal: se lee de
+       donde el juego la guarda y se saca una copia por si la sesion sale mal. */
+    let partida = null;
+    if (!selfTest) {
+      try {
+        const compat = window.ML3DMgbaCompat;
+        const namespace = compat?.isActive?.() ? compat.getNamespace() : "";
+        const nombre = namespace ? compat.getDisplayName() : "";
+        if (namespace && window.ML3DLocalSave?.cableReadSave) {
+          await compat.flushSave?.();
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          const bytes = await window.ML3DLocalSave.cableReadSave(namespace, nombre);
+          if (bytes?.length) await window.ML3DLocalSave.cableBackup?.(nombre, bytes);
+          partida = {
+            namespace,
+            nombre,
+            bytes: bytes?.length ? bytes : null,
+            hash: bytes?.length ? await fingerprint(bytes) : "-"
+          };
+        }
+      } catch (error) {
+        console.error("ML3D Local Link (leer partida):", error);
+      }
+    }
+
     /* El camino normal suelta la pantalla: durante la partida Link la conduce
        el runtime multi-instancia, que es quien tiene las cuatro consolas. */
     runtime.stopTimers?.();
@@ -1013,13 +1375,12 @@
     });
     await rt.startAudio();
 
-    controller = new LocalDualLink(rt, hash);
+    controller = new LocalDualLink(rt, hash, partida);
 
-    if (pendingStart) {
-      const start = pendingStart;
-      pendingStart = null;
-      controller.start(String(start.sessionId || ""), Number(start.delay));
-    }
+    /* Un arranque que llego antes de montar la sesion se descarta: ahora nadie
+       empieza sin el intercambio de partidas, y el host lo repite al estar
+       todos listos. */
+    pendingStart = null;
   }
 
   /* Configuración en caliente desde el lobby integrado. La sesión Link exige
@@ -1093,6 +1454,14 @@
       .finally(() => { configuring = false; });
   }
 
+  /* La sesion no llega a empezar (alguien no acepta): se suelta y se vuelve al
+     juego normal, igual que al desconectar. */
+  function cancelaSesion() {
+    if (!controller) return;
+    disconnectSession({});
+    configuredKey = "";
+  }
+
   function disconnectSession(packet) {
     if (packet.roomId && packet.roomId !== roomId) return;
     controller?.destroy?.();
@@ -1147,7 +1516,12 @@
         return;
       }
       if (!controller) pendingStart = packet;
-      else controller.start(String(packet.sessionId || ""), Number(packet.delay));
+      else controller.start(String(packet.sessionId || ""), Number(packet.delay), Number(packet.clock) || 0);
+      return;
+    }
+
+    if (packet.type === "gba:lockstep:remote-save") {
+      controller?.acceptRemoteSave(packet);
       return;
     }
 

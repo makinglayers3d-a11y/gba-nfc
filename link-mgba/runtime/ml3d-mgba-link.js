@@ -73,6 +73,8 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 	 * `new Function` no existen `exports`, `module` ni `define`, así que la cola
 	 * UMD no hace nada y basta con devolver la factoría.
 	 */
+	const CORE_VERSION = "2026-10-05-reloj";
+
 	async function loadFactory(url) {
 		const response = await fetch(url, { cache: "no-store" });
 		if (!response.ok) throw new Error("no se pudo cargar " + url + ": HTTP " + response.status);
@@ -112,7 +114,9 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 		static async create(options) {
 			const dir = options.wasmDir || "../dist/multi/";
 			const factory = await loadFactory(dir + "mgba.js");
-			const Module = await factory({ locateFile: (p) => dir + p });
+			/* La version va en la direccion del .wasm: sin ella un navegador puede
+			   quedarse con el binario viejo y el glue nuevo. */
+			const Module = await factory({ locateFile: (p) => dir + p + "?v=" + CORE_VERSION });
 			Module._mgbawasm_init();
 			Module._mgbawasm_set_log_level(options.logLevel ?? 1);
 
@@ -590,6 +594,12 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 				this.hashSize = this.hashBuf ? size : 0;
 			}
 			if (!this.hashBuf) return 0;
+			/* El savestate no escribe todos sus bytes: deja huecos (relleno,
+			   registros de E/S que no guarda). Sin limpiar el buffer, esos huecos
+			   traen lo que hubiera antes en esa memoria, que no es lo mismo en
+			   cada dispositivo, y dos copias identicas daban huellas distintas:
+			   saltaba el aviso de desincronizacion sin que la hubiera. */
+			this.M.HEAPU8.fill(0, this.hashBuf, this.hashBuf + size);
 			if (!this.M._mgbawasm_state_save(s.id, this.hashBuf)) return 0;
 			/* FNV-1a de 32 bits, de cuatro en cuatro bytes: basta para avisar y no
 			   cuesta nada frente a recorrer el savestate byte a byte. */
