@@ -322,7 +322,7 @@ body.ml3d-embed .select-menu-card details {
   padding: 0.4em 0;
 }
 
-body.ml3d-embed .avatar-layers-main-preview canvas {
+body.ml3d-embed .personaje-vista {
   max-height: 22dvh;
 }
 
@@ -641,20 +641,8 @@ body.ml3d-embed .embed-share-button {
   display: block;
 }
 
-.player.paused .avatar-wrap {
-  opacity: 0.5;
-  filter: saturate(0.25) brightness(1.5) drop-shadow(0 0 5px rgba(110, 215, 255, 0.9));
-  animation: ml3d-holo 1.8s ease-in-out infinite;
-}
-
-@keyframes ml3d-holo {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.28; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .player.paused .avatar-wrap { animation: none; }
-}
+/* El aspecto holográfico del jugador en pausa está en personajes.css,
+   sobre el lienzo del personaje. */
 
 /* Casillas del lobby: texto al lado, no encima. */
 .check-line {

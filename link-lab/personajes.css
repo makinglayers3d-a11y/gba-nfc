@@ -1,0 +1,121 @@
+/* ML3D Link — personajes del lobby (kit por capas, ./personajes/) */
+
+/* rooms.js sigue rellenando .avatar-wrap con su maqueta y la reconstruye en
+   cada render, así que el lienzo cuelga del .player. El wrap se queda como
+   hueco invisible para que el nombre no se solape con el personaje. */
+#playersLayer .player > .avatar-wrap {
+  visibility: hidden;
+  width: 64px;
+  height: 96px;
+}
+
+.personaje-host {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Pixel art: tamaño exacto de la celda, sin suavizado. */
+.personaje-lienzo {
+  display: block;
+  width: 64px;
+  height: 96px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 4px 3px rgba(0, 0, 0, .38));
+}
+
+.player.local .personaje-lienzo {
+  filter: drop-shadow(0 0 4px rgba(88, 190, 255, .88));
+}
+
+/* Jugador en pausa: holográfico. La regla anterior apuntaba al hueco
+   invisible y no se veía; el que se ve es este lienzo. */
+.player.paused .personaje-lienzo {
+  opacity: .5;
+  filter: saturate(.25) brightness(1.5) drop-shadow(0 0 5px rgba(110, 215, 255, .9));
+  animation: ml3d-personaje-holo 1.8s ease-in-out infinite;
+}
+
+@keyframes ml3d-personaje-holo {
+  0%, 100% { opacity: .5; }
+  50% { opacity: .28; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player.paused .personaje-lienzo { animation: none; }
+}
+
+/* ---- pantalla de personalizar ---- */
+
+.personaje-editor { margin-top: 12px; }
+
+.personaje-vista {
+  display: block;
+  width: 256px;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 12px;
+  border: 1px solid #334b61;
+  border-radius: 14px;
+  background: radial-gradient(circle at 50% 60%, rgba(54, 112, 158, .22), rgba(5, 12, 19, .88) 64%);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.personaje-campo {
+  display: grid;
+  grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.personaje-campo label { margin: 0; }
+
+.personaje-colores { margin-top: 10px; }
+
+.personaje-color {
+  display: grid;
+  grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.personaje-color-nombre { font-size: .85em; }
+
+.personaje-muestras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.personaje-muestra {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 5px;
+}
+
+.personaje-libre {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 5px;
+  background: none;
+}
+
+.personaje-original {
+  width: auto;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: .72em;
+}

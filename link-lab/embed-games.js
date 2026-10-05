@@ -5,7 +5,7 @@
      biblioteca y, cuando hace falta, envío de una ROM de un jugador a otro.
 
      Viaja por los mismos RTCDataChannel del lobby, con paquetes propios
-     (ml3d:game:*), igual que hace avatar-final.js con el avatar: rooms.js
+     (ml3d:game:*): rooms.js
      ignora lo que no entiende, así que no hay que tocarlo.
 
      Sobre el envío de ROMs: solo se envía un juego que su dueño ha cargado

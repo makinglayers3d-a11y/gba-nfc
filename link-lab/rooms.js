@@ -852,13 +852,37 @@
     }
   }
 
+  /* Aspecto del personaje (kit de ./personajes/): un JSON pequeño con
+     identificadores y colores. Es lo único del avatar que viaja por la red;
+     imágenes, nunca.
+
+     Lo que llega de otro jugador se valida contra el manifest del kit: solo
+     identificadores conocidos, colores "#rrggbb" y tamaño máximo. Si algo no
+     vale, null: ese jugador se ve con el personaje por defecto. Mientras el
+     kit no ha terminado de cargar solo se puede acotar el tamaño; quien pinta
+     (personajes.js) vuelve a validar siempre antes de dibujar. */
+  function limpiaAspecto(value) {
+    /* El tope va aquí dentro y no en una constante de fuera: el perfil
+       guardado se lee al arrancar, antes de que esa constante existiera, y
+       la lectura fallaba entera (se perdían el nombre y el personaje). */
+    const ASPECTO_MAX = 1024;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    let texto;
+    try { texto = JSON.stringify(value); } catch { return null; }
+    if (typeof texto !== "string" || texto.length > ASPECTO_MAX) return null;
+    const kit = window.ML3DPersonajes;
+    if (kit?.porDefecto) return kit.valida(value);
+    try { return JSON.parse(texto); } catch { return null; }
+  }
+
   function normalizeProfile(value = {}) {
     return {
       name: cleanName(value.name || "Jugador"),
       color: Object.hasOwn(PALETTE, value.color) ? value.color : "orange",
       body: BODIES.includes(value.body) ? value.body : "round",
       face: FACES.includes(value.face) ? value.face : "happy",
-      accessory: ACCESSORIES.includes(value.accessory) ? value.accessory : "none"
+      accessory: ACCESSORIES.includes(value.accessory) ? value.accessory : "none",
+      aspecto: limpiaAspecto(value.aspecto)
     };
   }
 
@@ -913,7 +937,8 @@
       rtt: player.rtt ?? null,
       jitter: player.jitter ?? null,
       host: Boolean(player.host),
-      paused: Boolean(player.paused)
+      paused: Boolean(player.paused),
+      aspecto: player.aspecto || null
     };
   }
 
@@ -937,6 +962,7 @@
         id,
         name: profile.name,
         avatar: { color: profile.color, body: profile.body, face: profile.face, accessory: profile.accessory },
+        aspecto: profile.aspecto,
         x: pos.x,
         y: pos.y,
         quality: isHost ? "good" : "unknown",
@@ -976,6 +1002,11 @@
       existing.delete(player.id);
       el.classList.toggle("local", player.id === localPlayerId);
       el.classList.toggle("paused", Boolean(player.paused));
+      /* personajes.js pinta a partir de esto y lo valida antes de dibujar. */
+      const aspecto = player.aspecto ? JSON.stringify(player.aspecto) : "";
+      if (el.dataset.aspecto !== aspecto) el.dataset.aspecto = aspecto;
+      /* Quien está más abajo en la sala se dibuja delante. */
+      el.style.zIndex = String(10 + Math.round(player.y * 10));
       el.style.left = `${player.x}%`;
       el.style.top = `${player.y}%`;
       const nameText = el.querySelector(".player-name-text");
@@ -1248,6 +1279,7 @@
       if (player) {
         player.name = incoming.name;
         player.avatar = { color: incoming.color, body: incoming.body, face: incoming.face, accessory: incoming.accessory };
+        player.aspecto = incoming.aspecto;
         renderPlayers();
         broadcastPlayer(player);
       }
@@ -1542,7 +1574,8 @@
       rtt: Number.isFinite(raw.rtt) ? raw.rtt : null,
       jitter: Number.isFinite(raw.jitter) ? raw.jitter : null,
       host: Boolean(raw.host),
-      paused: raw.paused === true
+      paused: raw.paused === true,
+      aspecto: limpiaAspecto(raw.aspecto)
     };
   }
 
@@ -2408,12 +2441,14 @@
   }
 
   function applyProfile() {
-    const next = normalizeProfile({ ...profile, name: $("#profileName").value });
+    const borrador = window.ML3DPersonajes?.borrador?.();
+    const next = normalizeProfile({ ...profile, name: $("#profileName").value, aspecto: borrador || profile.aspecto });
     saveProfileLocal(next);
     const me = players.get(localPlayerId);
     if (me) {
       me.name = profile.name;
       me.avatar = { color: profile.color, body: profile.body, face: profile.face, accessory: profile.accessory };
+      me.aspecto = profile.aspecto;
       renderPlayers();
       if (hostSession) broadcastPlayer(me);
       else if (joinSession) safeSend(joinSession.channel, { type: "lobby:profile", profile, time: Date.now() });
@@ -2759,6 +2794,23 @@
   function escapeHtml(text) {
     return String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
   }
+
+  if (window.ML3DPersonajes) window.ML3DPersonajes.actual = () => profile.aspecto;
+  /* El kit termina de cargar después: lo guardado se valida entonces, y a
+     quien ya esté en una sala se le aplica. */
+  window.addEventListener("ml3d-personajes-listos", () => {
+    profile = normalizeProfile(profile);
+    /* Lo que llegó de otros jugadores antes de tener el kit solo estaba
+       acotado en tamaño: ahora se valida de verdad, antes de reenviarlo. */
+    for (const player of players.values()) player.aspecto = limpiaAspecto(player.aspecto);
+    const me = players.get(localPlayerId);
+    if (me) me.aspecto = profile.aspecto;
+    renderPlayers();
+  });
+  /* El sistema de avatares anterior guardaba aquí un identificador único y
+     permanente del navegador, que se enviaba a los demás jugadores. Ya no
+     existe; se borra lo que quedara. */
+  try { localStorage.removeItem("ml3d-link-avatar-final-v1"); } catch {}
 
   $("#saveApi").addEventListener("click", () => {
     localStorage.setItem(API_KEY, apiBase());
