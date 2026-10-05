@@ -73,7 +73,7 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 	 * `new Function` no existen `exports`, `module` ni `define`, así que la cola
 	 * UMD no hace nada y basta con devolver la factoría.
 	 */
-	const CORE_VERSION = "2026-10-05-reloj";
+	const CORE_VERSION = "2026-10-05-local";
 
 	async function loadFactory(url) {
 		const response = await fetch(url, { cache: "no-store" });
@@ -116,14 +116,25 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			const factory = await loadFactory(dir + "mgba.js");
 			/* La version va en la direccion del .wasm: sin ella un navegador puede
 			   quedarse con el binario viejo y el glue nuevo. */
-			const Module = await factory({ locateFile: (p) => dir + p + "?v=" + CORE_VERSION });
+			/* Solo en la web: la prueba de este fichero fuera del navegador lee el
+			   .wasm del disco, y ahi un "?v=" es parte del nombre y no existe. */
+			const enWeb = typeof location === "object" && /^https?:$/.test(location.protocol || "");
+			const Module = await factory({ locateFile: (p) => dir + p + (enWeb ? "?v=" + CORE_VERSION : "") });
 			Module._mgbawasm_init();
 			Module._mgbawasm_set_log_level(options.logLevel ?? 1);
 
 			const runtime = new ML3DMgbaLink(Module, options);
-			runtime.shareRom(options.rom);
-			const count = Math.min(Math.max(1, options.seats || 1), MAX_SEATS);
-			for (let i = 0; i < count; ++i) runtime.openSeat();
+			/* Con `roms`, cada consola lleva su propio cartucho (sala local: dos
+			   juegos distintos en un dispositivo). Sin él, todas comparten uno,
+			   que es lo normal con el cable entre dispositivos. */
+			const propias = Array.isArray(options.roms) ? options.roms : null;
+			if (!propias) runtime.shareRom(options.rom);
+			const count = Math.min(Math.max(1, options.seats || (propias ? propias.length : 1)), MAX_SEATS);
+			for (let i = 0; i < count; ++i) {
+				if (runtime.openSeat(propias ? propias[i] : null) < 0) {
+					throw new Error("no se pudo abrir la consola " + (i + 1));
+				}
+			}
 			if (options.link !== false && count > 1) runtime.attachAll();
 			return runtime;
 		}
@@ -137,9 +148,22 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 			return shared;
 		}
 
-		/** Abre una consola más y devuelve su índice, o -1 si no cabe. */
-		openSeat() {
+		/**
+		 * Abre una consola más y devuelve su índice, o -1 si no cabe.
+		 * Con `rom`, esa consola lleva su propio cartucho.
+		 */
+		openSeat(rom = null) {
 			if (this.seats.length >= MAX_SEATS) return -1;
+			if (rom) {
+				if (typeof this.M._mgbawasm_rom_next !== "function") {
+					throw new Error("el núcleo cargado no admite un cartucho por consola: recarga la página");
+				}
+				const ptr = this.M._malloc(rom.length);
+				this.M.HEAPU8.set(rom, ptr);
+				const copiado = this.M._mgbawasm_rom_next(ptr, rom.length);
+				this.M._free(ptr);
+				if (!copiado) return -1;
+			}
 			const id = this.M._mgbawasm_instance_open(-1, 0, 1);
 			if (id < 0) return -1;
 			this.seats.push({ id, mask: 0, seat: -1 });
@@ -408,7 +432,37 @@ registerProcessor("ml3d-mgba-sink", ML3DSink);
 
 		/* ------------------------------------------------------------ video */
 
+		/**
+		 * Segunda pantalla: pinta en `canvas` la primera consola que no es la
+		 * visible. null la quita. Sirve para ver las dos a la vez.
+		 */
+		setSecondCanvas(canvas) {
+			this.canvas2 = canvas || null;
+			this.ctx2 = canvas ? canvas.getContext("2d") : null;
+			this.image2 = null;
+		}
+
+		blitSecond() {
+			if (!this.ctx2) return;
+			const otra = this.seats.find((_, i) => i !== this.visible);
+			if (!otra) return;
+			if (this.linked) this.M._mgbawasm_present(otra.id);
+			const width = this.M._mgbawasm_video_width(otra.id);
+			const height = this.M._mgbawasm_video_height(otra.id);
+			if (!width || !height) return;
+			if (this.canvas2.width !== width || this.canvas2.height !== height) {
+				this.canvas2.width = width;
+				this.canvas2.height = height;
+				this.image2 = null;
+			}
+			if (!this.image2) this.image2 = this.ctx2.createImageData(width, height);
+			const ptr = this.M._mgbawasm_video_ptr(otra.id);
+			this.image2.data.set(this.M.HEAPU8.subarray(ptr, ptr + width * height * 4));
+			this.ctx2.putImageData(this.image2, 0, 0);
+		}
+
 		blit() {
+			this.blitSecond();
 			if (!this.ctx2d) return;
 			const visible = this.seats[this.visible];
 			/* Con cable, link_run no empaqueta el framebuffer —eso vivia dentro
