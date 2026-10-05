@@ -1,13 +1,13 @@
 {
   "enabled": true,
-  "versionCode": 40,
-  "versionName": "0.13.0",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.13.0/ml3d-nfc-writer-0.13.0.apk",
-  "sha256": "8b354c9640b99e29b5eebbfd95394b8652a888847282125971a569f99e199357",
-  "sizeBytes": 7894486,
+  "versionCode": 41,
+  "versionName": "0.14.0",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.14.0/ml3d-nfc-writer-0.14.0.apk",
+  "sha256": "76cb7ed19e2f5c9049c2b078d6f8bcf290f58c3bbd565d7a68fa6f6ec8a07851",
+  "sizeBytes": 7894482,
   "changelog": [
-    "Las etiquetas de cartucho y los juegos llegan del servidor, con tu clave de gestion",
-    "El catalogo incluido en la app solo lleva lo propio de ML3D"
+    "Peticiones de juego de los testers: concederlas o denegarlas desde Gestion de accesos",
+    "Interruptor para permitir o no el envio de juegos entre jugadores en ML3D Link"
   ],
   "minVersionCode": 36,
   "updateRequiredMessage": "Esta version ya no puede ver el catalogo de juegos. Actualiza la app para seguir grabando etiquetas."
