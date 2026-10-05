@@ -269,6 +269,12 @@
       sendLocalRom();
       return;
     }
+    /* El lobby necesita al jugador (alguien pide entrar). Con el cable
+       jugando no se interrumpe la partida. */
+    if (data.type === "attention") {
+      if (!isOpen && !window.ML3DLocalLinkSession?.active) open();
+      return;
+    }
     if (data.type === "link-start") close();
     else if (data.type === "close") closeByUser();
   });
@@ -324,6 +330,17 @@
     hashedFor = "";
     if (frame) sendContext();
   });
+
+  /* Navegador cerrado por error estando en una sala: si han pasado menos de
+     20 segundos, el lobby se abre solo y vuelve a ese hueco. */
+  function vuelveALaSala() {
+    try {
+      const reserva = JSON.parse(localStorage.getItem("ml3d-link-reserva-v1") || "null");
+      if (reserva?.token && Date.now() - Number(reserva.visto || 0) < 20000) open();
+    } catch {}
+  }
+  if (document.readyState === "complete") setTimeout(vuelveALaSala, 600);
+  else window.addEventListener("load", () => setTimeout(vuelveALaSala, 600), { once: true });
 
   function wireLauncher() {
     const button = document.getElementById("open-lobby-button");

@@ -288,6 +288,15 @@
     ajustes,
 
     /**
+     * El pase de este dispositivo, para el lobby: con él, el servidor de salas
+     * reconoce a un tester y el bloqueo de un anfitrión no depende del
+     * navegador. Vacío para quien no es tester.
+     */
+    paseParaSalas() {
+      return pase;
+    },
+
+    /**
      * Un tester pide un juego de la biblioteca que su acceso no incluye. Llega
      * a la app de gestión. Devuelve { ok, status } o { ok: false, reason }.
      */

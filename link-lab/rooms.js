@@ -112,6 +112,126 @@
     return data;
   }
 
+  /* ---------------------------------------------------------------- salas
+
+     Tipos de sala, pausa, vuelta al mismo hueco, inactividad, bloqueos y
+     confirmación de jugadores. Todo esto vale en el lobby. Con una partida de
+     cable en marcha no se toca nada: ahí manda la sesión. */
+
+  const DEVICE_KEY = "ml3d-link-device-v1";
+  const BLOCK_KEY = "ml3d-link-bloqueados-v1";
+  const RESERVA_KEY = "ml3d-link-reserva-v1";
+  const RESERVA_MS = 20000;
+  let cuentaAtras = false;
+
+  /* Con el cable ya jugando, el lobby no pausa, no reserva y no expulsa. */
+  function cableEnMarcha() {
+    if (cuentaAtras) return true;
+    try { return Boolean(window.parent?.ML3DLocalLinkSession?.active); } catch { return false; }
+  }
+
+  function aleatorio(bytes = 18) {
+    const data = crypto.getRandomValues(new Uint8Array(bytes));
+    let binary = "";
+    for (const byte of data) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  /* Identificador de este navegador, para que un anfitrión pueda bloquearlo
+     aunque cambie de nombre. Es aleatorio y no dice nada de quién es. Se
+     pierde al borrar los datos del sitio o en una ventana de incógnito. */
+  function deviceId() {
+    let id = "";
+    try { id = localStorage.getItem(DEVICE_KEY) || ""; } catch {}
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+      id = aleatorio(18);
+      try { localStorage.setItem(DEVICE_KEY, id); } catch {}
+    }
+    return id;
+  }
+
+  /* Un tester presenta además su pase: el servidor lo reconoce por él y el
+     bloqueo ya no depende del navegador. */
+  function testerPass() {
+    try { return String(window.parent?.ML3DContenido?.paseParaSalas?.() || ""); } catch { return ""; }
+  }
+
+  function bloqueados() {
+    try {
+      const lista = JSON.parse(localStorage.getItem(BLOCK_KEY) || "[]");
+      return Array.isArray(lista) ? lista.filter((item) => item && item.device) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function guardaBloqueados(lista) {
+    try { localStorage.setItem(BLOCK_KEY, JSON.stringify(lista.slice(-200))); } catch {}
+    renderBlocked();
+  }
+
+  function leeReserva() {
+    try { return JSON.parse(localStorage.getItem(RESERVA_KEY) || "null"); } catch { return null; }
+  }
+
+  function guardaReserva() {
+    if (!joinSession?.reserva) return;
+    try {
+      localStorage.setItem(RESERVA_KEY, JSON.stringify({
+        roomId: joinSession.room.id,
+        roomName: joinSession.room.name || "",
+        game: joinSession.room.game || "",
+        token: joinSession.reserva,
+        name: profile.name,
+        visto: Date.now()
+      }));
+    } catch {}
+  }
+
+  function borraReserva() {
+    try { localStorage.removeItem(RESERVA_KEY); } catch {}
+  }
+
+  /* Preguntas y avisos: dentro del emulador los pinta embed.js con su propio
+     diálogo, manejable con la cruceta; fuera, lo de siempre. */
+  function pregunta(texto, si = "SÍ", no = "NO") {
+    const ui = window.ML3DLobbyUI;
+    if (ui?.confirma) return ui.confirma(texto, si, no);
+    return Promise.resolve(window.confirm(texto));
+  }
+
+  function aviso(texto) {
+    const ui = window.ML3DLobbyUI;
+    if (ui?.avisa) ui.avisa(texto);
+    else showSessionBanner(texto, 3200);
+  }
+
+  const MOTIVOS = {
+    rejected: "NO HAS SIDO ADMITIDO EN LA SALA",
+    blocked: "NO PUEDES ENTRAR EN ESTA SALA",
+    inactive: "EXPULSADO POR INACTIVIDAD",
+    full: "LA SALA ESTÁ COMPLETA",
+    outdated: "RECARGA LA PÁGINA PARA PODER ENTRAR",
+    kicked: "EXPULSADO DE LA SALA"
+  };
+
+  /* Pausa: al salir del navegador sin cerrarlo o bloquear el móvil, los demás
+     ven el personaje holográfico con "PAUSADO". Al volver, todo sigue. */
+  function publicaPausa() {
+    if (cableEnMarcha()) return;
+    const paused = document.hidden;
+    /* Se envía aunque la foto de la sala no haya llegado todavía: quien
+       bloquea el móvil nada más entrar también está en pausa. */
+    const yo = players.get(localPlayerId);
+    if (yo) {
+      yo.paused = paused;
+      renderPlayers();
+    }
+    if (hostSession) sendAll({ type: "lobby:pause", playerId: "host", paused, time: Date.now() });
+    else if (joinSession?.channel) safeSend(joinSession.channel, { type: "lobby:pause", paused, time: Date.now() });
+  }
+  document.addEventListener("visibilitychange", publicaPausa);
+
   function getLocation() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error("Este navegador no ofrece ubicación."));
@@ -774,7 +894,8 @@
       quality: player.quality || "unknown",
       rtt: player.rtt ?? null,
       jitter: player.jitter ?? null,
-      host: Boolean(player.host)
+      host: Boolean(player.host),
+      paused: Boolean(player.paused)
     };
   }
 
@@ -828,11 +949,15 @@
         name.append(q, nameText);
         const wrap = document.createElement("div");
         wrap.className = "avatar-wrap";
-        el.append(name, wrap);
+        const pausa = document.createElement("div");
+        pausa.className = "player-paused-tag";
+        pausa.textContent = "PAUSADO";
+        el.append(name, wrap, pausa);
         playersLayer.append(el);
       }
       existing.delete(player.id);
       el.classList.toggle("local", player.id === localPlayerId);
+      el.classList.toggle("paused", Boolean(player.paused));
       el.style.left = `${player.x}%`;
       el.style.top = `${player.y}%`;
       const nameText = el.querySelector(".player-name-text");
@@ -1074,6 +1199,21 @@
       return;
     }
 
+    if (packet.type === "lobby:pause") {
+      if (!player) return;
+      player.paused = packet.paused === true;
+      peer.pausedSince = player.paused ? Date.now() : 0;
+      renderPlayers();
+      sendAll({ type: "lobby:pause", playerId: joinId, paused: player.paused, time: Date.now() }, joinId);
+      return;
+    }
+
+    /* Se despide: sale por su voluntad y no hay hueco que guardarle. */
+    if (packet.type === "lobby:bye") {
+      peer.adios = true;
+      return;
+    }
+
     if (packet.type === "lobby:profile") {
       const incoming = normalizeProfile(packet.profile || {});
       if (player) {
@@ -1250,6 +1390,8 @@
         updateToolbar(joinSession.room);
       }
       renderPlayers();
+      /* La foto no sabe si este jugador está ahora mismo en pausa. */
+      if (document.hidden) publicaPausa();
       return;
     }
 
@@ -1306,6 +1448,8 @@
 
     if (packet.type === "session:start") {
       const launchDelay = Math.max(1800, Number(packet.launchDelay) || 2400);
+      cuentaAtras = true;
+      setTimeout(() => { cuentaAtras = false; }, launchDelay + 4000);
       showSessionBanner("3", 550);
       setTimeout(() => showSessionBanner("2", 550), 600);
       setTimeout(() => showSessionBanner("1", 550), 1200);
@@ -1314,8 +1458,30 @@
       return;
     }
 
+    if (packet.type === "lobby:pause") {
+      const quien = players.get(String(packet.playerId));
+      if (quien) {
+        quien.paused = packet.paused === true;
+        renderPlayers();
+      }
+      return;
+    }
+
+    if (packet.type === "lobby:reserva") {
+      joinSession.reserva = String(packet.token || "");
+      guardaReserva();
+      clearInterval(joinSession.reservaTimer);
+      /* "visto" se refresca mientras se está en la sala: al cerrar el
+         navegador, lo último escrito dice cuánto hace que se fue. */
+      joinSession.reservaTimer = setInterval(guardaReserva, 2000);
+      return;
+    }
+
     if (packet.type === "lobby:kicked") {
-      showSessionBanner("EXPULSADO DE LA SALA", 2200);
+      borraReserva();
+      const texto = MOTIVOS[String(packet.code || "")] || "EXPULSADO DE LA SALA";
+      showSessionBanner(texto, 2600);
+      aviso(texto);
       setTimeout(() => leaveRoom(false), 1800);
       return;
     }
@@ -1334,7 +1500,8 @@
       quality: qualityClass(raw.quality),
       rtt: Number.isFinite(raw.rtt) ? raw.rtt : null,
       jitter: Number.isFinite(raw.jitter) ? raw.jitter : null,
-      host: Boolean(raw.host)
+      host: Boolean(raw.host),
+      paused: raw.paused === true
     };
   }
 
@@ -1360,18 +1527,25 @@
     clearInterval(hostSession.pollTimer);
     clearInterval(hostSession.heartbeatTimer);
     clearInterval(hostSession.qualityTimer);
+    clearInterval(hostSession.idleTimer);
   }
 
   function stopJoinTimers() {
     if (!joinSession) return;
     clearInterval(joinSession.pollTimer);
     clearInterval(joinSession.heartbeatTimer);
+    clearInterval(joinSession.reservaTimer);
   }
 
   async function createRoom() {
     try {
-      setState("working", "Obteniendo ubicación…");
-      const loc = await getLocation();
+      /* Una sala privada no usa ubicación: ni se pide. */
+      const kind = $("#roomKind")?.value === "nearby" ? "nearby" : "private";
+      let loc = null;
+      if (kind === "nearby") {
+        setState("working", "Obteniendo ubicación…");
+        loc = await getLocation();
+      }
       setState("working", "Creando sala…");
       const data = await api("/v1/rooms", {
         method: "POST",
@@ -1380,19 +1554,29 @@
           game: $("#gameName").value,
           password: $("#roomPassword").value,
           maxPlayers: Math.min(Number($("#maxPlayers").value) || 2, MAX_JUGADORES_ONLINE),
-          lat: loc.lat,
-          lon: loc.lon
+          kind,
+          ...(loc ? { lat: loc.lat, lon: loc.lon } : {})
         }
       });
       players = new Map();
-      hostSession = { room: data.room, token: data.hostToken, peers: new Map(), pollBusy: false, joins: [] };
+      hostSession = {
+        room: data.room, token: data.hostToken, peers: new Map(), pollBusy: false, joins: [],
+        kind,
+        confirm: Boolean($("#confirmPlayers")?.checked),
+        idleMinutes: Number($("#hostIdleMinutes")?.value) || 0,
+        reservas: new Map(),     /* resguardo -> { joinId, slot, until } */
+        tramitando: new Set(),   /* solicitudes que se están decidiendo */
+        decididos: new Set()     /* solicitudes ya rechazadas */
+      };
       rememberLocalLinkSession(data.room.id, 0, "host");
       ensureLocalPlayer("host", true, spawnPoint(0));
       updateToolbar(data.room);
       setLobbyVisible(true);
-      setState("working", "Sala publicada · esperando jugadores");
-      log(`Sala ${data.room.id} creada. Precisión del navegador: ~${Math.round(loc.accuracy)} m.`);
-      avisaUbicacionImprecisa(loc, "crear");
+      setState("working", kind === "nearby" ? "Sala publicada · esperando jugadores" : "Sala privada · pasa el código o el QR");
+      log(`Sala ${data.room.id} creada (${kind === "nearby" ? "proximidad" : "privada"}).`);
+      if (loc) avisaUbicacionImprecisa(loc, "crear");
+      hostSession.idleTimer = setInterval(revisaInactivos, 5000);
+      renderBlocked();
       hostSession.pollTimer = setInterval(pollHostJoins, 1200);
       hostSession.heartbeatTimer = setInterval(() => {
         api(`/v1/rooms/${encodeURIComponent(data.room.id)}/heartbeat`, { method: "POST", token: data.hostToken })
@@ -1415,7 +1599,16 @@
       renderManagePlayers();
       const liveIds = new Set(data.joins.map((j) => j.id));
       for (const join of data.joins) {
-        if (join.status === "requested" && !peers.has(join.id)) await prepareHostOffer(join);
+        if (join.status === "requested" && !peers.has(join.id) &&
+            !hostSession.tramitando.has(join.id) && !hostSession.decididos.has(join.id)) {
+          /* No se espera aquí: una pregunta al anfitrión no puede parar el
+             resto del sondeo (respuestas de otros jugadores, latidos). */
+          const sesion = hostSession;
+          sesion.tramitando.add(join.id);
+          admiteSolicitud(sesion, join)
+            .catch((e) => log(`Solicitud de ${join.displayName}: ${e.message}`))
+            .finally(() => sesion.tramitando.delete(join.id));
+        }
         const peer = peers.get(join.id);
         if (join.status === "answer_ready" && peer && !peer.answerApplied && join.answer) {
           await peer.pc.setRemoteDescription(parseDescription(join.answer, "answer"));
@@ -1424,6 +1617,8 @@
         }
       }
       for (const [joinId, peer] of peers) {
+        /* Un hueco reservado se suelta por su propio plazo, no por aquí. */
+        if (peer.reservado) continue;
         if (!liveIds.has(joinId) && peer.channel?.readyState !== "open") {
           try { peer.pc.close(); } catch {}
           peers.delete(joinId);
@@ -1438,14 +1633,75 @@
     }
   }
 
-  async function prepareHostOffer(join) {
+  /* Primer asiento libre: 1..3, saltando los ocupados y los reservados. */
+  function freeSlot() {
+    const usados = new Set([...hostSession.peers.values()].map((peer) => Number(peer.linkSlot) | 0));
+    for (let slot = 1; slot <= 3; slot++) if (!usados.has(slot)) return slot;
+    return 3;
+  }
+
+  async function rechaza(sesion, join, reason) {
+    sesion.decididos.add(join.id);
+    try {
+      await api(`/v1/rooms/${encodeURIComponent(sesion.room.id)}/joins/${encodeURIComponent(join.id)}/kick`, {
+        method: "POST", token: sesion.token, body: { reason }
+      });
+    } catch (e) {
+      log(`Rechazo de ${join.displayName}: ${e.message}`);
+    }
+    log(`Host: ${join.displayName} no entra (${reason}).`);
+  }
+
+  /* Quién entra lo decide el anfitrión, en este orden: quien vuelve a su
+     hueco, los bloqueados, el aforo y, si está activado, la confirmación. */
+  async function admiteSolicitud(sesion, join) {
+    /* 1. Vuelve a su hueco con el resguardo que se le dio. */
+    const reserva = join.resume ? sesion.reservas.get(join.resume) : null;
+    if (reserva && reserva.until >= Date.now()) {
+      sesion.reservas.delete(join.resume);
+      const viejo = sesion.peers.get(reserva.joinId);
+      const previo = players.get(reserva.joinId) || null;
+      try { viejo?.pc.close(); } catch {}
+      sesion.peers.delete(reserva.joinId);
+      players.delete(reserva.joinId);
+      sendAll({ type: "lobby:player-left", playerId: reserva.joinId });
+      api(`/v1/rooms/${encodeURIComponent(sesion.room.id)}/joins/${encodeURIComponent(reserva.joinId)}/kick`, {
+        method: "POST", token: sesion.token
+      }).catch(() => {});
+      log(`Host: ${join.displayName} vuelve a su hueco.`);
+      if (hostSession === sesion) await prepareHostOffer(join, reserva.slot, previo);
+      return;
+    }
+
+    /* 2. Sin identificador no se puede bloquear a nadie: no entra. Una web
+       sin actualizar es el caso normal; basta con recargar. */
+    /* Un servidor de salas anterior no manda este dato: ahí no hay bloqueos
+       que aplicar y se entra como siempre. */
+    const conEtiquetas = typeof join.device === "string";
+    if (conEtiquetas && !join.device) return rechaza(sesion, join, "outdated");
+    if (conEtiquetas && bloqueados().some((item) => item.device === join.device)) return rechaza(sesion, join, "blocked");
+
+    /* 3. Aforo. El servidor ya lo mira, salvo a quien dice que vuelve. */
+    if (1 + sesion.peers.size >= Number(sesion.room.maxPlayers || 2)) return rechaza(sesion, join, "full");
+
+    /* 4. Confirmar jugadores. */
+    if (sesion.confirm) {
+      const admite = await pregunta(`${cleanName(join.displayName).toUpperCase()} QUIERE ENTRAR EN LA SALA. ¿LO ADMITES?`, "SÍ", "NO");
+      if (hostSession !== sesion) return;
+      if (!admite) return rechaza(sesion, join, "rejected");
+      if (1 + sesion.peers.size >= Number(sesion.room.maxPlayers || 2)) return rechaza(sesion, join, "full");
+    }
+    if (hostSession === sesion) await prepareHostOffer(join);
+  }
+
+  async function prepareHostOffer(join, slot = 0, previo = null) {
     const { room, token, peers } = hostSession;
-    const index = Math.min(3, peers.size + 1);
-    const pos = spawnPoint(index);
+    const index = slot || freeSlot();
+    const pos = previo ? { x: previo.x, y: previo.y } : spawnPoint(index);
     const placeholder = {
       id: join.id,
-      name: cleanName(join.displayName),
-      avatar: { color: "blue", body: "round", face: "happy", accessory: "none" },
+      name: previo?.name || cleanName(join.displayName),
+      avatar: previo?.avatar || { color: "blue", body: "round", face: "happy", accessory: "none" },
       x: pos.x,
       y: pos.y,
       quality: "unknown",
@@ -1462,6 +1718,10 @@
       channel: null,
       answerApplied: false,
       linkSlot: index,
+      /* Etiqueta de quien entra (para bloquearlo) y su resguardo de hueco. */
+      device: String(join.device || ""),
+      reserva: aleatorio(18),
+      pausedSince: 0,
       linkReady: false,
       metrics: { pending: new Map(), rtt: null, jitter: null, lastRtt: null, missed: 0, quality: "unknown" }
     };
@@ -1513,10 +1773,44 @@
       });
       safeSend(channel, { type: "lobby:request-profile" });
       safeSend(channel, { type: "lobby:quality", playerId: "host", quality: "good", rtt: 0, jitter: 0 });
+      /* Resguardo para volver a este mismo hueco si cierra el navegador. */
+      safeSend(channel, { type: "lobby:reserva", token: peerInfo.reserva, ms: RESERVA_MS });
       renderManagePlayers();
     });
     channel.addEventListener("close", () => {
       log(`${peerInfo.join.displayName}: canal cerrado.`);
+      /* Se ha ido sin despedirse y sin que lo echen: puede ser un cierre por
+         error. Se le guarda el sitio 20 segundos. Con el cable jugando no:
+         ahí sigue valiendo el aviso de caída de siempre. */
+      const sesion = hostSession;
+      if (sesion && !peerInfo.adios && !cableEnMarcha() && sesion.peers.get(joinId) === peerInfo) {
+        peerInfo.reservado = true;
+        const ausente = players.get(joinId);
+        if (ausente) {
+          ausente.paused = true;
+          renderPlayers();
+          sendAll({ type: "lobby:pause", playerId: joinId, paused: true, time: Date.now() }, joinId);
+        }
+        sesion.reservas.set(peerInfo.reserva, { joinId, slot: peerInfo.linkSlot, until: Date.now() + RESERVA_MS });
+        setTimeout(() => {
+          if (!sesion.reservas.delete(peerInfo.reserva)) return;   /* ya volvió */
+          if (hostSession !== sesion || sesion.peers.get(joinId) !== peerInfo) return;
+          try { peerInfo.pc.close(); } catch {}
+          sesion.peers.delete(joinId);
+          players.delete(joinId);
+          sendAll({ type: "lobby:player-left", playerId: joinId });
+          api(`/v1/rooms/${encodeURIComponent(sesion.room.id)}/joins/${encodeURIComponent(joinId)}/kick`, {
+            method: "POST", token: sesion.token
+          }).catch(() => {});
+          avisaCaidaAlEmulador(`${peerInfo.join.displayName} se ha desconectado`);
+          renderPlayers();
+          renderManagePlayers();
+          if (!openChannels().length) setState("working", "Sala abierta · esperando jugadores");
+        }, RESERVA_MS + 500);
+        updateChannelButtons();
+        renderManagePlayers();
+        return;
+      }
       avisaCaidaAlEmulador(`${peerInfo.join.displayName} se ha desconectado`);
       if (players.has(joinId)) {
         players.delete(joinId);
@@ -1646,7 +1940,9 @@
       return;
     }
     box.innerHTML = rooms.map((room) => {
-      const distance = room.distanceMeters < 1000 ? `${room.distanceMeters} m` : `${(room.distanceMeters / 1000).toFixed(1)} km`;
+      /* El servidor ya no da metros: solo si la sala está muy cerca, cerca o
+         en la zona. Nadie ve dónde está otro jugador. */
+      const distance = { muy_cerca: "muy cerca", cerca: "cerca", en_tu_zona: "en tu zona" }[room.distanceBand] || "cerca";
       const full = room.players >= room.maxPlayers;
       return `<div class="room"><div class="room-head"><div><div class="room-title">${escapeHtml(room.name)}</div><div class="hint">${escapeHtml(room.game || "Juego no indicado")}</div></div><div>${room.locked ? "🔒" : ""}</div></div><div class="badges"><span class="badge">${distance}</span><span class="badge">${room.players}/${room.maxPlayers}</span><span class="badge">${escapeHtml(room.id)}</span></div><button data-room-id="${escapeHtml(room.id)}" ${full ? "disabled" : ""}>${full ? "SALA COMPLETA" : "UNIRME"}</button></div>`;
     }).join("");
@@ -1675,7 +1971,13 @@
       setState("working", "Solicitando entrada…");
       const data = await api(`/v1/rooms/${encodeURIComponent(selectedRoom.id)}/join`, {
         method: "POST",
-        body: { password: $("#joinPassword").value, displayName: profile.name }
+        body: {
+          password: $("#joinPassword").value,
+          displayName: profile.name,
+          deviceId: deviceId(),
+          ...(testerPass() ? { pass: testerPass() } : {}),
+          ...(selectedRoom.resume ? { resume: selectedRoom.resume } : {})
+        }
       });
       players = new Map();
       joinSession = {
@@ -1688,7 +1990,7 @@
         pollBusy: false
       };
       localPlayerId = data.join.id;
-      setState("working", "Esperando al host…");
+      setState("working", "Esperando a que el anfitrión te admita…");
       log(`Solicitud enviada a ${selectedRoom.name}.`);
       joinSession.pollTimer = setInterval(pollJoinState, 1000);
       joinSession.heartbeatTimer = setInterval(() => {
@@ -1716,6 +2018,16 @@
       const { room, join, token } = joinSession;
       const data = await api(`/v1/rooms/${encodeURIComponent(room.id)}/joins/${encodeURIComponent(join.id)}`, { token });
       const state = data.join;
+      /* El anfitrión no admite la entrada, o ha expulsado: se dice por qué. */
+      if (state.status === "kicked") {
+        const texto = MOTIVOS[state.reason] || MOTIVOS.kicked;
+        borraReserva();
+        joinSession.pollBusy = false;
+        await leaveRoom(false);
+        setState("idle", texto.charAt(0) + texto.slice(1).toLowerCase());
+        aviso(texto);
+        return;
+      }
       if (state.status === "offer_ready" && state.offer && !joinSession.answerSent) {
         await answerHostOffer(state.offer);
       } else if (state.status === "connected" && joinSession.channel?.readyState === "open") {
@@ -1795,6 +2107,8 @@
     const session = joinSession;
     stopJoinTimers();
     if (callApi) {
+      borraReserva();
+      safeSend(session.channel, { type: "lobby:bye", time: Date.now() });
       try {
         await api(`/v1/rooms/${encodeURIComponent(session.room.id)}/joins/${encodeURIComponent(session.join.id)}/leave`, {
           method: "POST",
@@ -1982,20 +2296,87 @@
       kick.type = "button";
       kick.textContent = "EXPULSAR";
       kick.addEventListener("click", () => kickPlayer(joinId));
-      row.append(label, kick);
+      /* Bloquear: no vuelve a entrar en las salas de este anfitrión aunque
+         cambie de nombre. Hace falta su etiqueta de dispositivo. */
+      const block = document.createElement("button");
+      block.type = "button";
+      block.className = "danger";
+      block.textContent = "BLOQUEAR";
+      block.disabled = !peer.device;
+      block.addEventListener("click", () => blockPlayer(joinId));
+      row.append(label, kick, block);
       box.append(row);
     }
   }
 
-  async function kickPlayer(joinId) {
+  async function blockPlayer(joinId) {
     if (!hostSession) return;
     const peer = hostSession.peers.get(joinId);
+    const player = players.get(joinId);
+    if (!peer?.device) return;
+    const seguro = await pregunta(`¿BLOQUEAR A ${(player?.name || "JUGADOR").toUpperCase()}? NO PODRÁ VOLVER A ENTRAR EN TUS SALAS.`, "BLOQUEAR", "NO");
+    if (!seguro || !hostSession) return;
+    const lista = bloqueados().filter((item) => item.device !== peer.device);
+    lista.push({ device: peer.device, name: player?.name || "Jugador", at: new Date().toISOString() });
+    guardaBloqueados(lista);
+    await kickPlayer(joinId, "blocked");
+  }
+
+  /* Lista de bloqueados del anfitrión: vive en su dispositivo y vale para
+     todas sus salas. Aquí se ve y se quita. */
+  function renderBlocked() {
+    const box = $("#blockedList");
+    if (!box) return;
+    box.textContent = "";
+    const lista = bloqueados();
+    if (!lista.length) {
+      const vacio = document.createElement("p");
+      vacio.className = "hint";
+      vacio.textContent = "No has bloqueado a nadie.";
+      box.append(vacio);
+      return;
+    }
+    for (const item of lista) {
+      const row = document.createElement("div");
+      row.className = "manage-player";
+      const label = document.createElement("span");
+      const fecha = item.at ? new Date(item.at).toLocaleDateString("es-ES") : "";
+      label.textContent = `${item.name || "Jugador"}${item.device.startsWith("v:") ? " · tester" : ""}${fecha ? " · " + fecha : ""}`;
+      const quitar = document.createElement("button");
+      quitar.type = "button";
+      quitar.textContent = "QUITAR";
+      quitar.addEventListener("click", () => guardaBloqueados(bloqueados().filter((otro) => otro.device !== item.device)));
+      row.append(label, quitar);
+      box.append(row);
+    }
+  }
+
+  /* Inactividad: quien lleva en pausa más de lo que el anfitrión permite sale
+     de la sala. Solo en el lobby. */
+  function revisaInactivos() {
+    const sesion = hostSession;
+    if (!sesion || !sesion.idleMinutes || cableEnMarcha()) return;
+    const limite = sesion.idleMinutes * 60000;
+    for (const [joinId, peer] of sesion.peers) {
+      if (peer.reservado || !peer.pausedSince) continue;
+      if (Date.now() - peer.pausedSince < limite) continue;
+      peer.pausedSince = 0;
+      log(`Host: ${peer.join.displayName} sale por inactividad.`);
+      kickPlayer(joinId, "inactive");
+    }
+  }
+
+  async function kickPlayer(joinId, code = "kicked") {
+    if (!hostSession) return;
+    const peer = hostSession.peers.get(joinId);
+    if (peer) peer.adios = true;
     try {
       await api(`/v1/rooms/${encodeURIComponent(hostSession.room.id)}/joins/${encodeURIComponent(joinId)}/kick`, {
         method: "POST",
-        token: hostSession.token
+        token: hostSession.token,
+        body: { reason: code }
       });
-      safeSend(peer?.channel, { type: "lobby:kicked", reason: "Expulsado por el host" });
+      safeSend(peer?.channel, { type: "lobby:kicked", code, reason: MOTIVOS[code] || "Expulsado por el host" });
       setTimeout(() => {
         try { peer?.pc.close(); } catch {}
       }, 150);
@@ -2136,6 +2517,8 @@
       });
     }
     const launchDelay = 2400;
+    cuentaAtras = true;
+    setTimeout(() => { cuentaAtras = false; }, launchDelay + 4000);
     sendAll({
       type: "session:start",
       game: hostSession.room.game || "",
@@ -2244,6 +2627,45 @@
   $("#closeRoom").addEventListener("click", closeRoom);
   $("#leaveRoom").addEventListener("click", () => leaveRoom(true));
   $("#startSession").addEventListener("click", startSessionCountdown);
+  $("#hostIdleMinutes")?.addEventListener("change", (event) => {
+    if (hostSession) hostSession.idleMinutes = Number(event.target.value) || 0;
+  });
+  $("#hostConfirmPlayers")?.addEventListener("change", (event) => {
+    if (hostSession) hostSession.confirm = Boolean(event.target.checked);
+  });
+  /* El botón de crear dice lo que va a hacer según el tipo elegido. */
+  const pintaTipo = () => {
+    const cerca = $("#roomKind")?.value === "nearby";
+    $("#createRoom").textContent = cerca ? "CREAR SALA DE PROXIMIDAD" : "CREAR SALA PRIVADA";
+    const nota = $("#roomKindNote");
+    if (nota) {
+      nota.textContent = cerca
+        ? "Aparece en «buscar cerca» para quien esté cerca. Usa tu ubicación aproximada; nadie la ve."
+        : "Solo se entra con el código o el QR. No usa tu ubicación.";
+    }
+  };
+  $("#roomKind")?.addEventListener("change", pintaTipo);
+  pintaTipo();
+  renderBlocked();
+
+  /* Si este navegador se cerró hace menos de 20 segundos estando en una sala,
+     se vuelve a ella y al mismo hueco, sin preguntar. */
+  setTimeout(() => {
+    const reserva = leeReserva();
+    if (!reserva || !reserva.token || Date.now() - Number(reserva.visto || 0) > RESERVA_MS) {
+      borraReserva();
+      return;
+    }
+    if (hostSession || joinSession) return;
+    selectedRoom = {
+      id: String(reserva.roomId || ""), name: String(reserva.roomName || "Sala"), game: String(reserva.game || ""),
+      byCode: true, locked: false, resume: String(reserva.token)
+    };
+    $("#playerName").value = reserva.name || profile.name;
+    $("#joinPassword").value = "";
+    setState("working", "Volviendo a tu sala…");
+    joinSelectedRoom();
+  }, 300);
   document.querySelectorAll("[data-open-link-emulator]").forEach((button) => {
     button.addEventListener("click", openLinkEmulator);
   });
