@@ -52,7 +52,14 @@
 
   let library = null;
   let romHash = "";
+  let romHashFull = "";
   let hashedFor = "";
+
+  /* Envío de juegos entre jugadores. Apagado salvo que se encienda desde
+     fuera: lo encenderá el interruptor de la app de gestión, a través del
+     worker. Sin respuesta, apagado. */
+  const envioRoms = () => window.ML3D_ENVIO_ROMS === true;
+  const recibidas = () => window.ML3DRecibidas;
 
   /* La biblioteca para el desplegable de juego de la sala. La da el worker a
      quien tiene acceso; sin acceso no hay juegos que ofrecer. No se guarda
@@ -76,7 +83,9 @@
     const bytes = runtime?.romBytes;
     if (!bytes?.byteLength) return "";
     const digest = await crypto.subtle.digest("SHA-256", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-    romHash = [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0"));
+    romHash = hex.slice(0, 8).join("");
+    romHashFull = hex.join("");
     hashedFor = filename;
     return romHash;
   }
@@ -85,6 +94,10 @@
     const runtime = window.ML3DLinkRuntime;
     const title = document.getElementById("game-title")?.textContent || "";
     const filename = runtime?.romFilename || "";
+    const guardadas = recibidas()?.lista() || [];
+    /* Un juego recibido cuenta como "recibida" se abra desde donde se abra:
+       manda su huella, no el sitio del que salió el archivo. */
+    const esRecibida = hashedFor === filename && recibidas()?.esRecibida(romHashFull);
     return {
       type: "context",
       game: title.trim(),
@@ -92,10 +105,12 @@
       romLoaded: Boolean(filename),
       romHash: hashedFor === filename ? romHash : "",
       system: /\.(gbc|gb)$/i.test(filename) ? filename.toLowerCase().endsWith(".gbc") ? "gbc" : "gb" : "gba",
-      library: library || [],
+      library: [...(library || []), ...guardadas.map((item) => item.nombre.replace(/[.](gba|gbc|gb)$/i, ""))],
+      envioRoms: envioRoms(),
+      recibidas: guardadas.map((item) => ({ nombre: item.nombre, size: item.size, de: item.de })),
       /* De dónde viene el juego cargado y qué juegos de sala ha dicho este
          jugador que tiene con otro nombre. */
-      romSource: runtime?.romSource || "",
+      romSource: esRecibida ? "recibida" : runtime?.romSource || "",
       aliases: readAliases()
     };
   }
@@ -116,20 +131,24 @@
   /* El lobby pide el juego cargado para enviárselo a otro jugador. Solo se
      entrega un juego que este jugador cargó desde un archivo suyo: uno de la
      biblioteca no sale de aquí. */
-  /* Apagado hasta que el envío de juegos esté completo: ni se entrega el
-     juego cargado ni se abre uno recibido. */
-  const ENVIO_ROMS = false;
-
-  function sendLocalRom() {
+  async function sendLocalRom() {
     const runtime = window.ML3DLinkRuntime;
-    const bytes = ENVIO_ROMS && runtime?.romSource === "local" ? runtime.romBytes : null;
+    const bytes = envioRoms() && runtime?.romSource === "local" ? runtime.romBytes : null;
     const filename = runtime?.romFilename || "";
     if (!bytes?.byteLength || !filename) {
       post({ type: "rom-bytes", denied: true });
       return;
     }
+    /* Un juego recibido de otro jugador no se reenvía. Si no se puede
+       comprobar, tampoco. */
+    const hash = await recibidas()?.huella(bytes).catch(() => "");
+    if (!hash || recibidas().esRecibida(hash)) {
+      post({ type: "rom-bytes", denied: true, reason: "recibida" });
+      return;
+    }
     post({
       type: "rom-bytes",
+      hash,
       bytes: bytes.buffer,
       filename: filename.split("/").pop(),
       system: /\.gbc$/i.test(filename) ? "gbc" : /\.gb$/i.test(filename) ? "gb" : "gba"
@@ -218,6 +237,14 @@
         .then((hash) => post({ type: "hash-result", id, hash: String(hash || "") }));
       return;
     }
+    if (data.type === "play-received") {
+      playReceived(String(data.name || ""));
+      return;
+    }
+    if (data.type === "delete-received") {
+      Promise.resolve(recibidas()?.borra(String(data.name || ""))).finally(sendContext);
+      return;
+    }
     if (data.type === "rom-request") {
       sendLocalRom();
       return;
@@ -232,31 +259,47 @@
     }
   }, true);
 
-  /* Juego recibido de otro jugador en el lobby: se carga como una ROM local. */
+  /* Juego recibido de otro jugador en el lobby: se guarda en este dispositivo
+     y queda apuntado como recibido. No se abre aquí: lo abre la sala al
+     iniciar la conexión, o el jugador desde "JUEGOS RECIBIDOS". */
   async function loadSharedRom(data) {
-    if (!ENVIO_ROMS) return;
-    const bytes = data.bytes instanceof Uint8Array ? data.bytes : new Uint8Array(data.bytes || 0);
-    const filename = String(data.filename || "juego.gba");
-    if (!bytes.byteLength || typeof window.gbaStartLocalRom !== "function") return;
+    if (!envioRoms()) return;
+    const bytes = new Uint8Array(data.bytes || 0);
+    if (bytes.byteLength < 1024) return;
+    try {
+      /* La huella se vuelve a mirar aquí, con lo que de verdad ha llegado. */
+      if (data.hash && await recibidas().huella(bytes) !== data.hash) throw new Error("huella distinta");
+      await recibidas().guarda({ bytes, filename: String(data.filename || "juego.gba"), de: data.de });
+      post({ type: "rom-saved", ok: true, filename: String(data.filename || "") });
+    } catch (error) {
+      console.error("ML3D Link: no se pudo guardar el juego recibido.", error);
+      post({ type: "rom-saved", ok: false });
+    }
+    sendContext();
+  }
 
-    const system = /\.gbc$/i.test(filename) ? "gbc" : /\.gb$/i.test(filename) ? "gb" : "gba";
+  async function playReceived(nombre) {
+    const juego = await recibidas()?.lee(nombre);
+    if (!juego || typeof window.gbaStartLocalRom !== "function") return;
+    const titulo = juego.filename.replace(/[.](gba|gbc|gb)$/i, "");
     close();
     try {
       await window.gbaStartLocalRom({
-        bytes,
-        filename,
-        system,
-        saveId: "compartido-" + filename.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        displayName: filename.replace(/\.(gba|gbc|gb)$/i, "")
+        bytes: juego.bytes,
+        filename: juego.filename,
+        system: /[.]gbc$/i.test(juego.filename) ? "gbc" : /[.]gb$/i.test(juego.filename) ? "gb" : "gba",
+        saveId: "recibido-" + titulo.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        displayName: titulo
       });
     } catch (error) {
-      console.error("ML3D Link: no se pudo cargar el juego compartido.", error);
+      console.error("ML3D Link: no se pudo abrir el juego recibido.", error);
     }
   }
 
   /* Cambiar de juego cambia lo que el lobby debe mostrar y comprobar. */
   window.addEventListener("ml3d-rom-started", () => {
     romHash = "";
+    romHashFull = "";
     hashedFor = "";
     if (frame) sendContext();
   });

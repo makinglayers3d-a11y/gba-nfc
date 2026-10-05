@@ -28,6 +28,11 @@
   let onTransfer = null;
   let onRequest = null;
   let onCheck = null;
+  let onOffer = null;
+  let onAccept = null;
+  /* De quién se ha aceptado un juego y cuál: sin esto apuntado no se recibe
+     ni un byte. */
+  const esperados = new Map();
 
   /* `tiene`: claves de juegos de la sala que este jugador ha dicho que tiene
      aunque en su dispositivo se llamen de otra forma.
@@ -166,9 +171,26 @@
         onRequest?.({ from, game: String(packet.game || "") });
         break;
       }
+      /* Quien lo tiene dice qué va a enviar; quien lo pidió decide. */
+      case "ml3d:game:offer": {
+        if (!paraMi) return;
+        onOffer?.({
+          from,
+          name: String(packet.name || ""),
+          size: Number(packet.size) | 0,
+          hash: String(packet.hash || "")
+        });
+        break;
+      }
+      case "ml3d:game:accept": {
+        if (!paraMi) return;
+        onAccept?.({ from });
+        break;
+      }
       case "ml3d:game:denied": {
         if (!paraMi) return;
         incoming.delete(from);
+        esperados.delete(from);
         onTransfer?.({ state: "denied", from, reason: String(packet.reason || "") });
         break;
       }
@@ -176,6 +198,10 @@
         if (!paraMi) return;
         const size = Number(packet.size) | 0;
         if (size <= 0 || size > MAX_ROM_BYTES) return;
+        /* Solo llega lo que este jugador aceptó, de quien lo aceptó y con el
+           tamaño anunciado. */
+        const esperado = esperados.get(from);
+        if (!esperado || esperado.size !== size) return;
         incoming.set(from, {
           name: String(packet.name || "juego.gba").replace(/[\\/]/g, "_").slice(0, 120),
           system: String(packet.system || "gba"),
@@ -202,8 +228,10 @@
       case "ml3d:game:done": {
         if (!paraMi) return;
         const entry = incoming.get(from);
+        const esperado = esperados.get(from);
         incoming.delete(from);
-        if (!entry) return;
+        esperados.delete(from);
+        if (!entry || !esperado) return;
         const bytes = new Uint8Array(entry.received);
         let offset = 0;
         for (const part of entry.parts) {
@@ -216,7 +244,7 @@
           onTransfer?.({ state: "denied", from, reason: "El juego ha llegado incompleto." });
           return;
         }
-        onTransfer?.({ state: "done", from, name: entry.name, system: entry.system, bytes, progress: 1 });
+        onTransfer?.({ state: "done", from, name: entry.name, system: entry.system, bytes, hash: esperado.hash, progress: 1 });
         break;
       }
       default:
@@ -287,6 +315,17 @@
     onTransfer(handler) { onTransfer = handler; },
     onRequest(handler) { onRequest = handler; },
     onCheck(handler) { onCheck = handler; },
+    onOffer(handler) { onOffer = handler; },
+    onAccept(handler) { onAccept = handler; },
+    /** Quien tiene el juego anuncia qué enviará: nombre, tamaño y huella. */
+    offer(name, info) {
+      return send({ type: "ml3d:game:offer", to: clean(name), name: info.name, size: info.size, hash: info.hash }) > 0;
+    },
+    /** Quien lo pidió acepta esa oferta concreta: a partir de aquí se recibe. */
+    accept(name, info) {
+      esperados.set(clean(name), { size: Number(info.size) | 0, hash: String(info.hash || "") });
+      return send({ type: "ml3d:game:accept", to: clean(name) }) > 0;
+    },
     /** El anfitrión avisa de que quiere empezar con este juego. */
     check(game) {
       return send({ type: "ml3d:game:check", game: String(game || "") }) > 0;

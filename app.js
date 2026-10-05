@@ -520,7 +520,14 @@ window.ML3DLinkRuntime = {
     } else {
       const filename = await findLibraryRom(wanted);
       const romUrl = filename ? urlDeContenido("games/" + filename) : null;
-      if (!romUrl) return "";
+      if (!romUrl) {
+        /* No está en la biblioteca: puede ser un juego recibido de otro
+           jugador, guardado en este dispositivo. */
+        const recibido = await window.ML3DRecibidas?.lee(wanted);
+        if (!recibido) return "";
+        const resumen = await crypto.subtle.digest("SHA-256", recibido.bytes);
+        return [...new Uint8Array(resumen).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
       /* force-cache: es la misma petición que hará prepareForLink al empezar,
          así que el juego no se descarga dos veces. */
       const response = await fetch(romUrl, { cache: "force-cache" });
@@ -550,6 +557,19 @@ window.ML3DLinkRuntime = {
       (propio && await findLibraryRom(normalizeGameName(propio))) ||
       await findLibraryRom(wanted);
     if (!filename) {
+      const recibido =
+        (propio && await window.ML3DRecibidas?.lee(propio)) ||
+        await window.ML3DRecibidas?.lee(wanted);
+      if (recibido) {
+        const nombre = recibido.filename.replace(/\.(gba|gbc|gb)$/i, "");
+        return startRomFromBytes(recibido.bytes, recibido.filename, {
+          system: systemFromFilename(recibido.filename),
+          saveId: "recibido-" + normalizeGameName(nombre).replace(/ /g, "-"),
+          displayName: nombre,
+          source: "local",
+          skipSaveRestore: true
+        });
+      }
       console.warn("ML3D Link: la sala pide un juego que no está en esta biblioteca:", game);
       return this.restartForLink();
     }
