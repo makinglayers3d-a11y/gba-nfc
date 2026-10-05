@@ -92,6 +92,16 @@ struct Instance {
 	struct LinkUser user;
 	bool linked;
 
+	/* ESTUDIO: cable por red, una consola por dispositivo. Ver "net link". */
+	struct GBASIODriver netDriver;
+	bool netLinked;
+	int netSeat;
+	int netPeers;
+	bool netWaiting;
+	uint16_t netSent;
+	uint32_t netStarted;
+	uint32_t netCompleted;
+
 	/* The core's own framebuffer: mColor, which without COLOR_16_BIT is a
 	 * uint32 laid out by M_RGB5_TO_BGR8 — bytes R, G, B, 0 in memory. */
 	mColor* videoBuffer;
@@ -305,6 +315,12 @@ static void _detachLink(struct Instance* inst) {
 static void _closeInstance(struct Instance* inst) {
 	if (inst->core) {
 		_detachLink(inst);
+		if (inst->netLinked) {
+			struct GBA* gbaNet = inst->core->board;
+			GBASIOSetDriver(&gbaNet->sio, NULL);
+			inst->netLinked = false;
+			inst->netWaiting = false;
+		}
 	}
 	if (inst->core) {
 		inst->core->unloadROM(inst->core);
@@ -852,6 +868,189 @@ EXPORT int32_t mgbawasm_link_run(int id, int32_t targetCycles) {
 		inst->core->runLoop(inst->core);
 	}
 	return mTimingCurrentTime(&gba->timing) - start;
+}
+
+/* ------------------------------------------------------------- net link ---
+ *
+ * ESTUDIO, no es codigo de produccion.
+ *
+ * El cable de siempre exige todas las consolas en este mismo modulo. Aqui se
+ * prueba lo contrario: este dispositivo emula SOLO su consola y las palabras
+ * del cable van y vienen por la red, que es lo que haria falta para no tener
+ * que compartir la partida ni el juego con el otro jugador.
+ *
+ * Solo modo multijugador (el que usan Mario Kart y los intercambios de
+ * Pokemon), dos consolas. El asiento 0 es quien inicia las transferencias:
+ *
+ *   - Maestro: al iniciar una transferencia se para (netWaiting) hasta que el
+ *     host de la pagina trae la palabra del otro y llama a net_complete().
+ *     Para el juego no pasa el tiempo mientras espera: no puede ver un fallo
+ *     de cable, solo ir mas despacio.
+ *   - Esclavo: no se para. Cuando llega la palabra del maestro, el host lee
+ *     la suya (net_send_word), se la devuelve y cierra la transferencia aqui.
+ */
+static struct Instance* _netInstance(struct GBASIODriver* driver) {
+	int i;
+	for (i = 0; i < MGBAWASM_MAX_INSTANCES; ++i) {
+		if (&instances[i].netDriver == driver) {
+			return &instances[i];
+		}
+	}
+	return NULL;
+}
+
+static bool _netInit(struct GBASIODriver* driver) {
+	UNUSED(driver);
+	return true;
+}
+
+static void _netDeinit(struct GBASIODriver* driver) {
+	UNUSED(driver);
+}
+
+static void _netReset(struct GBASIODriver* driver) {
+	struct Instance* inst = _netInstance(driver);
+	if (inst) {
+		inst->netWaiting = false;
+	}
+}
+
+static bool _netHandlesMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
+	UNUSED(driver);
+	return mode == GBA_SIO_MULTI;
+}
+
+static int _netConnected(struct GBASIODriver* driver) {
+	struct Instance* inst = _netInstance(driver);
+	return inst ? inst->netPeers : 0;
+}
+
+static int _netDeviceId(struct GBASIODriver* driver) {
+	struct Instance* inst = _netInstance(driver);
+	return inst ? inst->netSeat : 0;
+}
+
+static uint16_t _netWriteSIOCNT(struct GBASIODriver* driver, uint16_t value) {
+	struct Instance* inst = _netInstance(driver);
+	/* SD alto: todas las consolas estan listas. Sin el, el juego ni lo intenta. */
+	if (inst && inst->netPeers > 0) {
+		value = GBASIOMultiplayerFillReady(value);
+	}
+	return value;
+}
+
+static bool _netStart(struct GBASIODriver* driver) {
+	struct Instance* inst = _netInstance(driver);
+	if (!inst || inst->netSeat != 0 || inst->netPeers < 1) {
+		return true;   /* sin nadie al otro lado: que la cierre el nucleo sola */
+	}
+	struct GBA* gba = inst->core->board;
+	inst->netSent = gba->memory.io[GBA_REG(SIOMLT_SEND)];
+	inst->netWaiting = true;
+	++inst->netStarted;
+	/* Saca al nucleo del bucle ya: no debe avanzar hasta tener la respuesta. */
+	GBAInterrupt(gba);
+	return false;      /* la transferencia la cierra net_complete() */
+}
+
+EXPORT int mgbawasm_net_attach(int id, int seat, int peers) {
+	struct Instance* inst = _instance(id);
+	if (!inst || inst->linked || inst->netLinked) {
+		return 0;
+	}
+	memset(&inst->netDriver, 0, sizeof(inst->netDriver));
+	inst->netDriver.init = _netInit;
+	inst->netDriver.deinit = _netDeinit;
+	inst->netDriver.reset = _netReset;
+	inst->netDriver.handlesMode = _netHandlesMode;
+	inst->netDriver.connectedDevices = _netConnected;
+	inst->netDriver.deviceId = _netDeviceId;
+	inst->netDriver.writeSIOCNT = _netWriteSIOCNT;
+	inst->netDriver.start = _netStart;
+	inst->netSeat = seat;
+	inst->netPeers = peers;
+	inst->netWaiting = false;
+	inst->netStarted = 0;
+	inst->netCompleted = 0;
+	struct GBA* gba = inst->core->board;
+	GBASIOSetDriver(&gba->sio, &inst->netDriver);
+	inst->netLinked = true;
+	return 1;
+}
+
+EXPORT void mgbawasm_net_detach(int id) {
+	struct Instance* inst = _instance(id);
+	if (!inst || !inst->netLinked) {
+		return;
+	}
+	struct GBA* gba = inst->core->board;
+	GBASIOSetDriver(&gba->sio, NULL);
+	inst->netLinked = false;
+	inst->netWaiting = false;
+}
+
+/** Avanza la consola hasta agotar ciclos o hasta que espere al otro lado. */
+EXPORT int32_t mgbawasm_net_run(int id, int32_t targetCycles) {
+	struct Instance* inst = _instance(id);
+	if (!inst || targetCycles <= 0) {
+		return 0;
+	}
+	struct GBA* gba = inst->core->board;
+	int32_t start = mTimingCurrentTime(&gba->timing);
+	while (!inst->netWaiting) {
+		if (mTimingCurrentTime(&gba->timing) - start >= targetCycles) {
+			break;
+		}
+		inst->core->runLoop(inst->core);
+	}
+	return mTimingCurrentTime(&gba->timing) - start;
+}
+
+/** 1 si el maestro tiene una transferencia abierta esperando respuesta. */
+EXPORT int mgbawasm_net_waiting(int id) {
+	struct Instance* inst = _instance(id);
+	return (inst && inst->netWaiting) ? 1 : 0;
+}
+
+/** Palabra que esta consola pondria ahora mismo en el cable. */
+EXPORT int mgbawasm_net_send_word(int id) {
+	struct Instance* inst = _instance(id);
+	if (!inst) {
+		return 0xFFFF;
+	}
+	struct GBA* gba = inst->core->board;
+	return inst->netWaiting ? inst->netSent : gba->memory.io[GBA_REG(SIOMLT_SEND)];
+}
+
+/** Cierra la transferencia con las palabras de las cuatro consolas. */
+EXPORT int mgbawasm_net_complete(int id, int w0, int w1, int w2, int w3) {
+	struct Instance* inst = _instance(id);
+	if (!inst || !inst->netLinked) {
+		return 0;
+	}
+	struct GBA* gba = inst->core->board;
+	if (gba->sio.mode != GBA_SIO_MULTI) {
+		inst->netWaiting = false;
+		return 0;
+	}
+	uint16_t data[4] = { (uint16_t) w0, (uint16_t) w1, (uint16_t) w2, (uint16_t) w3 };
+	GBASIOMultiplayerFinishTransfer(&gba->sio, data, 0);
+	inst->netWaiting = false;
+	++inst->netCompleted;
+	return 1;
+}
+
+/** out[0] = transferencias iniciadas, out[1] = cerradas, out[2] = SIOCNT, out[3] = modo. */
+EXPORT void mgbawasm_net_stats(int id, int32_t* out) {
+	struct Instance* inst = _instance(id);
+	if (!inst || !out) {
+		return;
+	}
+	struct GBA* gba = inst->core->board;
+	out[0] = (int32_t) inst->netStarted;
+	out[1] = (int32_t) inst->netCompleted;
+	out[2] = gba->sio.siocnt;
+	out[3] = (int32_t) gba->sio.mode;
 }
 
 /* ------------------------------------------------- diagnostico del cable -- */
