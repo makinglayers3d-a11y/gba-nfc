@@ -518,11 +518,17 @@
 
   /* ---------- quien no tiene el juego de la sala ---------- */
 
+/* Envío de juegos entre jugadores: apagado hasta que esté completo. Con
+     esto en false no se ofrece pedir un juego, no se atiende ninguna petición
+     y no se acepta ninguno que llegue. */
+  const ENVIO_ROMS = false;
+
   let avisadoDe = "";
 
   /* Jugadores que tienen cargado el juego de la sala desde un archivo suyo:
      son los únicos que pueden enviarlo. */
   function quienPuedeEnviar(wanted) {
+    if (!ENVIO_ROMS) return [];
     return (games()?.peers() || []).filter((peer) => peer.origen === "local" && gameKey(peer.game) === wanted);
   }
 
@@ -574,7 +580,7 @@
     let texto = `LA SALA JUEGA A «${nombre.toUpperCase()}» Y NO LO ENCUENTRO CON ESE NOMBRE EN TU DISPOSITIVO.`;
     if (mios.length) texto += " SI LO TIENES CON OTRO NOMBRE, ELÍGELO.";
     if (origen) texto += ` SI NO LO TIENES, ${origen.name.toUpperCase()} PUEDE ENVIÁRTELO.`;
-    else if (!mios.length) texto += " ES UN JUEGO DE LA BIBLIOTECA Y NO SE PUEDE ENVIAR.";
+    else if (!mios.length) texto += " CÁRGALO EN TU EMULADOR PARA JUGAR.";
 
     dialogo({ texto, opciones: mios, botones });
   }
@@ -599,9 +605,9 @@
      un archivo propio; la página del emulador lo vuelve a comprobar antes de
      dar los bytes. */
   function atiendePeticion({ from, game }) {
-    const mio = context.romLoaded && context.source === "local" && gameKey(context.game) === gameKey(game);
+    const mio = ENVIO_ROMS && context.romLoaded && context.source === "local" && gameKey(context.game) === gameKey(game);
     if (!mio) {
-      games()?.deny(from, "ESE JUEGO ES DE LA BIBLIOTECA Y NO SE PUEDE ENVIAR.");
+      games()?.deny(from, "ESE JUEGO NO SE PUEDE ENVIAR.");
       return;
     }
     dialogo({
@@ -631,6 +637,7 @@
   }
 
   function sigueEnvio(paso) {
+    if (!ENVIO_ROMS) return;
     const tanto = Math.round((paso.progress || 0) * 100);
     if (paso.state === "start") toast(`RECIBIENDO «${String(paso.name).toUpperCase()}»…`, 4000);
     else if (paso.state === "progress") toast(`RECIBIENDO ${tanto}%`, 4000);

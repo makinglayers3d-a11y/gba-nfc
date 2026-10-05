@@ -116,9 +116,13 @@
   /* El lobby pide el juego cargado para enviárselo a otro jugador. Solo se
      entrega un juego que este jugador cargó desde un archivo suyo: uno de la
      biblioteca no sale de aquí. */
+  /* Apagado hasta que el envío de juegos esté completo: ni se entrega el
+     juego cargado ni se abre uno recibido. */
+  const ENVIO_ROMS = false;
+
   function sendLocalRom() {
     const runtime = window.ML3DLinkRuntime;
-    const bytes = runtime?.romSource === "local" ? runtime.romBytes : null;
+    const bytes = ENVIO_ROMS && runtime?.romSource === "local" ? runtime.romBytes : null;
     const filename = runtime?.romFilename || "";
     if (!bytes?.byteLength || !filename) {
       post({ type: "rom-bytes", denied: true });
@@ -223,6 +227,7 @@
 
   /* Juego recibido de otro jugador en el lobby: se carga como una ROM local. */
   async function loadSharedRom(data) {
+    if (!ENVIO_ROMS) return;
     const bytes = data.bytes instanceof Uint8Array ? data.bytes : new Uint8Array(data.bytes || 0);
     const filename = String(data.filename || "juego.gba");
     if (!bytes.byteLength || typeof window.gbaStartLocalRom !== "function") return;
