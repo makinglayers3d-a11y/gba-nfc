@@ -667,3 +667,17 @@ body.ml3d-embed .embed-share-button {
   width: auto;
   flex: 0 0 auto;
 }
+
+/* Sala local: un bloque por consola, con su juego y su partida. */
+.embed-local-consola {
+  display: grid;
+  gap: 0.35em;
+  margin-top: 0.6em;
+  padding: 0.5em;
+  border: 1px solid rgba(120, 195, 240, 0.3);
+  border-radius: 0.5em;
+}
+
+.embed-local-consola label {
+  font-weight: 800;
+}

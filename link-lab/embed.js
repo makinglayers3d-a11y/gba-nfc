@@ -34,7 +34,7 @@
 
   let cursorIndex = 0;
   let activePanel = null;
-  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {}, envioRoms: false, recibidas: [], acceso: false };
+  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {}, envioRoms: false, recibidas: [], acceso: false, libraryGba: [], salaLocal: false };
 
   const games = () => window.ML3DRoomGames;
   const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
@@ -619,6 +619,168 @@
     refreshHelp();
   }
 
+  /* ---------- sala local ---------- */
+
+  /* Dos consolas en este dispositivo, unidas por el cable. No hay sala en el
+     servidor ni otro jugador: aquí solo se eligen los dos juegos y la partida
+     de cada uno. Lo demás lo hace la página del emulador. */
+  const archivosLocales = [null, null];   /* { name, bytes } elegidos a mano */
+
+  function opcionesLocales() {
+    const lista = [];
+    if (context.romLoaded && /\.gba$/i.test(context.romFilename || "")) {
+      lista.push({ kind: "loaded", name: context.game || context.romFilename, texto: "ABIERTO AHORA · " + (context.game || context.romFilename).replace(/\.gba$/i, "") });
+    }
+    for (const name of context.libraryGba || []) lista.push({ kind: "library", name, texto: name });
+    for (const juego of context.recibidas || []) {
+      if (/\.gba$/i.test(juego.nombre)) lista.push({ kind: "received", name: juego.nombre, texto: "RECIBIDO · " + juego.nombre.replace(/\.gba$/i, "") });
+    }
+    return lista;
+  }
+
+  function montaLocal() {
+    const card = byId("createCard");
+    const tipo = byId("roomKind");
+    if (!card || !tipo || byId("embedLocal")) return;
+    const opcion = tipo.querySelector('option[value="local"]');
+    if (opcion) { opcion.hidden = false; opcion.disabled = false; }
+
+    const caja = document.createElement("div");
+    caja.id = "embedLocal";
+    caja.hidden = true;
+    for (const n of [0, 1]) {
+      const bloque = document.createElement("div");
+      bloque.className = "embed-local-consola";
+      const titulo = document.createElement("label");
+      titulo.textContent = "CONSOLA " + (n + 1);
+      titulo.htmlFor = "embedLocalJuego" + n;
+      const juego = document.createElement("select");
+      juego.id = "embedLocalJuego" + n;
+      const partida = document.createElement("select");
+      partida.id = "embedLocalPartida" + n;
+      partida.setAttribute("aria-label", "Partida de la consola " + (n + 1));
+      for (const [valor, texto] of [["1", "PARTIDA 1 · la de siempre"], ["2", "PARTIDA 2 · aparte"]]) {
+        const o = document.createElement("option");
+        o.value = valor;
+        o.textContent = texto;
+        partida.append(o);
+      }
+      const archivo = document.createElement("button");
+      archivo.type = "button";
+      archivo.textContent = "ELEGIR ARCHIVO .GBA";
+      const entrada = document.createElement("input");
+      entrada.type = "file";
+      entrada.accept = ".gba";
+      entrada.hidden = true;
+      archivo.addEventListener("click", () => entrada.click());
+      entrada.addEventListener("change", async () => {
+        const file = entrada.files && entrada.files[0];
+        entrada.value = "";
+        if (!file) return;
+        if (!/\.gba$/i.test(file.name)) { toast("TIENE QUE SER UN JUEGO DE GBA (.GBA)", 4000); return; }
+        archivosLocales[n] = { name: file.name, bytes: await file.arrayBuffer() };
+        pintaLocal();
+        juego.value = "file";
+      });
+      bloque.append(titulo, juego, partida, archivo, entrada);
+      caja.append(bloque);
+    }
+    const nota = document.createElement("p");
+    nota.className = "hint";
+    nota.textContent = "Las dos consolas corren en este dispositivo, unidas por el cable. Sin internet ni ubicación; nadie más la ve. Antes de empezar se guarda una copia de las dos partidas. Para cambiar de consola: tecla Tab o el botón CAMBIAR PANTALLA.";
+    const iniciar = document.createElement("button");
+    iniciar.type = "button";
+    iniciar.id = "embedLocalStart";
+    iniciar.className = "primary top-gap";
+    iniciar.textContent = "INICIAR SALA LOCAL";
+    iniciar.addEventListener("click", iniciaLocal);
+    const salir = document.createElement("button");
+    salir.type = "button";
+    salir.id = "embedLocalStop";
+    salir.className = "danger top-gap";
+    salir.textContent = "CERRAR LA SALA LOCAL";
+    salir.addEventListener("click", () => post({ type: "local-stop" }));
+    caja.append(nota, iniciar, salir);
+    card.append(caja);
+
+    tipo.addEventListener("change", pintaLocal);
+    pintaLocal();
+  }
+
+  /* Con LOCAL elegido se enseñan los dos juegos y se esconde lo que es de una
+     sala con otros jugadores (nombre, contraseña, aforo, confirmar). */
+  function pintaLocal() {
+    const caja = byId("embedLocal");
+    const card = byId("createCard");
+    if (!caja || !card) return;
+    const local = byId("roomKind")?.value === "local";
+    caja.hidden = !local;
+    for (const nodo of card.children) {
+      if (nodo === caja || nodo.tagName === "H2" || nodo.id === "roomKind" || nodo.htmlFor === "roomKind") continue;
+      nodo.hidden = local;
+    }
+    if (!local) return;
+
+    const opciones = opcionesLocales();
+    for (const n of [0, 1]) {
+      const select = byId("embedLocalJuego" + n);
+      const propias = archivosLocales[n] ? [{ kind: "file", name: archivosLocales[n].name, texto: "ARCHIVO · " + archivosLocales[n].name.replace(/\.gba$/i, "") }] : [];
+      const todas = [...propias, ...opciones];
+      const firma = todas.map((o) => o.kind + ":" + o.name).join("|");
+      if (select.dataset.firma !== firma) {
+        const antes = select.value;
+        select.dataset.firma = firma;
+        select.textContent = "";
+        if (!todas.length) {
+          const vacio = document.createElement("option");
+          vacio.value = "";
+          vacio.textContent = "ELIGE UN ARCHIVO .GBA";
+          select.append(vacio);
+        }
+        todas.forEach((o, indice) => {
+          const opt = document.createElement("option");
+          opt.value = o.kind === "file" ? "file" : o.kind + ":" + o.name;
+          opt.textContent = o.texto;
+          select.append(opt);
+          /* De entrada, cada consola con un juego distinto. */
+          if (!antes && indice === Math.min(n, todas.length - 1)) select.value = opt.value;
+        });
+        if (antes && [...select.options].some((opt) => opt.value === antes)) select.value = antes;
+      }
+    }
+    byId("embedLocalStart").hidden = context.salaLocal;
+    byId("embedLocalStop").hidden = !context.salaLocal;
+  }
+
+  function iniciaLocal() {
+    const consolas = [];
+    const transferir = [];
+    for (const n of [0, 1]) {
+      const valor = byId("embedLocalJuego" + n).value;
+      const slot = Number(byId("embedLocalPartida" + n).value) === 2 ? 2 : 1;
+      if (!valor) { toast("ELIGE EL JUEGO DE LA CONSOLA " + (n + 1), 4000); return; }
+      if (valor === "file") {
+        const elegido = archivosLocales[n];
+        if (!elegido) { toast("ELIGE EL ARCHIVO DE LA CONSOLA " + (n + 1), 4000); return; }
+        /* Copia: el mismo archivo puede ir a las dos consolas. */
+        const copia = elegido.bytes.slice(0);
+        consolas.push({ kind: "file", name: elegido.name, slot, bytes: copia });
+        transferir.push(copia);
+      } else {
+        const corte = valor.indexOf(":");
+        consolas.push({ kind: valor.slice(0, corte), name: valor.slice(corte + 1), slot });
+      }
+    }
+    /* El mismo juego en las dos consolas con la misma partida se pisaría. */
+    const igual = (a, b) => a.kind === b.kind && gameKey(a.name) === gameKey(b.name) && a.slot === b.slot;
+    if (igual(consolas[0], consolas[1])) {
+      toast("ES EL MISMO JUEGO CON LA MISMA PARTIDA: PON «PARTIDA 2» EN UNA CONSOLA", 6000);
+      return;
+    }
+    toast("PREPARANDO LAS DOS CONSOLAS…", 20000);
+    post({ type: "local-start", consolas }, transferir);
+  }
+
   /* ---------- preguntas de la sala ---------- */
 
   /* rooms.js pregunta por aquí (admitir a un jugador, bloquear). Si llegan
@@ -1085,6 +1247,8 @@
       aliases: data.aliases && typeof data.aliases === "object" ? data.aliases : context.aliases,
       envioRoms: data.envioRoms === true,
       acceso: data.acceso === true,
+      libraryGba: Array.isArray(data.libraryGba) ? data.libraryGba.map(String) : [],
+      salaLocal: data.salaLocal === true,
       recibidas: Array.isArray(data.recibidas) ? data.recibidas : []
     };
     const firma = context.recibidas.map((juego) => juego.nombre).join("|");
@@ -1111,6 +1275,7 @@
     refreshGameCorner();
     revisaMiJuego(false);
     actualizaMiSala();
+    pintaLocal();
   }
 
   window.addEventListener("message", (event) => {
@@ -1123,6 +1288,7 @@
     else if (data.type === "rom-bytes") entregaRom(data);
     else if (data.type === "hash-result") llegaHuella(data);
     else if (data.type === "game-access-result") respuestaPeticion(data.result);
+    else if (data.type === "local-status") toast(String(data.texto || ""), data.error ? 6000 : 20000);
     else if (data.type === "rom-saved") {
       toast(data.ok ? "JUEGO GUARDADO EN ESTE DISPOSITIVO" : "NO SE PUDO GUARDAR EL JUEGO", 4200);
     }
@@ -1196,6 +1362,7 @@
     });
 
     setupSelectMenu();
+    montaLocal();
     refreshView();
     resetCursor();
     post({ type: "ready" });

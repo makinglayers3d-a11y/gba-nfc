@@ -1556,6 +1556,8 @@
   async function createRoom() {
     try {
       /* Una sala privada no usa ubicación: ni se pide. */
+      /* La sala local no es una sala en red: no se crea nada en el servidor. */
+      if ($("#roomKind")?.value === "local") return;
       const kind = $("#roomKind")?.value === "nearby" ? "nearby" : "private";
       let loc = null;
       if (kind === "nearby") {
@@ -2772,10 +2774,13 @@
   /* El botón de crear dice lo que va a hacer según el tipo elegido. */
   const pintaTipo = () => {
     const cerca = $("#roomKind")?.value === "nearby";
+    const local = $("#roomKind")?.value === "local";
     $("#createRoom").textContent = cerca ? "CREAR SALA DE PROXIMIDAD" : "CREAR SALA PRIVADA";
     const nota = $("#roomKindNote");
     if (nota) {
-      nota.textContent = cerca
+      nota.textContent = local
+        ? "Dos consolas en este dispositivo, unidas por el cable. No es una sala en red."
+        : cerca
         ? "Aparece en «buscar cerca» para quien esté cerca. Usa tu ubicación aproximada; nadie la ve."
         : "Solo se entra con el código o el QR. No usa tu ubicación.";
     }

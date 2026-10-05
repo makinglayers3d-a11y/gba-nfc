@@ -51,6 +51,7 @@
   }
 
   let library = null;
+  let libraryGba = [];
   let romHash = "";
   let romHashFull = "";
   let hashedFor = "";
@@ -71,6 +72,10 @@
     library = contenido.estado.juegos
       .filter((name) => /[.](gba|gbc|gb)$/i.test(name))
       .map((name) => name.replace(/[.](gba|gbc|gb)$/i, ""));
+    /* La sala local solo admite juegos de GBA: es el cable que hay. */
+    libraryGba = contenido.estado.juegos
+      .filter((name) => /[.]gba$/i.test(name))
+      .map((name) => name.replace(/[.]gba$/i, ""));
     return library;
   }
 
@@ -107,6 +112,9 @@
       system: /\.(gbc|gb)$/i.test(filename) ? filename.toLowerCase().endsWith(".gbc") ? "gbc" : "gb" : "gba",
       library: [...(library || []), ...guardadas.map((item) => item.nombre.replace(/[.](gba|gbc|gb)$/i, ""))],
       envioRoms: envioRoms(),
+      /* Para la sala local: juegos de GBA de la biblioteca y si hay una en marcha. */
+      libraryGba,
+      salaLocal: Boolean(window.ML3DSalaLocal?.activa),
       /* Tester con biblioteca: puede pedir un juego que su acceso no incluye. */
       acceso: Boolean(window.ML3DContenido?.hayAcceso),
       recibidas: guardadas.map((item) => ({ nombre: item.nombre, size: item.size, de: item.de })),
@@ -184,7 +192,7 @@
     isOpen = true;
     host.hidden = false;
     document.body.classList.add("ml3d-lobby-open");
-    if (!linkRunning()) window.ML3DLinkRuntime?.stopTimers?.();
+    if (!linkRunning() && !window.ML3DSalaLocal?.activa) window.ML3DLinkRuntime?.stopTimers?.();
     sendContext();
     /* El interruptor del envío de juegos se vuelve a leer cada vez que se
        abre el lobby: apagarlo en la app tiene que notarse sin recargar. */
@@ -199,13 +207,14 @@
     isOpen = false;
     host.hidden = true;
     document.body.classList.remove("ml3d-lobby-open");
-    if (!linkRunning()) window.ML3DLinkRuntime?.startTimers?.();
+    if (!linkRunning() && !window.ML3DSalaLocal?.activa) window.ML3DLinkRuntime?.startTimers?.();
   }
 
   /* El jugador sale del lobby. Sin juego abierto no hay partida a la que
      volver: se vuelve a la biblioteca, que es de donde se entró. */
   function closeByUser() {
     close();
+    if (window.ML3DSalaLocal?.activa) return;
     if (!window.ML3DLinkRuntime?.romFilename && !linkRunning()) {
       document.getElementById("select-game-button")?.click();
     }
@@ -257,6 +266,14 @@
         .then((resultado) => post({ type: "game-access-result", result: resultado || { ok: false, reason: "error" } }));
       return;
     }
+    if (data.type === "local-start") {
+      startLocalRoom(Array.isArray(data.consolas) ? data.consolas : []);
+      return;
+    }
+    if (data.type === "local-stop") {
+      Promise.resolve(window.ML3DSalaLocal?.stop()).finally(sendContext);
+      return;
+    }
     if (data.type === "play-received") {
       playReceived(String(data.name || ""));
       return;
@@ -303,6 +320,61 @@
       post({ type: "rom-saved", ok: false });
     }
     sendContext();
+  }
+
+  /* Sala local: el lobby dice qué dos juegos, y aquí se consiguen los bytes.
+     Cada uno sale de donde este jugador ya lo tiene: su biblioteca, un juego
+     recibido, el que tiene abierto o un archivo que acaba de elegir. */
+  async function bytesDeConsola(pedido) {
+    const nombre = String(pedido.name || "");
+    const limpio = nombre.replace(/[.](gba|gbc|gb)$/i, "");
+    const clave = (valor) => String(valor || "").replace(/[.](gba|gbc|gb)$/i, "").toLowerCase();
+
+    if (pedido.kind === "file") {
+      const bytes = new Uint8Array(pedido.bytes || 0);
+      return { bytes, filename: nombre, displayName: limpio, saveId: "local-" + clave(nombre).replace(/[^a-z0-9]+/g, "-") };
+    }
+    if (pedido.kind === "loaded") {
+      const runtime = window.ML3DLinkRuntime;
+      const bytes = runtime?.romBytes;
+      const filename = String(runtime?.romFilename || "").split("/").pop();
+      if (!bytes?.byteLength) throw new Error("No hay ningún juego abierto.");
+      return {
+        bytes, filename,
+        displayName: (document.getElementById("game-title")?.textContent || filename).trim().replace(/[.](gba|gbc|gb)$/i, ""),
+        saveId: window.ML3DMgbaCompat?.getNamespace?.().replace(/^ml3d-compat-/, "") || filename.replace(/[.](gba|gbc|gb)$/i, "")
+      };
+    }
+    if (pedido.kind === "received") {
+      const juego = await recibidas()?.lee(nombre);
+      if (!juego) throw new Error("No encuentro el juego recibido " + limpio + ".");
+      return { bytes: juego.bytes, filename: juego.filename, displayName: juego.filename.replace(/[.](gba|gbc|gb)$/i, ""), saveId: "recibido-" + clave(juego.filename).replace(/[^a-z0-9]+/g, "-") };
+    }
+    /* biblioteca */
+    const contenido = window.ML3DContenido;
+    const filename = (contenido?.estado?.juegos || []).find((item) => clave(item) === clave(nombre) && /[.]gba$/i.test(item));
+    const url = filename ? contenido.urlJuego(filename) : null;
+    if (!url) throw new Error(limpio + " no está en tu biblioteca.");
+    const respuesta = await fetch(url, { cache: "force-cache" });
+    if (!respuesta.ok) throw new Error("No se pudo descargar " + limpio + ".");
+    return { bytes: new Uint8Array(await respuesta.arrayBuffer()), filename, displayName: filename.replace(/[.]gba$/i, ""), saveId: filename.replace(/[.]gba$/i, "") };
+  }
+
+  async function startLocalRoom(pedidos) {
+    try {
+      if (pedidos.length !== 2) throw new Error("Elige los dos juegos.");
+      if (!window.ML3DSalaLocal) throw new Error("La sala local no está disponible.");
+      post({ type: "local-status", texto: "PREPARANDO LAS DOS CONSOLAS…" });
+      const lista = [];
+      for (const pedido of pedidos) lista.push({ ...(await bytesDeConsola(pedido)), slot: pedido.slot === 2 ? 2 : 1 });
+      close();
+      await window.ML3DSalaLocal.start(lista);
+      sendContext();
+    } catch (error) {
+      console.error("ML3D sala local:", error);
+      if (!isOpen) open();
+      post({ type: "local-status", texto: String(error?.message || "No se pudo abrir la sala local.").toUpperCase(), error: true });
+    }
   }
 
   async function playReceived(nombre) {

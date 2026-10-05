@@ -209,6 +209,8 @@
     isActive: () => active,
     getSystem: () => activeSystem,
     getNamespace: () => activeNamespace,
+    /* La carpeta en la que el núcleo normal guarda la partida de un juego. */
+    namespaceFor,
     getDisplayName: () => activeDisplayName,
     getSpeed: () => activeSpeed,
     getInstance: () => instance
