@@ -510,6 +510,23 @@ window.ML3DLinkRuntime = {
   },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
+  /* El juego de OTRO jugador, por nombre, para emular su consola en una sala
+     de juegos distintos. Solo sale de lo que este jugador ya tiene por
+     derecho propio: su biblioteca (con su acceso) o un juego que recibió y
+     guardó. Si no lo tiene, null: un juego de la biblioteca no se comparte
+     entre jugadores. */
+  async romFor(game) {
+    const wanted = normalizeGameName(game);
+    if (!wanted) return null;
+    const filename = await findLibraryRom(wanted);
+    const romUrl = filename && /\.gba$/i.test(filename) ? urlDeContenido("games/" + filename) : null;
+    if (romUrl) {
+      const response = await fetch(romUrl, { cache: "force-cache" });
+      if (response.ok) return new Uint8Array(await response.arrayBuffer());
+    }
+    const recibido = await window.ML3DRecibidas?.lee(wanted);
+    return recibido?.bytes || null;
+  },
   /* Huella de un juego de este dispositivo, por nombre: el que está abierto o
      uno de la biblioteca. Es la misma huella corta que compara el lobby. La
      usa para saber si dos jugadores llevan la misma copia antes de empezar.

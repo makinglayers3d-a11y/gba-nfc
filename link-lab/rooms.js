@@ -610,7 +610,8 @@
       type: "gba:lockstep:save",
       roomId,
       playerNumber,
-      kind: packet.kind === "chunk" ? "chunk" : "meta",
+      /* "rom-*": el cartucho de un jugador, en salas de juegos distintos. */
+      kind: ["chunk", "meta", "rom-meta", "rom-chunk"].includes(packet.kind) ? packet.kind : "meta",
       hash: String(packet.hash || ""),
       size: Number(packet.size) | 0,
       total: Number(packet.total) | 0,
@@ -639,6 +640,14 @@
         declined: packet.declined === true,
         go: packet.go === true,
         have: String(packet.have || ""),
+        /* Juegos distintos: qué cartucho lleva cada uno y cuál ajeno tiene ya. */
+        pre: packet.pre === true,
+        rom: packet.rom && typeof packet.rom === "object" ? {
+          hash: String(packet.rom.hash || ""), nombre: String(packet.rom.nombre || "").slice(0, 120),
+          size: Number(packet.rom.size) | 0, origen: String(packet.rom.origen || ""), envio: packet.rom.envio === true
+        } : null,
+        preHave: String(packet.preHave || ""),
+        motivo: String(packet.motivo || "").slice(0, 24),
         time: Date.now()
       };
       if (hostSession) {
@@ -1088,7 +1097,15 @@
         protocol: String(packet.protocol || ""),
         consent: packet.consent === true,
         declined: packet.declined === true,
-        have: String(packet.have || "")
+        have: String(packet.have || ""),
+        /* Juegos distintos: qué cartucho lleva cada uno y cuál ajeno tiene ya. */
+        pre: packet.pre === true,
+        rom: packet.rom && typeof packet.rom === "object" ? {
+          hash: String(packet.rom.hash || ""), nombre: String(packet.rom.nombre || "").slice(0, 120),
+          size: Number(packet.rom.size) | 0, origen: String(packet.rom.origen || ""), envio: packet.rom.envio === true
+        } : null,
+        preHave: String(packet.preHave || ""),
+        motivo: String(packet.motivo || "").slice(0, 24),
       });
       return;
     }
@@ -1275,7 +1292,15 @@
         consent: packet.consent === true,
         declined: packet.declined === true,
         go: packet.go === true,
-        have: String(packet.have || "")
+        have: String(packet.have || ""),
+        /* Juegos distintos: qué cartucho lleva cada uno y cuál ajeno tiene ya. */
+        pre: packet.pre === true,
+        rom: packet.rom && typeof packet.rom === "object" ? {
+          hash: String(packet.rom.hash || ""), nombre: String(packet.rom.nombre || "").slice(0, 120),
+          size: Number(packet.rom.size) | 0, origen: String(packet.rom.origen || ""), envio: packet.rom.envio === true
+        } : null,
+        preHave: String(packet.preHave || ""),
+        motivo: String(packet.motivo || "").slice(0, 24),
       });
       return;
     }

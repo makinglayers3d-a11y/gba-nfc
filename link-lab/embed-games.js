@@ -39,7 +39,10 @@
      `origen`: "local" si el juego cargado viene de un archivo suyo. */
   /* `sala`: huella de la copia que este jugador usará para el juego de la
      sala, { key, hash }, la tenga abierta o no. */
-  let local = { name: "", game: "", hash: "", system: "", library: [], tiene: [], origen: "", sala: null };
+  /* `mixto`: el anfitrión ha puesto la sala en "juegos distintos".
+     `mio`: el juego que este jugador llevará en ese modo, { name, origen }.
+     `envio`: si este lado tiene encendido el envío de juegos. */
+  let local = { name: "", game: "", hash: "", system: "", library: [], tiene: [], origen: "", sala: null, mixto: false, mio: null, envio: false };
 
   const clean = (value) => String(value || "").replace(/\s*★$/, "").trim().slice(0, 32);
 
@@ -131,7 +134,10 @@
       library: local.library,
       tiene: local.tiene,
       origen: local.origen,
-      sala: local.sala
+      sala: local.sala,
+      mixto: local.mixto,
+      mio: local.mio,
+      envio: local.envio
     });
   }
 
@@ -154,6 +160,11 @@
           sala: packet.sala && typeof packet.sala === "object"
             ? { key: String(packet.sala.key || ""), hash: String(packet.sala.hash || "") }
             : null,
+          mixto: packet.mixto === true,
+          mio: packet.mio && typeof packet.mio === "object"
+            ? { name: String(packet.mio.name || ""), origen: String(packet.mio.origen || "") }
+            : null,
+          envio: packet.envio === true,
           at: Date.now()
         });
         notify();

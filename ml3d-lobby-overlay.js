@@ -266,6 +266,15 @@
         .then((resultado) => post({ type: "game-access-result", result: resultado || { ok: false, reason: "error" } }));
       return;
     }
+    /* Sala de juegos distintos: qué juego lleva este jugador. La sesión de
+       cable lo lee de aquí. */
+    if (data.type === "link-plan") {
+      const nuevo = { mixed: data.mixed === true, mine: String(data.mine || "").slice(0, 160) };
+      const antes = window.ML3DLinkPlan || { mixed: false, mine: "" };
+      window.ML3DLinkPlan = nuevo;
+      if (antes.mixed !== nuevo.mixed || antes.mine !== nuevo.mine) window.dispatchEvent(new CustomEvent("ml3d-link-plan"));
+      return;
+    }
     if (data.type === "local-start") {
       startLocalRoom(Array.isArray(data.consolas) ? data.consolas : []);
       return;
