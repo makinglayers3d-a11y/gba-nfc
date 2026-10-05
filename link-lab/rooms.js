@@ -217,9 +217,9 @@
 
   /* Pausa: al salir del navegador sin cerrarlo o bloquear el móvil, los demás
      ven el personaje holográfico con "PAUSADO". Al volver, todo sigue. */
-  function publicaPausa() {
+  function publicaPausa(forzado) {
     if (cableEnMarcha()) return;
-    const paused = document.hidden;
+    const paused = typeof forzado === "boolean" ? forzado : document.hidden;
     /* Se envía aunque la foto de la sala no haya llegado todavía: quien
        bloquea el móvil nada más entrar también está en pausa. */
     const yo = players.get(localPlayerId);
@@ -230,7 +230,16 @@
     if (hostSession) sendAll({ type: "lobby:pause", playerId: "host", paused, time: Date.now() });
     else if (joinSession?.channel) safeSend(joinSession.channel, { type: "lobby:pause", paused, time: Date.now() });
   }
-  document.addEventListener("visibilitychange", publicaPausa);
+  document.addEventListener("visibilitychange", () => publicaPausa());
+  /* Un móvil no siempre da tiempo: se avisa en cuanto hay cualquier señal de
+     que la página se va a quedar parada, no solo en la más habitual. */
+  document.addEventListener("freeze", () => publicaPausa(true));
+  document.addEventListener("resume", () => publicaPausa());
+  window.addEventListener("pagehide", () => publicaPausa(true));
+  window.addEventListener("pageshow", () => publicaPausa());
+  /* La página del emulador también lo dice: a un iframe el aviso le puede
+     llegar tarde. */
+  window.ML3DLobbyPausa = (oculto) => publicaPausa(Boolean(oculto));
 
   function getLocation() {
     return new Promise((resolve, reject) => {
@@ -1201,10 +1210,13 @@
 
     if (packet.type === "lobby:pause") {
       if (!player) return;
-      player.paused = packet.paused === true;
-      peer.pausedSince = player.paused ? Date.now() : 0;
-      renderPlayers();
-      sendAll({ type: "lobby:pause", playerId: joinId, paused: player.paused, time: Date.now() }, joinId);
+      peer.notifiedPause = packet.paused === true;
+      peer.pausedSince = peer.notifiedPause ? Date.now() : 0;
+      if (!peer.notifiedPause) {
+        peer.silentPaused = false;
+        hostSession.reservas.delete(peer.reserva);
+      }
+      ponPausado(hostSession, joinId, peer, peer.notifiedPause);
       return;
     }
 
@@ -1442,7 +1454,10 @@
     }
 
     if (packet.type === "net:ping") {
-      safeSend(joinSession.channel, { type: "net:pong", id: packet.id, sentAt: packet.sentAt, time: Date.now() });
+      /* Cada respuesta dice si este jugador está ahora en pausa. Así el
+         anfitrión se pone al día aunque se pierda un aviso suelto: una
+         página congelada no contesta, y al descongelarse dice que ha vuelto. */
+      safeSend(joinSession.channel, { type: "net:pong", id: packet.id, sentAt: packet.sentAt, paused: document.hidden, time: Date.now() });
       return;
     }
 
@@ -1478,6 +1493,7 @@
     }
 
     if (packet.type === "lobby:kicked") {
+      joinSession.expulsado = true;
       borraReserva();
       const texto = MOTIVOS[String(packet.code || "")] || "EXPULSADO DE LA SALA";
       showSessionBanner(texto, 2600);
@@ -1575,7 +1591,7 @@
       setState("working", kind === "nearby" ? "Sala publicada · esperando jugadores" : "Sala privada · pasa el código o el QR");
       log(`Sala ${data.room.id} creada (${kind === "nearby" ? "proximidad" : "privada"}).`);
       if (loc) avisaUbicacionImprecisa(loc, "crear");
-      hostSession.idleTimer = setInterval(revisaInactivos, 5000);
+      hostSession.idleTimer = setInterval(vigilaJugadores, 1000);
       renderBlocked();
       hostSession.pollTimer = setInterval(pollHostJoins, 1200);
       hostSession.heartbeatTimer = setInterval(() => {
@@ -1633,6 +1649,103 @@
     }
   }
 
+  /* Vigilancia de jugadores (solo el anfitrión, solo en el lobby).
+
+     Un móvil que bloquea la pantalla o cierra el navegador no siempre avisa:
+     a veces se queda mudo sin más, y el canal no se cierra hasta mucho
+     después, o nunca. Por eso no se espera a ningún aviso: se mira cuánto hace
+     que cada jugador no da señal. Contesta a un ping cada 2 segundos, así que
+     6 segundos callado ya es que no está.
+
+     - Callado sin haber avisado de pausa: se ve PAUSADO y se le guarda el
+       sitio. Si vuelve a dar señal, sigue como si nada. A los 20 segundos
+       sale de la sala.
+     - Avisó de pausa (bloqueó el móvil y dio tiempo a decirlo): PAUSADO sin
+       plazo de 20 s; manda el límite de inactividad del anfitrión.
+     - Conexión rota del todo: 20 segundos desde ese momento y sale.
+
+     Los plazos se miden con el reloj, no con temporizadores largos: una
+     pestaña en segundo plano los retrasa, pero al siguiente tic se cumple lo
+     que tocaba. */
+  const SILENCIO_MS = 6000;
+  let ultimoTic = 0;
+
+  function ponPausado(sesion, joinId, peer, paused) {
+    const player = players.get(joinId);
+    if (!player || player.paused === paused) return;
+    player.paused = paused;
+    renderPlayers();
+    sendAll({ type: "lobby:pause", playerId: joinId, paused, time: Date.now() }, joinId);
+  }
+
+  /* El jugador ya no está: se le reserva el hueco desde `desde`. */
+  function marcaIdo(sesion, joinId, peer, desde = peer.lastSeen || Date.now()) {
+    if (peer.goneAt) return;
+    /* Los 20 segundos cuentan desde la última señal: una conexión rota se
+       nota varios segundos después de que el jugador se fuera. */
+    peer.goneAt = desde;
+    peer.reservado = true;
+    sesion.reservas.set(peer.reserva, { joinId, slot: peer.linkSlot, until: desde + RESERVA_MS });
+    ponPausado(sesion, joinId, peer, true);
+  }
+
+  function sueltaJugador(sesion, joinId, peer) {
+    sesion.reservas.delete(peer.reserva);
+    if (sesion.peers.get(joinId) !== peer) return;
+    peer.adios = true;
+    try { peer.pc.close(); } catch {}
+    sesion.peers.delete(joinId);
+    players.delete(joinId);
+    sendAll({ type: "lobby:player-left", playerId: joinId });
+    api(`/v1/rooms/${encodeURIComponent(sesion.room.id)}/joins/${encodeURIComponent(joinId)}/kick`, {
+      method: "POST", token: sesion.token
+    }).catch(() => {});
+    log(`Host: ${peer.join.displayName} sale de la sala (sin señal).`);
+    renderPlayers();
+    renderManagePlayers();
+    updateChannelButtons();
+    if (!openChannels().length) setState("working", "Sala abierta · esperando jugadores");
+  }
+
+  function vigilaJugadores() {
+    const sesion = hostSession;
+    if (!sesion) return;
+    const ahora = Date.now();
+    /* Si quien ha estado dormido es el anfitrión (su móvil bloqueado, su
+       pestaña congelada), el silencio no es de los demás: se empieza a
+       contar otra vez en vez de echar a todos al despertar. */
+    const dormido = ultimoTic && ahora - ultimoTic > 4000;
+    ultimoTic = ahora;
+    if (cableEnMarcha()) return;
+
+    for (const [joinId, peer] of [...sesion.peers]) {
+      if (peer.adios) continue;
+      if (peer.goneAt) {
+        if (ahora - peer.goneAt >= RESERVA_MS) sueltaJugador(sesion, joinId, peer);
+        continue;
+      }
+      if (!peer.lastSeen) continue;             /* todavía conectando */
+      if (dormido) { peer.lastSeen = ahora; continue; }
+
+      const callado = ahora - peer.lastSeen;
+      if (peer.notifiedPause) continue;         /* en pausa avisada: no se le pide señal */
+
+      if (callado > SILENCIO_MS && !peer.silentPaused) {
+        peer.silentPaused = true;
+        sesion.reservas.set(peer.reserva, { joinId, slot: peer.linkSlot, until: peer.lastSeen + RESERVA_MS });
+        ponPausado(sesion, joinId, peer, true);
+      } else if (callado <= SILENCIO_MS && peer.silentPaused) {
+        peer.silentPaused = false;
+        sesion.reservas.delete(peer.reserva);
+        ponPausado(sesion, joinId, peer, false);
+      }
+      if (callado >= RESERVA_MS) sueltaJugador(sesion, joinId, peer);
+    }
+    revisaInactivos();
+  }
+  /* Al volver a tener la pestaña delante se revisa en el acto. */
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) vigilaJugadores(); });
+
   /* Primer asiento libre: 1..3, saltando los ocupados y los reservados. */
   function freeSlot() {
     const usados = new Set([...hostSession.peers.values()].map((peer) => Number(peer.linkSlot) | 0));
@@ -1661,6 +1774,7 @@
       sesion.reservas.delete(join.resume);
       const viejo = sesion.peers.get(reserva.joinId);
       const previo = players.get(reserva.joinId) || null;
+      if (viejo) viejo.adios = true;
       try { viejo?.pc.close(); } catch {}
       sesion.peers.delete(reserva.joinId);
       players.delete(reserva.joinId);
@@ -1775,38 +1889,17 @@
       safeSend(channel, { type: "lobby:quality", playerId: "host", quality: "good", rtt: 0, jitter: 0 });
       /* Resguardo para volver a este mismo hueco si cierra el navegador. */
       safeSend(channel, { type: "lobby:reserva", token: peerInfo.reserva, ms: RESERVA_MS });
+      peerInfo.lastSeen = Date.now();
       renderManagePlayers();
     });
     channel.addEventListener("close", () => {
       log(`${peerInfo.join.displayName}: canal cerrado.`);
       /* Se ha ido sin despedirse y sin que lo echen: puede ser un cierre por
-         error. Se le guarda el sitio 20 segundos. Con el cable jugando no:
-         ahí sigue valiendo el aviso de caída de siempre. */
+         error. Se le guarda el sitio 20 segundos; de soltarlo se encarga la
+         vigilancia. Con el cable jugando no: ahí vale el aviso de caída. */
       const sesion = hostSession;
       if (sesion && !peerInfo.adios && !cableEnMarcha() && sesion.peers.get(joinId) === peerInfo) {
-        peerInfo.reservado = true;
-        const ausente = players.get(joinId);
-        if (ausente) {
-          ausente.paused = true;
-          renderPlayers();
-          sendAll({ type: "lobby:pause", playerId: joinId, paused: true, time: Date.now() }, joinId);
-        }
-        sesion.reservas.set(peerInfo.reserva, { joinId, slot: peerInfo.linkSlot, until: Date.now() + RESERVA_MS });
-        setTimeout(() => {
-          if (!sesion.reservas.delete(peerInfo.reserva)) return;   /* ya volvió */
-          if (hostSession !== sesion || sesion.peers.get(joinId) !== peerInfo) return;
-          try { peerInfo.pc.close(); } catch {}
-          sesion.peers.delete(joinId);
-          players.delete(joinId);
-          sendAll({ type: "lobby:player-left", playerId: joinId });
-          api(`/v1/rooms/${encodeURIComponent(sesion.room.id)}/joins/${encodeURIComponent(joinId)}/kick`, {
-            method: "POST", token: sesion.token
-          }).catch(() => {});
-          avisaCaidaAlEmulador(`${peerInfo.join.displayName} se ha desconectado`);
-          renderPlayers();
-          renderManagePlayers();
-          if (!openChannels().length) setState("working", "Sala abierta · esperando jugadores");
-        }, RESERVA_MS + 500);
+        marcaIdo(sesion, joinId, peerInfo);
         updateChannelButtons();
         renderManagePlayers();
         return;
@@ -1824,7 +1917,18 @@
     channel.addEventListener("message", (event) => {
       let packet;
       try { packet = JSON.parse(event.data); } catch { return; }
+      peerInfo.lastSeen = Date.now();
       handleHostPacket(joinId, packet);
+    });
+    /* La conexión se rompe sin que el canal llegue a cerrarse (móvil que
+       mata el navegador): cuenta igual que un cierre. */
+    peerInfo.pc.addEventListener("connectionstatechange", () => {
+      const estado = peerInfo.pc.connectionState;
+      const sesion = hostSession;
+      if ((estado === "failed" || estado === "closed") && sesion && !peerInfo.adios &&
+          !cableEnMarcha() && sesion.peers.get(joinId) === peerInfo) {
+        marcaIdo(sesion, joinId, peerInfo);
+      }
     });
   }
 
@@ -1849,6 +1953,15 @@
   }
 
   function handleHostPong(peer, packet) {
+    if (typeof packet.paused === "boolean" && hostSession && !cableEnMarcha()) {
+      const joinId = [...hostSession.peers].find(([, p]) => p === peer)?.[0];
+      /* Contesta, luego no está congelado: lo que diga ahora es lo que vale. */
+      if (joinId && peer.notifiedPause !== packet.paused) {
+        peer.notifiedPause = packet.paused;
+        peer.pausedSince = packet.paused ? Date.now() : 0;
+        ponPausado(hostSession, joinId, peer, packet.paused);
+      }
+    }
     const started = peer.metrics.pending.get(packet.id);
     if (started === undefined) return;
     peer.metrics.pending.delete(packet.id);
@@ -2020,6 +2133,7 @@
       const state = data.join;
       /* El anfitrión no admite la entrada, o ha expulsado: se dice por qué. */
       if (state.status === "kicked") {
+        joinSession.expulsado = true;
         const texto = MOTIVOS[state.reason] || MOTIVOS.kicked;
         borraReserva();
         joinSession.pollBusy = false;
@@ -2090,6 +2204,7 @@
       avisaCaidaAlEmulador("se ha perdido la conexion con el anfitrion");
       updateChannelButtons();
       if (joinSession) setState("idle", "Conexión cerrada");
+      intentaVolver();
     });
     channel.addEventListener("message", (event) => {
       let packet;
@@ -2102,11 +2217,32 @@
     });
   }
 
+  /* El móvil estuvo dormido y, al despertar, el anfitrión ya había soltado el
+     hueco. Se pide entrar otra vez, una sola vez: si el resguardo aún vale se
+     vuelve al mismo sitio, y si no, el anfitrión decide como con cualquiera. */
+  let ultimoIntento = 0;
+  async function intentaVolver() {
+    const sesion = joinSession;
+    if (!sesion || sesion.expulsado || cableEnMarcha()) return;
+    if (Date.now() - ultimoIntento < 30000) return;
+    ultimoIntento = Date.now();
+    const sala = { ...sesion.room, byCode: true, locked: false, resume: sesion.reserva || "" };
+    const nombre = profile.name;
+    await leaveRoom(false);
+    if (hostSession || joinSession) return;
+    selectedRoom = sala;
+    $("#playerName").value = nombre;
+    $("#joinPassword").value = "";
+    setState("working", "Volviendo a la sala…");
+    joinSelectedRoom();
+  }
+
   async function leaveRoom(callApi = true) {
     if (!joinSession) return;
     const session = joinSession;
     stopJoinTimers();
     if (callApi) {
+      session.expulsado = true;   /* sale por su voluntad: no hay que volver */
       borraReserva();
       safeSend(session.channel, { type: "lobby:bye", time: Date.now() });
       try {
@@ -2358,7 +2494,7 @@
     if (!sesion || !sesion.idleMinutes || cableEnMarcha()) return;
     const limite = sesion.idleMinutes * 60000;
     for (const [joinId, peer] of sesion.peers) {
-      if (peer.reservado || !peer.pausedSince) continue;
+      if (peer.goneAt || peer.adios || !peer.pausedSince) continue;
       if (Date.now() - peer.pausedSince < limite) continue;
       peer.pausedSince = 0;
       log(`Host: ${peer.join.displayName} sale por inactividad.`);

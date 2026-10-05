@@ -342,6 +342,15 @@
   if (document.readyState === "complete") setTimeout(vuelveALaSala, 600);
   else window.addEventListener("load", () => setTimeout(vuelveALaSala, 600), { once: true });
 
+  /* Pantalla bloqueada o navegador en segundo plano: se le dice al lobby
+     directamente, sin esperar a que el aviso le llegue a su iframe. */
+  const avisaPausa = (oculto) => {
+    try { frame?.contentWindow?.ML3DLobbyPausa?.(oculto); } catch {}
+  };
+  document.addEventListener("visibilitychange", () => avisaPausa(document.hidden));
+  document.addEventListener("freeze", () => avisaPausa(true));
+  window.addEventListener("pagehide", () => avisaPausa(true));
+
   function wireLauncher() {
     const button = document.getElementById("open-lobby-button");
     if (!button || button.dataset.lobbyWired) return;
