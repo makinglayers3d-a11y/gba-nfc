@@ -612,19 +612,23 @@
     const stats = readStats(id);
     const baseName = (detail.filename || detail.name || "")
       .replace(/\.(gba|gbc|gb)$/i, "");
-    const previewUrl =
-      "previews/" + encodeURIComponent(baseName + ".mp4");
+    /* El vídeo de vista previa lo entrega el worker a quien puede ver el
+       juego. Si este juego no tiene, o no hay acceso, no se pide nada. */
+    const previewUrl = window.ML3DContenido?.urlVistaPrevia?.(baseName) || "";
 
     info.innerHTML = `
       <div class="ml3d-live-preview">
         <b>ML3D</b>
-        <video muted loop playsinline preload="metadata" src="${previewUrl}"></video>
+        ${previewUrl ? '<video muted loop playsinline preload="metadata"></video>' : ""}
         <span></span>
       </div>
       <small>${detail.system} · ${formatDuration(stats.seconds || 0)}</small>
       <em>${stats.lastPlayed ? "Última partida: " + new Date(stats.lastPlayed).toLocaleDateString("es-ES") : "Sin partidas registradas"}</em>`;
 
     const video = info.querySelector("video");
+    if (!video) return;
+    /* La dirección se pone por propiedad, no dentro del HTML. */
+    video.src = previewUrl;
 
     video.addEventListener("canplay", () => {
       video.classList.add("ready");

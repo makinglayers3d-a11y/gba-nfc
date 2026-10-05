@@ -76,6 +76,9 @@
       alias: datos.alias && typeof datos.alias === "object" ? datos.alias : {},
       etiquetas: Array.isArray(datos.etiquetas) ? datos.etiquetas : [],
       carcasasInfo: Array.isArray(datos.carcasasInfo) ? datos.carcasasInfo : [],
+      /* Qué juegos tienen vídeo de vista previa: así no se pide ninguno que
+         no exista. */
+      vistasPrevias: Array.isArray(datos.vistasPrevias) ? datos.vistasPrevias : [],
       mensaje: String(datos.mensaje || "")
     };
   }
@@ -213,6 +216,17 @@
      */
     carcasa(id) {
       return carcasaDe(id);
+    },
+
+    /**
+     * Dirección del vídeo de vista previa de un juego, o null si no tiene o no
+     * hay acceso. Lo entrega el worker, como la carátula.
+     */
+    urlVistaPrevia(nombreJuego) {
+      if (!base || !pase || !catalogo) return null;
+      const fichero = String(nombreJuego || "").replace(/\.(gba|gbc|gb)$/i, "") + ".mp4";
+      if (!(catalogo.vistasPrevias || []).includes(fichero)) return null;
+      return conPase(base + "/v1/content/preview/" + encodeURIComponent(fichero));
     },
 
     /**
