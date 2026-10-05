@@ -1,0 +1,16 @@
+# core.autocrlf=true en este checkout los convertiria a CRLF, y bash dentro del
+# contenedor de emsdk falla con el retorno de carro al final de cada linea.
+# Los .patch son aun mas sensibles: con CRLF no aplican.
+*.sh    text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.cjs   text eol=lf
+*.mjs   text eol=lf
+*.patch text eol=lf
+*.py    text eol=lf
+*.js    text eol=lf
+
+# El motor compilado es binario: que git no lo toque nunca. Una conversion de
+# saltos de linea lo corromperia sin avisar y el Link fallaria solo en
+# produccion.
+*.wasm  binary
