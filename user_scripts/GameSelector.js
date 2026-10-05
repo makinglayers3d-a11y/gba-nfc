@@ -103,11 +103,35 @@ function workerListKey(state) {
 
 let menuAudioContext = null;
 
+/* La columna de la derecha tiene dos botones: CARGAR JUEGO y ML3D LINK.
+   loadButtonSelected dice que el cursor está en esa columna;
+   linkButtonSelected, que está en el segundo. */
+let linkLobbyButton = null;
+let linkButtonSelected = false;
+
+function paintSideButtons() {
+  const enCargar = loadButtonSelected && !linkButtonSelected;
+  if (loadGameButton) {
+    loadGameButton.classList.toggle("is-selected", enCargar);
+    loadGameButton.setAttribute("aria-current", enCargar ? "true" : "false");
+  }
+  if (linkLobbyButton) {
+    linkLobbyButton.classList.toggle("is-selected", linkButtonSelected);
+    linkLobbyButton.setAttribute("aria-current", linkButtonSelected ? "true" : "false");
+  }
+}
+
 function setLoadButtonSelected(selected) {
   loadButtonSelected = Boolean(selected);
-  if (!loadGameButton) return;
-  loadGameButton.classList.toggle("is-selected", loadButtonSelected);
-  loadGameButton.setAttribute("aria-current", loadButtonSelected ? "true" : "false");
+  linkButtonSelected = false;
+  paintSideButtons();
+}
+
+/* Arriba y abajo, dentro de la columna, cambian de un botón al otro. */
+function toggleSideButton() {
+  if (!linkLobbyButton) return;
+  linkButtonSelected = !linkButtonSelected;
+  paintSideButtons();
 }
 
 function showSelectorMessage(message, isError = false) {
@@ -959,6 +983,13 @@ function closeFilterSelector() {
     }
   }
 
+  function openLinkLobby() {
+    if (!window.ML3DLobbyOverlay?.open) return;
+    playMenuSelectSound();
+    closeScreenSelector(true);
+    window.ML3DLobbyOverlay.open();
+  }
+
   function openLocalFilePicker() {
     if (!localFileInput || localRomLoading) return;
     localFileInput.value = "";
@@ -1175,7 +1206,21 @@ Object.assign(
     );
 
     overlay.appendChild(title);
+    /* El lobby de ML3D Link se abre también desde aquí, sin juego abierto:
+       el de la sala se abre solo al iniciar la conexión. */
+    linkLobbyButton = document.createElement("button");
+    linkLobbyButton.type = "button";
+    linkLobbyButton.className = "gba-local-rom-button gba-link-lobby-button";
+    linkLobbyButton.textContent = "ML3D LINK";
+    linkLobbyButton.setAttribute("aria-label", "Abrir el lobby de ML3D Link");
+    linkLobbyButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openLinkLobby();
+    });
+
     overlay.appendChild(loadGameButton);
+    overlay.appendChild(linkLobbyButton);
     overlay.appendChild(localFileInput);
     overlay.appendChild(selectorMessage);
     overlay.appendChild(listViewport);
@@ -1883,6 +1928,8 @@ item.textContent =
       listViewport = null;
       listTrack = null;
       loadGameButton = null;
+      linkLobbyButton = null;
+      linkButtonSelected = false;
       localFileInput = null;
       selectorMessage = null;
       loadButtonSelected = false;
@@ -2234,14 +2281,16 @@ item.textContent =
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (!loadButtonSelected) moveSelection(-1);
+      if (loadButtonSelected) { playMenuMoveSound(); toggleSideButton(); }
+      else moveSelection(-1);
       return;
 
     case "ArrowDown":
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (!loadButtonSelected) moveSelection(1);
+      if (loadButtonSelected) { playMenuMoveSound(); toggleSideButton(); }
+      else moveSelection(1);
       return;
 
     case "ShiftLeft":
@@ -2257,7 +2306,8 @@ item.textContent =
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (loadButtonSelected) openLocalFilePicker();
+      if (linkButtonSelected) openLinkLobby();
+      else if (loadButtonSelected) openLocalFilePicker();
       else selectCurrentGame();
       return;
 
@@ -2380,7 +2430,8 @@ item.textContent =
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (!loadButtonSelected) moveSelection(-1);
+      if (loadButtonSelected) { playMenuMoveSound(); toggleSideButton(); }
+      else moveSelection(-1);
       return;
     }
 
@@ -2390,7 +2441,8 @@ item.textContent =
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (!loadButtonSelected) moveSelection(1);
+      if (loadButtonSelected) { playMenuMoveSound(); toggleSideButton(); }
+      else moveSelection(1);
       return;
     }
 
@@ -2411,7 +2463,8 @@ item.textContent =
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (loadButtonSelected) openLocalFilePicker();
+      if (linkButtonSelected) openLinkLobby();
+      else if (loadButtonSelected) openLocalFilePicker();
       else selectCurrentGame();
       return;
     }

@@ -178,6 +178,15 @@
     if (!linkRunning()) window.ML3DLinkRuntime?.startTimers?.();
   }
 
+  /* El jugador sale del lobby. Sin juego abierto no hay partida a la que
+     volver: se vuelve a la biblioteca, que es de donde se entró. */
+  function closeByUser() {
+    close();
+    if (!window.ML3DLinkRuntime?.romFilename && !linkRunning()) {
+      document.getElementById("select-game-button")?.click();
+    }
+  }
+
   /* app.js llama aquí antes de tocar el emulador: true = tecla consumida. */
   function handleKey(keyName, down) {
     if (!isOpen) return false;
@@ -222,13 +231,14 @@
       sendLocalRom();
       return;
     }
-    if (data.type === "close" || data.type === "link-start") close();
+    if (data.type === "link-start") close();
+    else if (data.type === "close") closeByUser();
   });
 
   window.addEventListener("keydown", (event) => {
     if (isOpen && event.key === "Escape") {
       event.preventDefault();
-      close();
+      closeByUser();
     }
   }, true);
 
