@@ -14,7 +14,10 @@ param(
   [switch]$SinNavegador,
   # Abre además una ventana de incógnito: dos jugadores aislados en un PC.
   # Dos pestañas de la misma ventana no valen, comparten el bus del cable Link.
-  [switch]$DosJugadores
+  [switch]$DosJugadores,
+  # Servidor de salas al que se reenvia /api. Por defecto, el publicado. Para
+  # probar una version sin desplegar: -ApiSalas http://127.0.0.1:8790
+  [string]$ApiSalas = ""
 )
 
 $Root = $PSScriptRoot
@@ -25,6 +28,7 @@ $url = "http://localhost:$Port/"
 # /api/... se reenvía desde aquí: petición servidor a servidor, sin Origin, y
 # el lobby la ve como mismo origen. rooms.js ya apunta ahí en localhost.
 $ApiTarget = "https://ml3d-link-lab.makinglayers3d.workers.dev"
+if ($ApiSalas) { $ApiTarget = $ApiSalas.TrimEnd("/") }
 # Lo mismo con el worker de accesos y contenido: /acceso/... se reenvía a él.
 # Sin esto, en local no se puede verificar un dispositivo ni pedir un juego, y
 # solo se podía probar el camino de "sin acceso". dev-access.js apunta aquí

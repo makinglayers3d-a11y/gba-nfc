@@ -619,6 +619,34 @@
     refreshHelp();
   }
 
+  /* ---------- preguntas de la sala ---------- */
+
+  /* rooms.js pregunta por aquí (admitir a un jugador, bloquear). Si llegan
+     dos preguntas a la vez, la segunda espera a la primera. */
+  let colaPreguntas = Promise.resolve();
+  window.ML3DLobbyUI = {
+    confirma(texto, si = "SÍ", no = "NO") {
+      const turno = colaPreguntas.then(() => new Promise((resolve) => {
+        /* Si el anfitrión tiene el lobby quitado (está en su juego), se le
+           pone delante: una pregunta que no se ve no sirve. */
+        post({ type: "attention" });
+        dialogo({
+          texto,
+          botones: [
+            { texto: no, principal: true, accion: () => resolve(false) },
+            { texto: si, accion: () => resolve(true) }
+          ],
+          alCancelar: () => resolve(false)
+        });
+      }));
+      colaPreguntas = turno.catch(() => {});
+      return turno;
+    },
+    avisa(texto, ms = 5000) {
+      toast(texto, ms);
+    }
+  };
+
   /* ---------- quien no tiene el juego de la sala ---------- */
 
 /* Envío de juegos entre jugadores. Lo enciende o lo apaga la página del

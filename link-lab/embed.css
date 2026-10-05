@@ -616,3 +616,54 @@ body.ml3d-embed .embed-share-button {
   min-height: 2em;
   padding: 0.2em 0.6em;
 }
+
+/* Jugador en pausa: fuera del navegador o con el móvil bloqueado. Se ve
+   holográfico, con su etiqueta. */
+.player-paused-tag {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  border: 1px solid rgba(120, 220, 255, 0.7);
+  border-radius: 4px;
+  background: rgba(6, 18, 30, 0.82);
+  color: #bfeaff;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.player.paused .player-paused-tag {
+  display: block;
+}
+
+.player.paused .avatar-wrap {
+  opacity: 0.5;
+  filter: saturate(0.25) brightness(1.5) drop-shadow(0 0 5px rgba(110, 215, 255, 0.9));
+  animation: ml3d-holo 1.8s ease-in-out infinite;
+}
+
+@keyframes ml3d-holo {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.28; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player.paused .avatar-wrap { animation: none; }
+}
+
+/* Casillas del lobby: texto al lado, no encima. */
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.check-line input {
+  width: auto;
+  flex: 0 0 auto;
+}
