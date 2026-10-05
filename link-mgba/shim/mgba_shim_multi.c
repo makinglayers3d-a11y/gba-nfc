@@ -636,6 +636,28 @@ EXPORT int mgbawasm_sram_load(int id, const void* data, int bytes) {
 	return inst->core->savedataRestore(inst->core, data, (size_t) bytes, true) ? 1 : 0;
 }
 
+/* ------------------------------------------------------------------ clock */
+
+/*
+ * The cartridge clock normally reads the host's wall clock. Over the cable
+ * every browser emulates every console, and two machines never read the same
+ * instant: with a real save loaded (Ruby, Emerald) the copies would drift
+ * apart on the first RTC read. So a session agrees on one start time and the
+ * clock then advances with emulated frames, which is the same on every copy.
+ *
+ * mode 0: wall clock (default). mode 1: fixed at `epochMs`.
+ * mode 2: `epochMs` plus emulated time since power-on.
+ */
+EXPORT int mgbawasm_rtc_set(int id, int mode, double epochMs) {
+	struct Instance* inst = _instance(id);
+	if (!inst) {
+		return 0;
+	}
+	inst->core->rtc.override = mode == 2 ? RTC_FAKE_EPOCH : mode == 1 ? RTC_FIXED : RTC_NO_OVERRIDE;
+	inst->core->rtc.value = (int64_t) epochMs;
+	return 1;
+}
+
 /* ---------------------------------------------------------------- options */
 
 /*
