@@ -99,6 +99,7 @@ struct Instance {
 	int netPeers;
 	bool netWaiting;
 	uint16_t netSent;
+	uint16_t netData[4];
 	uint32_t netStarted;
 	uint32_t netCompleted;
 
@@ -930,13 +931,51 @@ static int _netDeviceId(struct GBASIODriver* driver) {
 	return inst ? inst->netSeat : 0;
 }
 
+/* SD alto en SIOCNT y en RCNT: "todas las consolas estan listas". Es lo que el
+ * cable de siempre pone cuando las demas estan en modo multijugador, y lo que
+ * los juegos miran para saber si hay alguien al otro lado. */
+static void _netReady(struct Instance* inst) {
+	struct GBA* gba = inst->core->board;
+	if (gba->sio.mode != GBA_SIO_MULTI) {
+		return;
+	}
+	bool ready = inst->netPeers > 0;
+	gba->sio.siocnt = GBASIOMultiplayerSetReady(gba->sio.siocnt, ready);
+	gba->sio.rcnt = GBASIORegisterRCNTSetSd(gba->sio.rcnt, ready);
+}
+
+static void _netSetMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
+	UNUSED(mode);
+	struct Instance* inst = _netInstance(driver);
+	if (inst) {
+		_netReady(inst);
+	}
+}
+
 static uint16_t _netWriteSIOCNT(struct GBASIODriver* driver, uint16_t value) {
 	struct Instance* inst = _netInstance(driver);
-	/* SD alto: todas las consolas estan listas. Sin el, el juego ni lo intenta. */
 	if (inst && inst->netPeers > 0) {
 		value = GBASIOMultiplayerFillReady(value);
 	}
 	return value;
+}
+
+static uint16_t _netWriteRCNT(struct GBASIODriver* driver, uint16_t value) {
+	struct Instance* inst = _netInstance(driver);
+	if (inst && inst->netPeers > 0 && driver->p->mode == GBA_SIO_MULTI) {
+		value = GBASIORegisterRCNTFillSd(value);
+	}
+	return value;
+}
+
+/* El nucleo pide las palabras al cerrar la transferencia: son las guardadas. */
+static void _netFinishMultiplayer(struct GBASIODriver* driver, uint16_t data[4]) {
+	struct Instance* inst = _netInstance(driver);
+	if (!inst) {
+		return;
+	}
+	memcpy(data, inst->netData, sizeof(inst->netData));
+	++inst->netCompleted;
 }
 
 static bool _netStart(struct GBASIODriver* driver) {
@@ -966,6 +1005,9 @@ EXPORT int mgbawasm_net_attach(int id, int seat, int peers) {
 	inst->netDriver.connectedDevices = _netConnected;
 	inst->netDriver.deviceId = _netDeviceId;
 	inst->netDriver.writeSIOCNT = _netWriteSIOCNT;
+	inst->netDriver.writeRCNT = _netWriteRCNT;
+	inst->netDriver.setMode = _netSetMode;
+	inst->netDriver.finishMultiplayer = _netFinishMultiplayer;
 	inst->netDriver.start = _netStart;
 	inst->netSeat = seat;
 	inst->netPeers = peers;
@@ -975,6 +1017,7 @@ EXPORT int mgbawasm_net_attach(int id, int seat, int peers) {
 	struct GBA* gba = inst->core->board;
 	GBASIOSetDriver(&gba->sio, &inst->netDriver);
 	inst->netLinked = true;
+	_netReady(inst);
 	return 1;
 }
 
@@ -1022,7 +1065,14 @@ EXPORT int mgbawasm_net_send_word(int id) {
 	return inst->netWaiting ? inst->netSent : gba->memory.io[GBA_REG(SIOMLT_SEND)];
 }
 
-/** Cierra la transferencia con las palabras de las cuatro consolas. */
+/**
+ * Trae las palabras de las cuatro consolas y deja la transferencia cerrandose.
+ *
+ * No se cierra al instante: se programa para dentro de lo que tarda una
+ * transferencia de verdad, con el bit de ocupado puesto mientras tanto. Asi lo
+ * ve el juego con el cable real, en el maestro y en el esclavo, y hay juegos
+ * que cuentan con ello.
+ */
 EXPORT int mgbawasm_net_complete(int id, int w0, int w1, int w2, int w3) {
 	struct Instance* inst = _instance(id);
 	if (!inst || !inst->netLinked) {
@@ -1033,10 +1083,14 @@ EXPORT int mgbawasm_net_complete(int id, int w0, int w1, int w2, int w3) {
 		inst->netWaiting = false;
 		return 0;
 	}
-	uint16_t data[4] = { (uint16_t) w0, (uint16_t) w1, (uint16_t) w2, (uint16_t) w3 };
-	GBASIOMultiplayerFinishTransfer(&gba->sio, data, 0);
+	inst->netData[0] = (uint16_t) w0;
+	inst->netData[1] = (uint16_t) w1;
+	inst->netData[2] = (uint16_t) w2;
+	inst->netData[3] = (uint16_t) w3;
+	gba->sio.siocnt |= 0x80;
+	mTimingDeschedule(&gba->timing, &gba->sio.completeEvent);
+	mTimingSchedule(&gba->timing, &gba->sio.completeEvent, GBASIOTransferCycles(gba->sio.mode, gba->sio.siocnt, inst->netPeers));
 	inst->netWaiting = false;
-	++inst->netCompleted;
 	return 1;
 }
 
