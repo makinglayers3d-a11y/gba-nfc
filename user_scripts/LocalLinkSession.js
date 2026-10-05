@@ -80,7 +80,7 @@
      - La partida ajena vive solo en memoria mientras dura la sesion. No se
        escribe en disco y no hay forma de verla ni exportarla.
      - Cada jugador guarda solo la de su propia consola. */
-  function pideConsentimiento(tienePartida) {
+  function pideConsentimiento(tienePartida, comparteJuego = false) {
     return new Promise((resolve) => {
       document.getElementById("ml3d-link-consent")?.remove();
       const el = document.createElement("div");
@@ -92,14 +92,19 @@
         "font:bold 18px/1.4 system-ui,sans-serif;text-shadow:0 1px 2px #000";
       const titulo = document.createElement("div");
       titulo.style.cssText = "font-size:20px;max-width:30ch";
-      titulo.textContent = "Tu partida se compartirá con el otro jugador durante esta sesión";
+      titulo.textContent = comparteJuego
+        ? "Tu partida y tu juego se compartirán con el otro jugador durante esta sesión"
+        : "Tu partida se compartirá con el otro jugador durante esta sesión";
       const cuerpo = document.createElement("div");
       cuerpo.style.cssText = "font-weight:normal;font-size:15px;max-width:38ch";
       cuerpo.textContent =
         (tienePartida
           ? "Va directa a su dispositivo y solo se usa mientras dura la sesión: no se guarda allí ni en ningún servidor. Antes se ha hecho una copia de tu partida. "
           : "No tienes partida guardada de este juego. ") +
-        "Tú recibirás la suya igual: solo durante la sesión.";
+        "Tú recibirás la suya igual: solo durante la sesión." +
+        (comparteJuego
+          ? " El juego también va directo, solo en memoria, y se borra al terminar. Al aceptar declaras que tienes derecho a compartirlo."
+          : "");
       const fila = document.createElement("div");
       fila.style.cssText = "display:flex;gap:12px;margin-top:6px";
       const boton = (texto, fondo, valor) => {
@@ -118,7 +123,7 @@
     });
   }
 
-  function avisaSinSesion(texto) {
+  function avisaSinSesion(texto, accion = null) {
     document.getElementById("ml3d-link-consent")?.remove();
     let el = document.getElementById("ml3d-link-sin-sesion");
     if (el) return;
@@ -142,9 +147,21 @@
       "margin-top:6px;padding:10px 22px;font:bold 15px system-ui,sans-serif;" +
       "background:#3b6fd4;color:#fff;border:0;border-radius:8px;cursor:pointer";
     boton.addEventListener("click", () => el.remove());
-    el.append(titulo, cuerpo, boton);
+    el.append(titulo, cuerpo);
+    if (accion) {
+      const extra = document.createElement("button");
+      extra.type = "button";
+      extra.textContent = accion.texto;
+      extra.style.cssText = boton.style.cssText + ";background:#2e8b57";
+      extra.addEventListener("click", async () => {
+        extra.disabled = true;
+        cuerpo.textContent = await accion.hacer();
+      });
+      el.append(extra);
+    }
+    el.append(boton);
     document.documentElement.appendChild(el);
-    setTimeout(() => el.remove(), 15000);
+    setTimeout(() => el.remove(), accion ? 60000 : 15000);
   }
 
   const SAVE_CHUNK = 12 * 1024;
@@ -305,13 +322,301 @@
       .join("");
   }
 
+  /* Juegos distintos en cada consola.
+
+     Cada navegador emula su consola y una copia de la del otro, así que con
+     juegos distintos necesita los dos cartuchos. Antes de montar las consolas
+     cada jugador consigue el del otro:
+
+     - Juego de la biblioteca: lo baja con SU propio acceso. Nunca se le pide
+       al otro jugador ni se le envía. Si no tiene acceso, la sesión no
+       empieza.
+     - Juego que el otro cargó de un archivo suyo: se lo envía el otro, solo
+       para esta sesión. Vive en memoria, no se escribe en disco y se borra al
+       terminar. Solo con el interruptor de envío encendido en los dos lados y
+       después de que los dos acepten el aviso, que es el mismo de la partida.
+     - Juego que el otro recibió de un tercero: no se comparte.
+
+     Solo con dos jugadores. */
+  const ROM_MAX_BYTES = 64 * 1024 * 1024;
+  const ROM_LOTE = 16;          /* trozos por tanda */
+  const ROM_LOTE_MS = 40;
+  const plan = () => window.ML3DLinkPlan || { mixed: false, mine: "" };
+  const envioEncendido = () => window.ML3D_ENVIO_ROMS === true;
+
+  class Preludio {
+    /**
+     * @param mia     { bytes, hash, nombre, origen } el juego de este jugador
+     * @param partida si este jugador tiene partida (para el texto del aviso)
+     * @param alListo recibe los cartuchos por asiento cuando están los dos
+     */
+    constructor(mia, partida, alListo) {
+      this.mia = mia;
+      this.tienePartida = Boolean(partida?.bytes);
+      this.alListo = alListo;
+      this.otra = null;          /* { hash, nombre, size, origen, envio } */
+      this.otraBytes = null;
+      this.remoto = { consent: false, tiene: "" };
+      this.consent = false;
+      this.declined = false;
+      this.motivo = "";
+      this.necesitaEnvio = false;
+      this.enviada = false;
+      this.entrante = null;
+      this.fin = false;
+      this.preguntado = false;
+      this.timer = setInterval(() => this.tic(), 400);
+      this.tic();
+    }
+
+    publica() {
+      sendLocal({
+        type: "gba:lockstep:ready",
+        playerNumber: mySeat,
+        role,
+        romHash: this.mia.hash,
+        protocol: PROTOCOLO,
+        pre: true,
+        rom: { hash: this.mia.hash, nombre: this.mia.nombre, size: this.mia.bytes.length, origen: this.mia.origen, envio: envioEncendido() },
+        consent: this.consent,
+        declined: this.declined,
+        motivo: this.motivo,
+        preHave: this.otraBytes ? this.otra.hash : ""
+      });
+    }
+
+    tic() {
+      if (this.fin) return;
+      /* Un juego que no se puede conseguir se sabe pronto, con el lobby aún
+         delante. El aviso espera a que se intente empezar: taparle el lobby
+         a quien todavía está eligiendo no ayuda a nadie. */
+      if (this.fallo && window.ML3DLobbyOverlay?.isOpen !== true) {
+        const fallo = this.fallo;
+        this.fallo = null;
+        this.rechaza(fallo.motivo, fallo.texto, fallo.accion);
+        return;
+      }
+      this.publica();
+      /* El aviso espera a que el lobby se quite, como el de la partida, y a
+         saber qué juego lleva el otro: el texto depende de si hay que enviar. */
+      if (!this.preguntado && this.otra && !this.declined && !this.fallo && window.ML3DLobbyOverlay?.isOpen !== true) {
+        this.preguntado = true;
+        const comparteJuego = this.mia.origen === "local" && this.otra.hash !== this.mia.hash;
+        pideConsentimiento(this.tienePartida, comparteJuego).then((acepta) => {
+          if (this.fin) return;
+          if (acepta) { this.consent = true; this.revisa(); this.publica(); return; }
+          this.rechaza("", "");
+        });
+      }
+      this.revisa();
+    }
+
+    /* Este lado no sigue: se le dice al otro y se vuelve al juego normal. */
+    rechaza(motivo, texto, accion = null) {
+      if (this.fin) return;
+      this.declined = true;
+      this.motivo = motivo;
+      this.publica();
+      if (texto) avisaSinSesion(texto, accion);
+      setTimeout(() => { this.publica(); cancelaSesion(); }, 300);
+    }
+
+    acceptReady(packet) {
+      if (this.fin) return;
+      const seat = Number(packet.playerNumber) | 0;
+      if (seat === mySeat) return;
+      if (String(packet.protocol || "") !== PROTOCOLO) {
+        avisaSinSesion("Las dos páginas no llevan la misma versión. Recargad los dos.");
+        cancelaSesion();
+        return;
+      }
+      if (packet.declined) {
+        const textos = {
+          acceso: "El otro jugador no tiene acceso a tu juego. Es de la biblioteca y no se comparte.",
+          apagado: "El envío de juegos está desactivado: no se puede compartir un juego cargado de archivo.",
+          recibida: "Uno de los juegos lo recibió su dueño de otro jugador y no se puede compartir.",
+          distintos: "El juego del otro jugador no es la misma copia que la tuya con ese nombre."
+        };
+        avisaSinSesion(textos[packet.motivo] || "El otro jugador no ha aceptado compartir su partida.");
+        cancelaSesion();
+        return;
+      }
+      /* Si el otro lado ya montó sus consolas, sus paquetes no traen `pre`
+         pero siguen diciendo qué juego mío tiene. */
+      this.remoto = { consent: packet.consent === true, tiene: String(packet.preHave || "") };
+      if (!this.otra && packet.pre && packet.rom && packet.rom.hash) {
+        this.otra = {
+          hash: String(packet.rom.hash), nombre: String(packet.rom.nombre || ""), size: Number(packet.rom.size) | 0,
+          origen: String(packet.rom.origen || ""), envio: packet.rom.envio === true
+        };
+        this.resuelve().catch((error) => {
+          console.error("ML3D Local Link (juego del otro):", error);
+          this.fallara("acceso", "No se pudo conseguir el juego del otro jugador.");
+        });
+      }
+      this.revisa();
+    }
+
+    /* De dónde sale el juego del otro. */
+    /* Deja apuntado por qué no se puede seguir; se dice al intentar empezar. */
+    fallara(motivo, texto, accion = null) {
+      this.fallo = { motivo, texto, accion };
+    }
+
+    async resuelve() {
+      const otra = this.otra;
+      if (otra.hash === this.mia.hash) {            /* resulta que es el mismo cartucho */
+        this.otraBytes = this.mia.bytes.slice();
+        return;
+      }
+      if (otra.origen === "remote") {
+        const bytes = await window.ML3DLinkRuntime?.romFor?.(otra.nombre);
+        const limpio = otra.nombre.replace(/\.(gba|gbc|gb)$/i, "");
+        if (!bytes) {
+          const puedePedir = Boolean(window.ML3DContenido?.hayAcceso);
+          this.fallara("acceso",
+            `No tienes acceso a «${limpio}». Es un juego de la biblioteca: cada jugador necesita su propio acceso y no se comparte.` +
+              (puedePedir ? "" : " Este juego es solo para testers."),
+            puedePedir ? {
+              texto: "SOLICITAR ACCESO A ESTE JUEGO",
+              hacer: async () => {
+                const r = await window.ML3DContenido.pideJuego(limpio);
+                return r?.status === "pending" ? "Petición enviada. Te avisaremos cuando se resuelva."
+                  : r?.status === "ya_lo_tiene" ? "Ya tienes ese juego: recarga el emulador."
+                  : "No se pudo enviar la petición.";
+              }
+            } : null);
+          return;
+        }
+        if (await fingerprint(bytes) !== otra.hash) {
+          this.fallara("distintos", `Tu copia de «${limpio}» no es la misma que la del otro jugador. Los dos necesitáis la misma.`);
+          return;
+        }
+        this.otraBytes = bytes;
+        return;
+      }
+      if (otra.origen === "local") {
+        if (!otra.envio || !envioEncendido()) {
+          this.fallara("apagado", "El envío de juegos está desactivado: el otro jugador no puede compartir un juego cargado de archivo.");
+          return;
+        }
+        if (otra.size <= 0 || otra.size > ROM_MAX_BYTES) {
+          this.fallara("acceso", "El juego del otro jugador no tiene un tamaño válido.");
+          return;
+        }
+        this.necesitaEnvio = true;   /* llegará cuando los dos acepten */
+        return;
+      }
+      this.fallara("recibida", "El otro jugador lleva un juego que recibió de otro jugador: no se puede compartir.");
+    }
+
+    revisa() {
+      if (this.fin || this.declined) return;
+      /* Enviar el juego propio: solo si es de archivo, si el otro lo necesita,
+         con el interruptor encendido y con los dos de acuerdo. */
+      if (!this.enviada && this.consent && this.remoto.consent && this.otra &&
+          this.mia.origen === "local" && this.otra.hash !== this.mia.hash &&
+          this.remoto.tiene !== this.mia.hash && envioEncendido()) {
+        this.enviada = true;
+        this.envia();
+      }
+      if (this.otraBytes && this.consent && this.remoto.consent && this.remoto.tiene === this.mia.hash) {
+        this.fin = true;
+        clearInterval(this.timer);
+        const roms = [];
+        roms[mySeat] = this.mia.bytes;
+        roms[1 - mySeat] = this.otraBytes;
+        const combinado = mySeat === 0 ? this.mia.hash + this.otra.hash : this.otra.hash + this.mia.hash;
+        const tengo = this.otra.hash;
+        this.otraBytes = null;
+        this.alListo(roms, combinado, tengo);
+      }
+    }
+
+    envia() {
+      const bytes = this.mia.bytes;
+      const total = Math.ceil(bytes.length / SAVE_CHUNK);
+      sendLocal({ type: "gba:lockstep:save", playerNumber: mySeat, kind: "rom-meta", hash: this.mia.hash, size: bytes.length, total });
+      let index = 0;
+      const tanda = () => {
+        if (this.declined || this.destruido) return;
+        for (let n = 0; n < ROM_LOTE && index < total; n++, index++) {
+          const slice = bytes.subarray(index * SAVE_CHUNK, (index + 1) * SAVE_CHUNK);
+          let binary = "";
+          for (let i = 0; i < slice.length; i++) binary += String.fromCharCode(slice[i]);
+          sendLocal({ type: "gba:lockstep:save", playerNumber: mySeat, kind: "rom-chunk", index, data: btoa(binary) });
+        }
+        if (index < total) setTimeout(tanda, ROM_LOTE_MS);
+      };
+      tanda();
+    }
+
+    /* Llega el juego del otro. Solo si aquí se aceptó, si se esperaba y con el
+       tamaño y la huella que anunció. */
+    acceptRom(packet) {
+      if (this.fin || !this.consent || !this.necesitaEnvio || this.otraBytes) return;
+      const seat = Number(packet.playerNumber) | 0;
+      if (seat === mySeat) return;
+      if (packet.kind === "rom-meta") {
+        const size = Number(packet.size) | 0;
+        if (size !== this.otra.size || String(packet.hash || "") !== this.otra.hash) return;
+        this.entrante = { partes: [], recibido: 0, size };
+        return;
+      }
+      if (packet.kind !== "rom-chunk" || !this.entrante) return;
+      const binary = atob(String(packet.data || ""));
+      if (this.entrante.recibido + binary.length > this.entrante.size) { this.entrante = null; return; }
+      const trozo = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) trozo[i] = binary.charCodeAt(i);
+      this.entrante.partes[Number(packet.index) | 0] = trozo;
+      this.entrante.recibido += trozo.length;
+      if (this.entrante.recibido < this.entrante.size) return;
+
+      const entrada = this.entrante;
+      this.entrante = null;
+      const todo = new Uint8Array(entrada.size);
+      let offset = 0;
+      for (const parte of entrada.partes) {
+        if (!parte) continue;
+        todo.set(parte, offset);
+        offset += parte.length;
+      }
+      fingerprint(todo).then((hash) => {
+        if (this.fin || this.destruido) return;
+        if (offset !== entrada.size || hash !== this.otra.hash) {
+          this.rechaza("distintos", "El juego del otro jugador ha llegado dañado.");
+          return;
+        }
+        this.otraBytes = todo;
+        this.revisa();
+        this.publica();
+      });
+    }
+
+    destroy() {
+      this.destruido = true;
+      this.fin = true;
+      clearInterval(this.timer);
+      document.getElementById("ml3d-link-consent")?.remove();
+      /* El juego ajeno no sobrevive a la sesión. */
+      if (this.otraBytes) this.otraBytes.fill(0);
+      this.otraBytes = null;
+      this.entrante = null;
+    }
+  }
+
+  let prelude = null;
+
   class LocalDualLink {
     /**
      * @param rt   adaptador del runtime mGBA multi-instancia (ver mgbaRuntime)
      * @param hash huella de la ROM, para que los dos lados comparen cartucho
      */
-    constructor(rt, hash, partida = null) {
+    constructor(rt, hash, partida = null, opciones = {}) {
       this.rt = rt;
+      /* Juegos distintos: el aviso (partida y juego) ya se aceptó antes de
+         montar las consolas, y se sigue diciendo qué juego ajeno se tiene. */
+      this.preHave = String(opciones.preHave || "");
       this.romHash = hash;
       this.seats = seatCount;
 
@@ -397,7 +702,11 @@
           this.publishReady();
           setTimeout(() => { this.publishReady(); cancelaSesion(); }, 300);
         });
-        if (!lobbyDelante()) pregunta();
+        if (opciones.consentido) {
+          this.consent = true;
+          this.revisaPartidas();
+          this.publishReady();
+        } else if (!lobbyDelante()) pregunta();
         else {
           this.consentTimer = setInterval(() => {
             if (lobbyDelante()) return;
@@ -573,7 +882,8 @@
         consent: this.consent,
         declined: this.declined,
         go: role === "host" ? this.go : false,
-        have: this.haveDigest()
+        have: this.haveDigest(),
+        preHave: this.preHave
       });
     }
 
@@ -610,6 +920,7 @@
     }
 
     acceptRemoteReady(packet) {
+      if (packet.pre === true) return;   /* el otro aún está consiguiendo los juegos */
       const seat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
       if (packet.ready === false) this.readySeats.delete(seat);
       else if (seat !== mySeat) this.readySeats.add(seat);
@@ -1365,6 +1676,37 @@
     const hash = await fingerprint(rom);
     controller?.destroy?.();
     controller = null;
+    prelude?.destroy();
+    prelude = null;
+
+    if (!selfTest && plan().mixed && seatCount === 2) {
+      /* De dónde viene el juego de este jugador decide si se puede compartir. */
+      let origen = runtime.romSource === "local" ? "local" : "remote";
+      try {
+        const completa = await window.ML3DRecibidas?.huella(rom);
+        if (origen === "local" && completa && window.ML3DRecibidas.esRecibida(completa)) origen = "recibida";
+      } catch {}
+      const mia = { bytes: rom, hash, nombre: String(runtime.romFilename || "").split("/").pop(), origen };
+      const sala = roomId;
+      prelude = new Preludio(mia, partida, async (roms, combinado, tengo) => {
+        if (roomId !== sala) return;
+        prelude = null;
+        const rtMixto = await window.ML3DMgbaLink.create({
+          wasmDir: MGBA_DIR,
+          roms,
+          seats: 2,
+          canvas: document.getElementById("screen"),
+          link: false
+        });
+        /* El cartucho ajeno ya está copiado dentro del núcleo: aquí se borra. */
+        roms[1 - mySeat].fill(0);
+        await rtMixto.startAudio();
+        if (roomId !== sala) { try { rtMixto.destroy(); } catch {} return; }
+        controller = new LocalDualLink(rtMixto, combinado, partida, { consentido: true, preHave: tengo });
+      });
+      pendingStart = null;
+      return;
+    }
 
     const rt = await window.ML3DMgbaLink.create({
       wasmDir: MGBA_DIR,
@@ -1391,6 +1733,16 @@
   let configuredKey = roomId ? `${roomId}:${mySeat}:${role}` : "";
 
   let configuredGame = "";
+  let lastConfigure = null;
+
+  /* El jugador cambia de juego o la sala cambia de modo antes de empezar: la
+     sesión se rehace con lo nuevo. Con la partida en marcha no se toca. */
+  window.addEventListener("ml3d-link-plan", () => {
+    if (!lastConfigure || !roomId || controller?.started) return;
+    if (String(lastConfigure.roomId || "") !== roomId) return;
+    configuredKey = "";
+    configureSession(lastConfigure);
+  });
 
   function configureSession(packet) {
     const nextRoom = String(packet.roomId || "");
@@ -1398,8 +1750,12 @@
     const nextSeat = Math.max(0, Math.min(3, Number(packet.playerNumber) | 0));
     const nextRole = packet.role === "host" ? "host" : "guest";
     const nextSeats = Math.max(2, Math.min(4, Number(packet.players) | 0 || 2));
-    const nextGame = String(packet.game || "");
-    const key = `${nextRoom}:${nextSeat}:${nextRole}:${nextSeats}:${nextGame}`;
+    lastConfigure = packet;
+    /* Con juegos distintos, cada jugador abre el que ha elegido él, no el de
+       la sala. */
+    const mixto = plan().mixed && nextSeats === 2 && Boolean(plan().mine);
+    const nextGame = mixto ? String(plan().mine) : String(packet.game || "");
+    const key = `${nextRoom}:${nextSeat}:${nextRole}:${nextSeats}:${nextGame}:${mixto ? "mixto" : ""}`;
     if (key === configuredKey) return;
 
     /* Qué ha cambiado decide cuánto se rehace. Reconstruir la sesión entera por
@@ -1442,12 +1798,14 @@
     seatCount = nextSeats;
     controller?.destroy?.();
     controller = null;
+    prelude?.destroy();
+    prelude = null;
     pendingStart = null;
 
     const runtime = window.ML3DLinkRuntime;
     configuring = true;
     const prepare = runtime?.prepareForLink
-      ? runtime.prepareForLink(packet.game)
+      ? runtime.prepareForLink(nextGame)
       : runtime?.restartForLink?.();
     Promise.resolve(prepare)
       .catch((error) => console.error("ML3D Local Link (reinicio):", error))
@@ -1457,7 +1815,7 @@
   /* La sesion no llega a empezar (alguien no acepta): se suelta y se vuelve al
      juego normal, igual que al desconectar. */
   function cancelaSesion() {
-    if (!controller) return;
+    if (!controller && !prelude) return;
     disconnectSession({});
     configuredKey = "";
   }
@@ -1466,6 +1824,8 @@
     if (packet.roomId && packet.roomId !== roomId) return;
     controller?.destroy?.();
     controller = null;
+    prelude?.destroy();
+    prelude = null;
     pendingStart = null;
     roomId = "";
     configuredKey = "";
@@ -1498,7 +1858,7 @@
        congelada y sin decir nada. */
     if (packet.type === "gba:link:peer-lost") {
       if (packet.roomId && packet.roomId !== roomId) return;
-      if (!controller) return;
+      if (!controller && !prelude) return;
       mostrarCaida(String(packet.motivo || ""));
       disconnectSession(packet);
       return;
@@ -1506,7 +1866,8 @@
     if (packet.roomId !== roomId) return;
 
     if (packet.type === "gba:lockstep:remote-ready") {
-      controller?.acceptRemoteReady(packet);
+      if (prelude) prelude.acceptReady(packet);
+      else controller?.acceptRemoteReady(packet);
       return;
     }
 
@@ -1521,7 +1882,8 @@
     }
 
     if (packet.type === "gba:lockstep:remote-save") {
-      controller?.acceptRemoteSave(packet);
+      if (/^rom-/.test(String(packet.kind || ""))) prelude?.acceptRom(packet);
+      else controller?.acceptRemoteSave(packet);
       return;
     }
 

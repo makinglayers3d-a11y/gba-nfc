@@ -297,6 +297,113 @@
 
   /* ---------- juego de la sala ---------- */
 
+  /* ---------- juegos distintos ---------- */
+
+  /* El anfitrión puede poner la sala en "juegos distintos": cada jugador
+     lleva el suyo (Rubí contra Esmeralda). Solo con dos jugadores. */
+  let mixtoHost = false;
+  let miJuego = "";
+  let planDicho = "";
+  let eraMixto = false;
+
+  function esMixto() {
+    if (isHost()) return mixtoHost;
+    return (games()?.peers() || []).some((peer) => peer.mixto);
+  }
+
+  /* Juegos de GBA que este jugador puede llevar. */
+  function misJuegos() {
+    const porClave = new Map();
+    const anota = (name) => {
+      const limpio = String(name || "").replace(/\.(gba|gbc|gb)$/i, "").trim();
+      const clave = gameKey(limpio);
+      if (clave && !porClave.has(clave)) porClave.set(clave, limpio);
+    };
+    if (context.romLoaded && /\.gba$/i.test(context.romFilename || "")) anota(context.game || context.romFilename);
+    for (const name of context.libraryGba || []) anota(name);
+    for (const juego of context.recibidas || []) if (/\.gba$/i.test(juego.nombre)) anota(juego.nombre);
+    return [...porClave.values()].sort((a, b) => a.localeCompare(b, "es"));
+  }
+
+  /* De dónde sale un juego de este jugador: decide si se puede compartir. */
+  function origenDe(nombre) {
+    const clave = gameKey(nombre);
+    if (!clave) return "";
+    if (context.romLoaded && gameKey(context.game || context.romFilename) === clave) return context.source || "remote";
+    if ((context.libraryGba || []).some((name) => gameKey(name) === clave)) return "remote";
+    if ((context.recibidas || []).some((juego) => gameKey(juego.nombre) === clave)) return "recibida";
+    return "";
+  }
+
+  /* La página del emulador tiene que saber qué juego lleva este jugador. */
+  function dicePlan() {
+    const mixto = inRoom() && esMixto();
+    const dicho = (mixto ? "1" : "0") + ":" + (mixto ? miJuego : "");
+    if (dicho === planDicho) return;
+    planDicho = dicho;
+    post({ type: "link-plan", mixed: mixto, mine: mixto ? miJuego : "" });
+  }
+
+  function eligeMiJuego(nombre) {
+    miJuego = nombre;
+    publicaJuegos();
+    dicePlan();
+    toast(nombre ? `TU JUEGO: ${nombre.toUpperCase()}` : "SIN JUEGO ELEGIDO");
+  }
+
+  /* Qué impide empezar en juegos distintos, o "" si nada. */
+  function problemaMixto() {
+    const others = [...document.querySelectorAll("#playersLayer .player")].filter((el) => !el.classList.contains("local"));
+    if (others.length !== 1) return "JUEGOS DISTINTOS ES SOLO PARA DOS JUGADORES";
+    const otro = (games()?.peers() || [])[0];
+    if (!otro) return "ESPERANDO LOS DATOS DEL OTRO JUGADOR";
+    if (!miJuego) return "ELIGE TU JUEGO EN LA ESQUINA INFERIOR DERECHA";
+    const quien = otro.name.toUpperCase();
+    if (!otro.mio || !otro.mio.name) return `FALTA QUE ${quien} ELIJA SU JUEGO`;
+
+    const suyo = otro.mio.name.toUpperCase();
+    const mio = miJuego.toUpperCase();
+    const mismo = gameKey(otro.mio.name) === gameKey(miJuego);
+
+    /* ¿Puedo yo emular su consola? */
+    if (!mismo) {
+      if (otro.mio.origen === "remote") {
+        if (!(context.libraryGba || []).some((name) => gameKey(name) === gameKey(otro.mio.name))) {
+          pideAcceso(otro.mio.name);
+          return `NO TIENES ACCESO A «${suyo}» · ES DE LA BIBLIOTECA Y NO SE COMPARTE`;
+        }
+      } else if (otro.mio.origen === "local") {
+        if (!context.envioRoms || !otro.envio) return `EL ENVÍO DE JUEGOS ESTÁ DESACTIVADO: ${quien} NO PUEDE COMPARTIR «${suyo}»`;
+      } else {
+        return `«${suyo}» ES UN JUEGO RECIBIDO DE OTRO JUGADOR: NO SE PUEDE COMPARTIR`;
+      }
+      /* ¿Puede él emular la mía? */
+      const origen = origenDe(miJuego);
+      if (origen === "remote") {
+        if (!(otro.library || []).some((name) => gameKey(name) === gameKey(miJuego))) {
+          return `${quien} NO TIENE ACCESO A «${mio}» · TIENE QUE PEDIRLO ÉL`;
+        }
+      } else if (origen === "local") {
+        if (!context.envioRoms || !otro.envio) return `EL ENVÍO DE JUEGOS ESTÁ DESACTIVADO: NO PUEDES COMPARTIR «${mio}»`;
+      } else {
+        return `«${mio}» LO RECIBISTE DE OTRO JUGADOR: NO SE PUEDE COMPARTIR`;
+      }
+    }
+    return "";
+  }
+
+  /* Juego de la biblioteca que falta: un tester puede pedirlo. */
+  function pideAcceso(nombre) {
+    if (!context.acceso) return;
+    dialogo({
+      texto: `«${nombre.toUpperCase()}» ES DE LA BIBLIOTECA Y TU ACCESO NO LO INCLUYE. CADA JUGADOR NECESITA EL SUYO: NO SE COMPARTE.`,
+      botones: [
+        { texto: "SOLICITAR ACCESO A ESTE JUEGO", principal: true, accion: () => { toast("ENVIANDO LA PETICIÓN…", 6000); post({ type: "game-access-request", game: nombre }); } },
+        { texto: "CANCELAR" }
+      ]
+    });
+  }
+
   function roomGame() {
     const fromToolbar = byId("lobbyGameName")?.textContent?.trim() || "";
     if (fromToolbar && !/^sin juego/i.test(fromToolbar)) return fromToolbar;
@@ -327,6 +434,43 @@
     const select = byId("embedGameSelect");
     const value = byId("embedGameValue");
     const host = isHost();
+    const etiqueta = box.querySelector(".embed-game-tag");
+
+    if (esMixto()) {
+      /* Cada jugador elige su juego, anfitrión o no. */
+      if (!eraMixto) {
+        eraMixto = true;
+        /* El aviso de "no tienes el juego de la sala" ya no viene a cuento. */
+        cierraDialogo();
+      }
+      if (etiqueta) etiqueta.textContent = "MI JUEGO";
+      select.hidden = false;
+      value.hidden = true;
+      const mios = misJuegos();
+      if (miJuego && !mios.some((name) => gameKey(name) === gameKey(miJuego))) miJuego = "";
+      const firma = "mixto::" + mios.join("|") + "::" + miJuego;
+      if (select.dataset.signature !== firma) {
+        select.dataset.signature = firma;
+        select.textContent = "";
+        const vacio = document.createElement("option");
+        vacio.value = "";
+        vacio.textContent = "ELIGE TU JUEGO";
+        select.append(vacio);
+        for (const name of mios) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          select.append(option);
+        }
+        const igual = [...select.options].find((option) => option.value && gameKey(option.value) === gameKey(miJuego));
+        select.value = igual ? igual.value : "";
+      }
+      dicePlan();
+      return;
+    }
+    eraMixto = false;
+    if (etiqueta) etiqueta.textContent = "JUEGO";
+    dicePlan();
     select.hidden = !host;
     value.hidden = host;
 
@@ -371,6 +515,13 @@
   /* Quién no puede jugar todavía: sin juego elegido, o alguien que no lo tiene
      cargado en su emulador. */
   function startProblem() {
+    if (esMixto()) {
+      const problema = problemaMixto();
+      /* Si lo que falta es cosa del otro (su acceso a mi juego), que se
+         entere él también: es quien puede pedirlo. */
+      if (problema) games()?.check(miJuego);
+      return problema;
+    }
     const wanted = gameKey(roomGame());
     if (!wanted) return "ELIGE UN JUEGO EN LA ESQUINA INFERIOR DERECHA";
 
@@ -520,6 +671,22 @@
 
     const hostMenu = byId("hostMenu");
     const start = byId("startSession");
+    if (hostMenu && !byId("embedMixto")) {
+      const linea = document.createElement("label");
+      linea.className = "check-line top-gap";
+      const casilla = document.createElement("input");
+      casilla.type = "checkbox";
+      casilla.id = "embedMixto";
+      casilla.checked = mixtoHost;
+      casilla.addEventListener("change", () => {
+        mixtoHost = casilla.checked;
+        publicaJuegos();
+        refreshGameCorner();
+        toast(mixtoHost ? "JUEGOS DISTINTOS: CADA JUGADOR ELIGE EL SUYO" : "TODOS CON EL JUEGO DE LA SALA", 3600);
+      });
+      linea.append(casilla, document.createTextNode(" Juegos distintos: cada jugador lleva el suyo (2 jugadores)"));
+      hostMenu.prepend(linea);
+    }
     if (hostMenu && start) {
       const main = document.createElement("div");
       main.className = "embed-select-main";
@@ -557,7 +724,12 @@
       refreshGameCorner();
       revisaMiJuego(false);
     });
-    games()?.onCheck(() => revisaMiJuego(true));
+    games()?.onCheck(() => {
+      /* En juegos distintos: si a este jugador le falta acceso al juego del
+         otro, aquí le sale la opción de pedirlo. */
+      if (esMixto()) { problemaMixto(); return; }
+      revisaMiJuego(true);
+    });
     games()?.onRequest(atiendePeticion);
     games()?.onTransfer(sigueEnvio);
     games()?.onOffer(llegaOferta);
@@ -846,6 +1018,7 @@
 
   function revisaMiJuego(forzar) {
     if (!inRoom()) { avisadoDe = ""; return; }
+    if (esMixto()) { avisadoDe = ""; return; }
     const nombre = roomGame();
     const wanted = gameKey(nombre);
     if (!wanted || hasGame(context, wanted)) { avisadoDe = ""; return; }
@@ -919,7 +1092,10 @@
       library: context.library,
       tiene: Object.keys(context.aliases || {}).filter((clave) => context.aliases[clave]),
       origen: context.romLoaded ? context.source : "",
-      sala: miSala
+      sala: miSala,
+      mixto: isHost() && mixtoHost,
+      mio: miJuego ? { name: miJuego, origen: origenDe(miJuego) } : null,
+      envio: context.envioRoms === true
     });
   }
 
@@ -1313,7 +1489,10 @@
     if (errorBox) root.append(errorBox);
 
     byId("embedBack").addEventListener("click", () => post({ type: "close" }));
-    byId("embedGameSelect").addEventListener("change", (event) => applyGameChoice(event.target.value));
+    byId("embedGameSelect").addEventListener("change", (event) => {
+      if (esMixto()) eligeMiJuego(event.target.value);
+      else applyGameChoice(event.target.value);
+    });
     setupGames();
 
     const watch = (el, onChange) => {
