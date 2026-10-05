@@ -34,7 +34,8 @@
     frame = document.createElement("iframe");
     frame.className = "lobby-overlay-frame";
     frame.title = "ML3D Link";
-    frame.allow = "autoplay; clipboard-write";
+    /* Cámara para leer el QR de una sala; ubicación para buscar salas cerca. */
+    frame.allow = "autoplay; clipboard-write; camera; geolocation";
     frame.src = LOBBY_URL;
 
     host.append(frame);
@@ -91,8 +92,44 @@
       romLoaded: Boolean(filename),
       romHash: hashedFor === filename ? romHash : "",
       system: /\.(gbc|gb)$/i.test(filename) ? filename.toLowerCase().endsWith(".gbc") ? "gbc" : "gb" : "gba",
-      library: library || []
+      library: library || [],
+      /* De dónde viene el juego cargado y qué juegos de sala ha dicho este
+         jugador que tiene con otro nombre. */
+      romSource: runtime?.romSource || "",
+      aliases: readAliases()
     };
+  }
+
+  const ALIAS_PREFIX = "ml3d-link-alias:";
+
+  function readAliases() {
+    const out = {};
+    try {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && key.startsWith(ALIAS_PREFIX)) out[key.slice(ALIAS_PREFIX.length)] = localStorage.getItem(key) || "";
+      }
+    } catch {}
+    return out;
+  }
+
+  /* El lobby pide el juego cargado para enviárselo a otro jugador. Solo se
+     entrega un juego que este jugador cargó desde un archivo suyo: uno de la
+     biblioteca no sale de aquí. */
+  function sendLocalRom() {
+    const runtime = window.ML3DLinkRuntime;
+    const bytes = runtime?.romSource === "local" ? runtime.romBytes : null;
+    const filename = runtime?.romFilename || "";
+    if (!bytes?.byteLength || !filename) {
+      post({ type: "rom-bytes", denied: true });
+      return;
+    }
+    post({
+      type: "rom-bytes",
+      bytes: bytes.buffer,
+      filename: filename.split("/").pop(),
+      system: /\.gbc$/i.test(filename) ? "gbc" : /\.gb$/i.test(filename) ? "gb" : "gba"
+    });
   }
 
   /* El hash y la biblioteca llegan tarde: se reenvía el contexto al tenerlos. */
@@ -158,6 +195,20 @@
     }
     if (data.type === "load-rom") {
       loadSharedRom(data);
+      return;
+    }
+    if (data.type === "set-alias") {
+      const key = String(data.key || "").slice(0, 120);
+      const name = String(data.name || "").slice(0, 160);
+      try {
+        if (key && name) localStorage.setItem(ALIAS_PREFIX + key, name);
+        else if (key) localStorage.removeItem(ALIAS_PREFIX + key);
+      } catch {}
+      sendContext();
+      return;
+    }
+    if (data.type === "rom-request") {
+      sendLocalRom();
       return;
     }
     if (data.type === "close" || data.type === "link-start") close();

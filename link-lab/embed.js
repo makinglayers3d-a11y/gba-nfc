@@ -9,7 +9,10 @@
        (flechas para moverse, "l" personaje, "r" chat, click en SELECT).
      - Añade el selector de juego de la sala y el aviso cuando alguien no
        lleva el mismo cartucho, comparado por huella (hash).
-     No reparte juegos: cada jugador carga el suyo.
+     - Enseña el código de la sala, su QR y un lector de QR para entrar.
+     - Si un jugador no tiene el juego de la sala con ese nombre, le deja
+       decir cuál es el suyo; y si no lo tiene, pedírselo a quien lo cargó
+       desde un archivo propio. Un juego de la biblioteca no se envía.
      El resto de la lógica del lobby no se toca. */
 
   if (new URLSearchParams(location.search).get("embed") !== "1") return;
@@ -22,6 +25,7 @@
   const MENU = [
     { id: "create", label: "CREAR SALA", nodes: ["#createCard"] },
     { id: "code", label: "ENTRAR POR CÓDIGO", nodes: ["#codeJoinBlock"] },
+    { id: "qr", label: "ESCANEAR QR", nodes: [] },
     { id: "nearby", label: "BUSCAR CERCA", nodes: ["#searchNearbyBlock", "#roomsList"] },
     { id: "settings", label: "AJUSTES", nodes: [".api-card", ".log-card"] },
     { id: "join", label: "UNIRSE A LA SALA", nodes: ["#joinCard"], hidden: true }
@@ -29,7 +33,7 @@
 
   let cursorIndex = 0;
   let activePanel = null;
-  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [] };
+  let context = { game: "", romFilename: "", romLoaded: false, romHash: "", system: "gba", library: [], source: "", aliases: {} };
 
   const games = () => window.ML3DRoomGames;
   const cleanName = (value) => String(value || "").replace(/\s*★$/, "").trim();
@@ -43,8 +47,13 @@
     .trim()
     .toLowerCase();
 
+  /* Tiene el juego quien lo lleva cargado, quien lo tiene en su biblioteca o
+     quien ha dicho que es otro de los suyos con distinto nombre. */
   const hasGame = (who, wanted) =>
-    gameKey(who.game) === wanted || (who.library || []).some((name) => gameKey(name) === wanted);
+    gameKey(who.game) === wanted ||
+    (who.library || []).some((name) => gameKey(name) === wanted) ||
+    (who.tiene || []).includes(wanted) ||
+    Boolean(who.aliases && who.aliases[wanted]);
 
   function post(message, transfer) {
     try {
@@ -72,6 +81,14 @@
       <span class="embed-game-value" id="embedGameValue"></span>
     </div>
     <p class="embed-toast" id="embedToast" hidden></p>
+    <div class="embed-dialog" id="embedDialog" hidden>
+      <div class="embed-dialog-card">
+        <p class="embed-dialog-text" id="embedDialogText"></p>
+        <div class="embed-dialog-qr" id="embedDialogQr" hidden></div>
+        <select class="embed-dialog-select" id="embedDialogSelect" aria-label="Tus juegos" hidden></select>
+        <div class="embed-dialog-actions" id="embedDialogActions"></div>
+      </div>
+    </div>
 `;
 
   function panelFor(id) {
@@ -91,6 +108,17 @@
       for (const selector of item.nodes) {
         const node = document.querySelector(selector);
         if (node) panel.append(node);
+      }
+      if (item.id === "qr") {
+        const estado = document.createElement("p");
+        estado.className = "hint";
+        estado.id = "embedQrEstado";
+        const video = document.createElement("video");
+        video.id = "embedQrVideo";
+        video.className = "embed-qr-video";
+        video.muted = true;
+        video.playsInline = true;
+        panel.append(estado, video);
       }
       panels.append(panel);
     }
@@ -125,7 +153,7 @@
   }
 
   function openModalEl() {
-    return [byId("avatarModal"), byId("selectModal")]
+    return [byId("embedDialog"), byId("avatarModal"), byId("selectModal")]
       .find((modal) => modal && !modal.hidden) || null;
   }
 
@@ -144,6 +172,8 @@
       if (panel) panel.hidden = item.id !== activePanel;
     }
     byId("embedMenu").hidden = Boolean(activePanel);
+    if (activePanel === "qr") iniciaEscaner();
+    else paraEscaner();
     resetCursor();
     refreshHelp();
   }
@@ -272,13 +302,18 @@
   }
 
   function gameOptions() {
-    const list = new Set();
-    if (context.game) list.add(context.game);
-    for (const name of context.library || []) list.add(String(name).replace(/\.(gba|gbc|gb)$/i, ""));
-    for (const peer of games()?.peers() || []) {
-      if (peer.game) list.add(peer.game);
-    }
-    return [...list].filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
+    /* El juego abierto puede venir con extensión y el de la biblioteca sin
+       ella: son el mismo. Se guarda uno por clave, sin extensión. */
+    const porClave = new Map();
+    const anota = (name) => {
+      const limpio = String(name || "").replace(/\.(gba|gbc|gb)$/i, "").trim();
+      const clave = gameKey(limpio);
+      if (clave && !porClave.has(clave)) porClave.set(clave, limpio);
+    };
+    for (const name of context.library || []) anota(name);
+    anota(context.game);
+    for (const peer of games()?.peers() || []) anota(peer.game);
+    return [...porClave.values()].sort((a, b) => a.localeCompare(b, "es"));
   }
 
   function refreshGameCorner() {
@@ -315,7 +350,10 @@
         option.textContent = name;
         select.append(option);
       }
-      select.value = wanted;
+      /* El juego de la sala puede llevar extensión: se elige el que coincide
+         por clave. */
+      const igual = [...select.options].find((option) => option.value && gameKey(option.value) === gameKey(wanted));
+      select.value = igual ? igual.value : "";
     }
   }
 
@@ -345,7 +383,13 @@
     for (const peer of known) {
       if (!hasGame(peer, wanted)) missing.push(peer.name.toUpperCase());
     }
-    if (missing.length) return `SIN ESE JUEGO: ${missing.join(", ")} · QUE LO CARGUE EN SU EMULADOR`;
+    if (missing.length) {
+      /* A los demás se les abre el aviso para que digan cuál es su juego o
+         lo pidan; a uno mismo, también. */
+      games()?.check(roomGame());
+      revisaMiJuego(true);
+      return `SIN ESE JUEGO: ${missing.join(", ")} · SE LE HA AVISADO`;
+    }
 
     /* Mismo título no es mismo cartucho: dos versiones o dos regiones del
        mismo juego divergen en cuanto empieza la partida. Se comparan las
@@ -382,6 +426,19 @@
       hostMenu.prepend(main);
     }
 
+    for (const menu of [hostMenu, byId("guestMenu")]) {
+      if (!menu) continue;
+      const qr = document.createElement("button");
+      qr.type = "button";
+      qr.className = "embed-qr-button top-gap";
+      qr.textContent = "CÓDIGO QR DE LA SALA";
+      qr.addEventListener("click", () => {
+        byId("selectModal").hidden = true;
+        muestraQr();
+      });
+      menu.prepend(qr);
+    }
+
     /* La validación va antes que el handler de rooms.js: este listener se
        registra primero porque rooms.js se evalúa después del loader. */
     start?.addEventListener("click", (event) => {
@@ -395,7 +452,298 @@
 
   /* Cambia lo que sabemos de los demas: repinta el selector de juego. */
   function setupGames() {
-    games()?.onChange(refreshGameCorner);
+    games()?.onChange(() => {
+      refreshGameCorner();
+      revisaMiJuego(false);
+    });
+    games()?.onCheck(() => revisaMiJuego(true));
+    games()?.onRequest(atiendePeticion);
+    games()?.onTransfer(sigueEnvio);
+  }
+
+  /* ---------- diálogo ---------- */
+
+  let dialogoCancelar = null;
+
+  function cierraDialogo() {
+    const box = byId("embedDialog");
+    if (!box || box.hidden) return;
+    box.hidden = true;
+    dialogoCancelar = null;
+    resetCursor();
+    refreshHelp();
+  }
+
+  /* Un aviso con botones, manejable con la cruceta como el resto del lobby.
+     `opciones` llena un desplegable; `qr` es un SVG ya generado. */
+  function dialogo({ texto, opciones = [], qr = "", botones = [], alCancelar = null }) {
+    const box = byId("embedDialog");
+    if (!box) return;
+    byId("embedDialogText").textContent = texto;
+
+    const select = byId("embedDialogSelect");
+    select.textContent = "";
+    select.hidden = !opciones.length;
+    for (const name of opciones) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.append(option);
+    }
+
+    const zonaQr = byId("embedDialogQr");
+    zonaQr.hidden = !qr;
+    zonaQr.innerHTML = qr;
+
+    const acciones = byId("embedDialogActions");
+    acciones.textContent = "";
+    for (const boton of botones) {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.textContent = boton.texto;
+      if (boton.principal) el.className = "primary";
+      el.addEventListener("click", () => {
+        const valor = select.hidden ? "" : select.value;
+        cierraDialogo();
+        boton.accion?.(valor);
+      });
+      acciones.append(el);
+    }
+
+    dialogoCancelar = alCancelar;
+    box.hidden = false;
+    resetCursor();
+    refreshHelp();
+  }
+
+  /* ---------- quien no tiene el juego de la sala ---------- */
+
+  let avisadoDe = "";
+
+  /* Jugadores que tienen cargado el juego de la sala desde un archivo suyo:
+     son los únicos que pueden enviarlo. */
+  function quienPuedeEnviar(wanted) {
+    return (games()?.peers() || []).filter((peer) => peer.origen === "local" && gameKey(peer.game) === wanted);
+  }
+
+  function revisaMiJuego(forzar) {
+    if (!inRoom()) { avisadoDe = ""; return; }
+    const nombre = roomGame();
+    const wanted = gameKey(nombre);
+    if (!wanted || hasGame(context, wanted)) { avisadoDe = ""; return; }
+    if (!forzar && avisadoDe === wanted) return;
+    avisadoDe = wanted;
+
+    const mios = [];
+    const vistos = new Set();
+    for (const name of [context.game, ...(context.library || [])]) {
+      const limpio = String(name || "").replace(/\.(gba|gbc|gb)$/i, "").trim();
+      const clave = gameKey(limpio);
+      if (!clave || vistos.has(clave)) continue;
+      vistos.add(clave);
+      mios.push(limpio);
+    }
+    mios.sort((a, b) => a.localeCompare(b, "es"));
+
+    const origen = quienPuedeEnviar(wanted)[0] || null;
+    const botones = [];
+    if (mios.length) {
+      botones.push({
+        texto: "ES ESTE",
+        principal: true,
+        accion: (elegido) => {
+          if (!elegido) return;
+          context = { ...context, aliases: { ...context.aliases, [wanted]: elegido } };
+          post({ type: "set-alias", key: wanted, name: elegido });
+          publicaJuegos();
+          toast(`«${nombre.toUpperCase()}» ES TU «${elegido.toUpperCase()}»`, 3200);
+        }
+      });
+    }
+    if (origen) {
+      botones.push({
+        texto: "SOLICITAR ROM",
+        accion: () => {
+          const enviado = games()?.request(origen.name, nombre);
+          toast(enviado ? `PETICIÓN ENVIADA A ${origen.name.toUpperCase()}` : "NO SE PUDO ENVIAR LA PETICIÓN", 3200);
+        }
+      });
+    }
+    botones.push({ texto: "CANCELAR" });
+
+    let texto = `LA SALA JUEGA A «${nombre.toUpperCase()}» Y NO LO ENCUENTRO CON ESE NOMBRE EN TU DISPOSITIVO.`;
+    if (mios.length) texto += " SI LO TIENES CON OTRO NOMBRE, ELÍGELO.";
+    if (origen) texto += ` SI NO LO TIENES, ${origen.name.toUpperCase()} PUEDE ENVIÁRTELO.`;
+    else if (!mios.length) texto += " ES UN JUEGO DE LA BIBLIOTECA Y NO SE PUEDE ENVIAR.";
+
+    dialogo({ texto, opciones: mios, botones });
+  }
+
+  /* Lo que este jugador cuenta a los demás sobre sus juegos. */
+  function publicaJuegos() {
+    games()?.setLocal({
+      game: context.game,
+      hash: context.romHash,
+      system: context.system,
+      library: context.library,
+      tiene: Object.keys(context.aliases || {}).filter((clave) => context.aliases[clave]),
+      origen: context.romLoaded ? context.source : ""
+    });
+  }
+
+  /* ---------- envío del juego ---------- */
+
+  let enviandoA = "";
+
+  /* Alguien pide el juego. Solo se ofrece si es el de la sala y se cargó desde
+     un archivo propio; la página del emulador lo vuelve a comprobar antes de
+     dar los bytes. */
+  function atiendePeticion({ from, game }) {
+    const mio = context.romLoaded && context.source === "local" && gameKey(context.game) === gameKey(game);
+    if (!mio) {
+      games()?.deny(from, "ESE JUEGO ES DE LA BIBLIOTECA Y NO SE PUEDE ENVIAR.");
+      return;
+    }
+    dialogo({
+      texto: `${from.toUpperCase()} NO TIENE «${String(game).toUpperCase()}» Y TE LO PIDE. ¿SE LO ENVÍAS?`,
+      botones: [
+        { texto: "ENVIAR", principal: true, accion: () => { enviandoA = from; post({ type: "rom-request" }); } },
+        { texto: "NO", accion: () => games()?.deny(from, "EL ANFITRIÓN NO HA QUERIDO ENVIARLO.") }
+      ],
+      alCancelar: () => games()?.deny(from, "EL ANFITRIÓN NO HA QUERIDO ENVIARLO.")
+    });
+  }
+
+  function entregaRom(data) {
+    const destino = enviandoA;
+    enviandoA = "";
+    if (!destino) return;
+    if (data.denied || !data.bytes) {
+      games()?.deny(destino, "ESE JUEGO NO SE PUEDE ENVIAR.");
+      toast("ESE JUEGO NO SE PUEDE ENVIAR", 3200);
+      return;
+    }
+    games()?.sendRom(destino, {
+      bytes: new Uint8Array(data.bytes),
+      name: String(data.filename || "juego.gba"),
+      system: String(data.system || "gba")
+    }).catch((error) => console.error("ML3D Link: envío del juego:", error));
+  }
+
+  function sigueEnvio(paso) {
+    const tanto = Math.round((paso.progress || 0) * 100);
+    if (paso.state === "start") toast(`RECIBIENDO «${String(paso.name).toUpperCase()}»…`, 4000);
+    else if (paso.state === "progress") toast(`RECIBIENDO ${tanto}%`, 4000);
+    else if (paso.state === "sending") toast(`ENVIANDO ${tanto}%`, 4000);
+    else if (paso.state === "sent") toast("JUEGO ENVIADO", 3200);
+    else if (paso.state === "denied") toast(paso.reason || "NO SE HA ENVIADO EL JUEGO", 4200);
+    else if (paso.state === "done") {
+      toast("JUEGO RECIBIDO · ABRIÉNDOLO", 3200);
+      post({ type: "load-rom", bytes: paso.bytes.buffer, filename: paso.name }, [paso.bytes.buffer]);
+    }
+  }
+
+  /* ---------- QR de la sala ---------- */
+
+  const QR_PREFIJO = "ML3DLINK:";
+  let qrCargando = null;
+
+  function codigoDeSala() {
+    return String(byId("lobbyRoomCode")?.textContent || "").replace(/^Código\s*/i, "").trim();
+  }
+
+  /* El generador de QR pesa 56 KB y casi nunca hace falta: se trae al pedirlo. */
+  function cargaQr() {
+    if (window.qrcode) return Promise.resolve(window.qrcode);
+    if (!qrCargando) {
+      qrCargando = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "../vendor/qrcode-generator.js?v=1.4.4";
+        script.onload = () => resolve(window.qrcode);
+        script.onerror = () => { qrCargando = null; reject(new Error("no se pudo cargar el generador de QR")); };
+        document.head.append(script);
+      });
+    }
+    return qrCargando;
+  }
+
+  async function muestraQr() {
+    const codigo = codigoDeSala();
+    if (!codigo) { toast("TODAVÍA NO HAY SALA"); return; }
+    let svg = "";
+    try {
+      const qrcode = await cargaQr();
+      const qr = qrcode(0, "M");
+      qr.addData(QR_PREFIJO + codigo);
+      qr.make();
+      svg = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    } catch (error) {
+      console.error("ML3D Link: QR:", error);
+    }
+    dialogo({
+      texto: svg
+        ? `CÓDIGO ${codigo} · QUE EL OTRO JUGADOR LO ESCANEE DESDE «ESCANEAR QR»`
+        : `CÓDIGO ${codigo} · NO SE PUDO DIBUJAR EL QR`,
+      qr: svg,
+      botones: [{ texto: "CERRAR", principal: true }]
+    });
+  }
+
+  /* ---------- lector de QR ---------- */
+
+  let qrStream = null;
+  let qrTimer = null;
+
+  function paraEscaner() {
+    if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
+    if (qrStream) {
+      for (const track of qrStream.getTracks()) track.stop();
+      qrStream = null;
+    }
+    const video = byId("embedQrVideo");
+    if (video) video.srcObject = null;
+  }
+
+  function codigoDelQr(texto) {
+    const limpio = String(texto || "").trim();
+    if (!limpio.toUpperCase().startsWith(QR_PREFIJO)) return "";
+    const codigo = limpio.slice(QR_PREFIJO.length).trim();
+    return /^[A-Za-z0-9_-]{4,16}$/.test(codigo) ? codigo : "";
+  }
+
+  async function iniciaEscaner() {
+    paraEscaner();
+    const estado = byId("embedQrEstado");
+    const video = byId("embedQrVideo");
+    if (!estado || !video) return;
+    if (!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) {
+      estado.textContent = "Este navegador no puede leer códigos QR. Entra con «ENTRAR POR CÓDIGO».";
+      return;
+    }
+    estado.textContent = "Abriendo la cámara…";
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    } catch {
+      estado.textContent = "No se pudo abrir la cámara. Da permiso de cámara o entra con el código.";
+      return;
+    }
+    if (activePanel !== "qr") { paraEscaner(); return; }
+    video.srcObject = qrStream;
+    await video.play().catch(() => {});
+    const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+    estado.textContent = "Apunta al QR de la sala.";
+    qrTimer = setInterval(async () => {
+      let vistos = [];
+      try { vistos = await detector.detect(video); } catch { return; }
+      const codigo = vistos.map((item) => codigoDelQr(item.rawValue)).find(Boolean);
+      if (!codigo) return;
+      paraEscaner();
+      const campo = byId("roomCode");
+      if (campo) campo.value = codigo;
+      closePanel();
+      toast(`CÓDIGO ${codigo} LEÍDO`);
+      byId("joinByCode")?.click();
+    }, 300);
   }
 
   /* ---------- entrada desde el emulador ---------- */
@@ -422,6 +770,12 @@
     }
     const modal = openModalEl();
     if (modal) {
+      if (modal.id === "embedDialog") {
+        const cancelar = dialogoCancelar;
+        cierraDialogo();
+        cancelar?.();
+        return;
+      }
       modal.hidden = true;
       resetCursor();
       refreshHelp();
@@ -471,26 +825,26 @@
       romLoaded: Boolean(data.romLoaded),
       romHash: String(data.romHash || ""),
       system: String(data.system || "gba"),
-      library: Array.isArray(data.library) ? data.library.map(String) : context.library
+      library: Array.isArray(data.library) ? data.library.map(String) : context.library,
+      source: String(data.romSource || ""),
+      aliases: data.aliases && typeof data.aliases === "object" ? data.aliases : context.aliases
     };
 
     const note = byId("embedNote");
     if (note) {
+      /* No hace falta tener un juego abierto para entrar: el de la sala se
+         abre solo al iniciar la conexión. */
       note.textContent = context.romLoaded
-        ? `Juego cargado: ${context.game || context.romFilename}`
-        : "Sin juego cargado: carga una ROM antes de iniciar la conexión.";
-      note.classList.toggle("embed-note-warn", !context.romLoaded);
+        ? `Juego cargado: ${(context.game || context.romFilename).replace(/\.(gba|gbc|gb)$/i, "")}`
+        : "Sin juego abierto: el de la sala se abrirá al iniciar la conexión.";
+      note.classList.remove("embed-note-warn");
     }
     const gameInput = byId("gameName");
     if (gameInput && !gameInput.value && context.game) gameInput.value = context.game;
 
-    games()?.setLocal({
-      game: context.game,
-      hash: context.romHash,
-      system: context.system,
-      library: context.library
-    });
+    publicaJuegos();
     refreshGameCorner();
+    revisaMiJuego(false);
   }
 
   window.addEventListener("message", (event) => {
@@ -500,6 +854,7 @@
 
     if (data.type === "input") handleInput(String(data.key || ""), Boolean(data.down));
     else if (data.type === "context") applyContext(data);
+    else if (data.type === "rom-bytes") entregaRom(data);
     else if (data.type === "visible" && data.visible) {
       refreshView();
       paintCursor();
@@ -552,10 +907,21 @@
     }
     const gameName = byId("lobbyGameName");
     if (gameName) {
-      new MutationObserver(refreshGameCorner).observe(gameName, {
+      new MutationObserver(() => {
+        refreshGameCorner();
+        revisaMiJuego(false);
+      }).observe(gameName, {
         childList: true, characterData: true, subtree: true
       });
     }
+
+    window.addEventListener("ml3d-lobby-aviso", (event) => {
+      const aviso = event.detail || {};
+      if (aviso.tipo !== "ubicacion-imprecisa") return;
+      toast(aviso.accion === "buscar"
+        ? `TU UBICACIÓN ES IMPRECISA (~${aviso.km} KM): PUEDE QUE NO VEAS SALAS CERCANAS. ENTRA CON EL CÓDIGO O EL QR.`
+        : `TU UBICACIÓN ES IMPRECISA (~${aviso.km} KM): NADIE TE ENCONTRARÁ BUSCANDO CERCA. PASA EL CÓDIGO O EL QR.`, 9000);
+    });
 
     setupSelectMenu();
     refreshView();
