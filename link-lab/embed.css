@@ -512,3 +512,83 @@ body.ml3d-embed .embed-share-button {
   width: 100%;
   letter-spacing: 0.06em;
 }
+
+/* Aviso con botones dentro de la pantalla: quien no tiene el juego, la
+   petición de un juego y el QR de la sala. */
+.embed-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 0.6em;
+  background: rgba(3, 7, 11, 0.78);
+  pointer-events: auto;
+}
+
+.embed-dialog[hidden] {
+  display: none;
+}
+
+.embed-dialog-card {
+  width: min(94%, 26em);
+  max-height: 96%;
+  overflow: auto;
+  padding: 0.7em 0.8em;
+  border: 1px solid rgba(120, 195, 240, 0.5);
+  border-radius: 0.6em;
+  background: linear-gradient(180deg, rgba(16, 36, 52, 0.97), rgba(6, 14, 22, 0.97));
+  box-shadow: 0 0 18px rgba(105, 186, 233, 0.3);
+  color: #eaf4ff;
+}
+
+.embed-dialog-text {
+  margin: 0 0 0.6em;
+  font-size: 0.8em;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.embed-dialog-select {
+  width: 100%;
+  margin-bottom: 0.6em;
+  font-size: 0.85em;
+}
+
+.embed-dialog-qr {
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.6em;
+}
+
+/* El QR va sobre blanco: sin ese contraste una cámara no lo lee. */
+.embed-dialog-qr svg {
+  width: min(58%, 11em);
+  height: auto;
+  border-radius: 0.3em;
+  background: #fff;
+}
+
+.embed-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.embed-dialog-actions button {
+  flex: 1 1 auto;
+  width: auto;
+  min-height: 2.2em;
+  padding: 0.3em 0.6em;
+  font-size: 0.8em;
+}
+
+.embed-qr-video {
+  display: block;
+  width: 100%;
+  max-height: 60%;
+  margin-top: 0.4em;
+  border-radius: 0.5em;
+  background: #000;
+  object-fit: cover;
+}

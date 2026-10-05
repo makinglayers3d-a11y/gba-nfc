@@ -499,17 +499,33 @@ window.ML3DLinkRuntime = {
   get romFilename() {
     return currentGbaRomFilename;
   },
+  /* "local" si el juego cargado viene de un archivo del propio jugador;
+     "remote" si es de la biblioteca. El lobby lo necesita: un juego de la
+     biblioteca no se envia nunca a otro jugador. */
+  get romSource() {
+    return currentSource;
+  },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
   /* Abre el juego que la sala ha elegido, si no es el que ya está puesto, y si
      lo es lo reinicia limpio. Lo llama LocalLinkSession al configurarse. */
   async prepareForLink(game) {
     const wanted = normalizeGameName(game);
-    if (!wanted || wanted === normalizeGameName(selected?.name)) {
+    if (!wanted || (currentGbaRomBytes && wanted === normalizeGameName(selected?.name))) {
       return this.restartForLink();
     }
 
-    const filename = await findLibraryRom(wanted);
+    /* El mismo juego puede llamarse distinto en cada dispositivo. Si este
+       jugador ya dijo en el lobby cual es el suyo, se usa ese nombre. */
+    let propio = "";
+    try { propio = localStorage.getItem("ml3d-link-alias:" + wanted) || ""; } catch (_) {}
+    if (propio && currentGbaRomBytes && normalizeGameName(propio) === normalizeGameName(selected?.name)) {
+      return this.restartForLink();
+    }
+
+    const filename =
+      (propio && await findLibraryRom(normalizeGameName(propio))) ||
+      await findLibraryRom(wanted);
     if (!filename) {
       console.warn("ML3D Link: la sala pide un juego que no está en esta biblioteca:", game);
       return this.restartForLink();

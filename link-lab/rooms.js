@@ -123,6 +123,22 @@
     });
   }
 
+  /* Sin GPS ni wifi, el navegador calcula la ubicación por la dirección de
+     red y puede fallar por cientos de kilómetros. Una sala creada así cae
+     lejos de donde está de verdad y nadie la encuentra buscando cerca, y una
+     búsqueda hecha así mira en otro sitio. Se dice, para que se use el código
+     o el QR. */
+  const UBICACION_IMPRECISA_M = 1500;
+  function avisaUbicacionImprecisa(loc, accion) {
+    const metros = Number(loc?.accuracy);
+    if (!(metros > UBICACION_IMPRECISA_M)) return;
+    const km = metros >= 10000 ? Math.round(metros / 1000) : (metros / 1000).toFixed(1);
+    log(`Ubicación imprecisa: ~${km} km.`);
+    window.dispatchEvent(new CustomEvent("ml3d-lobby-aviso", {
+      detail: { tipo: "ubicacion-imprecisa", accion, km: String(km) }
+    }));
+  }
+
   function waitIce(peer) {
     if (peer.iceGatheringState === "complete") return Promise.resolve();
     return new Promise((resolve) => {
@@ -1316,6 +1332,7 @@
       setLobbyVisible(true);
       setState("working", "Sala publicada · esperando jugadores");
       log(`Sala ${data.room.id} creada. Precisión del navegador: ~${Math.round(loc.accuracy)} m.`);
+      avisaUbicacionImprecisa(loc, "crear");
       hostSession.pollTimer = setInterval(pollHostJoins, 1200);
       hostSession.heartbeatTimer = setInterval(() => {
         api(`/v1/rooms/${encodeURIComponent(data.room.id)}/heartbeat`, { method: "POST", token: data.hostToken })
@@ -1555,6 +1572,7 @@
         return seats >= 2 && seats <= MAX_JUGADORES_ONLINE;
       });
       renderRooms(compatibleRooms);
+      avisaUbicacionImprecisa(loc, "buscar");
       setState("idle", compatibleRooms.length ? `${compatibleRooms.length} sala(s) Link encontrada(s)` : "No hay salas Link cercanas");
     } catch (e) {
       fail(e, "No se pudieron buscar salas");
