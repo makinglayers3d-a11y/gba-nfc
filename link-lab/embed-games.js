@@ -32,7 +32,9 @@
   /* `tiene`: claves de juegos de la sala que este jugador ha dicho que tiene
      aunque en su dispositivo se llamen de otra forma.
      `origen`: "local" si el juego cargado viene de un archivo suyo. */
-  let local = { name: "", game: "", hash: "", system: "", library: [], tiene: [], origen: "" };
+  /* `sala`: huella de la copia que este jugador usará para el juego de la
+     sala, { key, hash }, la tenga abierta o no. */
+  let local = { name: "", game: "", hash: "", system: "", library: [], tiene: [], origen: "", sala: null };
 
   const clean = (value) => String(value || "").replace(/\s*★$/, "").trim().slice(0, 32);
 
@@ -123,7 +125,8 @@
       system: local.system,
       library: local.library,
       tiene: local.tiene,
-      origen: local.origen
+      origen: local.origen,
+      sala: local.sala
     });
   }
 
@@ -143,6 +146,9 @@
           library: Array.isArray(packet.library) ? packet.library.map(String) : [],
           tiene: Array.isArray(packet.tiene) ? packet.tiene.map(String) : [],
           origen: String(packet.origen || ""),
+          sala: packet.sala && typeof packet.sala === "object"
+            ? { key: String(packet.sala.key || ""), hash: String(packet.sala.hash || "") }
+            : null,
           at: Date.now()
         });
         notify();

@@ -198,6 +198,7 @@
     refreshTitle();
     refreshHelp();
     refreshGameCorner();
+    actualizaMiSala();
   }
 
   function refreshTitle() {
@@ -397,17 +398,116 @@
        tiene huella todavía y no bloquea aquí, pero la sesión lo vuelve a
        comprobar al conectar el cable. */
     const huellas = new Map();
-    if (context.romHash) huellas.set(context.romHash, ["TÚ"]);
+    const miHuella = huellaPara({ ...context, hash: context.romHash, sala: miSala }, wanted);
+    if (miHuella) huellas.set(miHuella, ["TÚ"]);
     for (const peer of known) {
-      if (!peer.hash) continue;
-      if (!huellas.has(peer.hash)) huellas.set(peer.hash, []);
-      huellas.get(peer.hash).push(peer.name.toUpperCase());
+      const suya = huellaPara(peer, wanted);
+      if (!suya) continue;
+      if (!huellas.has(suya)) huellas.set(suya, []);
+      huellas.get(suya).push(peer.name.toUpperCase());
     }
     if (huellas.size > 1) {
       const grupos = [...huellas.values()].map((quienes) => quienes.join("+"));
       return `CARTUCHOS DISTINTOS: ${grupos.join(" ≠ ")} · TODOS CON LA MISMA COPIA`;
     }
     return "";
+  }
+
+  /* ---------- huella del juego de la sala ---------- */
+
+  /* Huella de la copia que un jugador usará para el juego de la sala: la que
+     ha anunciado para ese juego o, si lo tiene abierto, la del juego abierto.
+     La de otro juego que tenga abierto no cuenta. */
+  function huellaPara(who, wanted) {
+    if (who.sala && who.sala.key === wanted && who.sala.hash) return who.sala.hash;
+    if (who.hash && gameKey(who.game) === wanted) return who.hash;
+    return "";
+  }
+
+  let miSala = null;
+  let salaPedida = "";
+  let pedidos = 0;
+  const esperas = new Map();
+
+  /* Pide a la página del emulador la huella de un juego de este dispositivo. */
+  function pideHuella(nombre) {
+    return new Promise((resolve) => {
+      const id = ++pedidos;
+      const timer = setTimeout(() => { esperas.delete(id); resolve(""); }, 60000);
+      esperas.set(id, (hash) => { clearTimeout(timer); resolve(hash); });
+      post({ type: "hash-request", id, name: nombre });
+    });
+  }
+
+  function llegaHuella(data) {
+    const listo = esperas.get(data.id);
+    if (!listo) return;
+    esperas.delete(data.id);
+    listo(String(data.hash || ""));
+  }
+
+  /* Quien tiene el juego de la sala calcula la huella de su copia y la
+     anuncia, la tenga abierta o no. Así se sabe antes de empezar si todos
+     llevan el mismo cartucho. */
+  async function actualizaMiSala() {
+    const wanted = inRoom() ? gameKey(roomGame()) : "";
+    const nombre = wanted && hasGame(context, wanted) ? (context.aliases?.[wanted] || roomGame()) : "";
+    const pedido = wanted + "::" + nombre;
+    if (pedido === salaPedida) return;
+    salaPedida = pedido;
+    miSala = null;
+    if (nombre) {
+      const hash = await pideHuella(nombre);
+      if (salaPedida !== pedido) return;
+      /* Sin huella no se da por comprobado: se reintenta al próximo cambio. */
+      if (hash) miSala = { key: wanted, hash };
+      else salaPedida = "";
+    }
+    publicaJuegos();
+  }
+
+  /* Huella de la sala según los demás. Espera un poco: quien acaba de elegir
+     el juego puede estar todavía calculando la suya. */
+  async function huellaDeLaSala(wanted, esperaMs = 8000) {
+    const limite = Date.now() + esperaMs;
+    for (;;) {
+      for (const peer of games()?.peers() || []) {
+        const suya = huellaPara(peer, wanted);
+        if (suya) return suya;
+      }
+      if (Date.now() >= limite) return "";
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+
+  /* "ES ESTE": antes de dar por bueno que el juego elegido es el de la sala,
+     se compara su huella con la de la sala. Mismo título no es mismo cartucho,
+     y título distinto todavía menos. */
+  async function confirmaEquivalencia(wanted, nombre, elegido) {
+    toast("COMPROBANDO QUE ES EL MISMO CARTUCHO…", 12000);
+    const [mia, sala] = await Promise.all([pideHuella(elegido), huellaDeLaSala(wanted)]);
+    if (gameKey(roomGame()) !== wanted) return;
+
+    if (mia && sala && mia !== sala) {
+      dialogo({
+        texto: `CARTUCHOS DISTINTOS: TU «${elegido.toUpperCase()}» NO ES LA MISMA COPIA QUE «${nombre.toUpperCase()}» DE LA SALA. LOS DOS NECESITAN LA MISMA.`,
+        botones: [
+          { texto: "ELEGIR OTRO", principal: true, accion: () => revisaMiJuego(true) },
+          { texto: "CANCELAR" }
+        ]
+      });
+      return;
+    }
+
+    context = { ...context, aliases: { ...context.aliases, [wanted]: elegido } };
+    post({ type: "set-alias", key: wanted, name: elegido });
+    publicaJuegos();
+    actualizaMiSala();
+    /* Sin las dos huellas no se puede comparar aquí; el arranque lo vuelve a
+       mirar con las de todos. */
+    toast(mia && sala
+      ? `«${nombre.toUpperCase()}» ES TU «${elegido.toUpperCase()}» · MISMO CARTUCHO`
+      : `«${nombre.toUpperCase()}» ES TU «${elegido.toUpperCase()}» · SE COMPROBARÁ AL EMPEZAR`, 3600);
   }
 
   /* ---------- menú SELECT ---------- */
@@ -558,11 +658,7 @@
         texto: "ES ESTE",
         principal: true,
         accion: (elegido) => {
-          if (!elegido) return;
-          context = { ...context, aliases: { ...context.aliases, [wanted]: elegido } };
-          post({ type: "set-alias", key: wanted, name: elegido });
-          publicaJuegos();
-          toast(`«${nombre.toUpperCase()}» ES TU «${elegido.toUpperCase()}»`, 3200);
+          if (elegido) confirmaEquivalencia(wanted, nombre, elegido);
         }
       });
     }
@@ -593,7 +689,8 @@
       system: context.system,
       library: context.library,
       tiene: Object.keys(context.aliases || {}).filter((clave) => context.aliases[clave]),
-      origen: context.romLoaded ? context.source : ""
+      origen: context.romLoaded ? context.source : "",
+      sala: miSala
     });
   }
 
@@ -852,6 +949,7 @@
     publicaJuegos();
     refreshGameCorner();
     revisaMiJuego(false);
+    actualizaMiSala();
   }
 
   window.addEventListener("message", (event) => {
@@ -862,6 +960,7 @@
     if (data.type === "input") handleInput(String(data.key || ""), Boolean(data.down));
     else if (data.type === "context") applyContext(data);
     else if (data.type === "rom-bytes") entregaRom(data);
+    else if (data.type === "hash-result") llegaHuella(data);
     else if (data.type === "visible" && data.visible) {
       refreshView();
       paintCursor();
@@ -917,6 +1016,7 @@
       new MutationObserver(() => {
         refreshGameCorner();
         revisaMiJuego(false);
+        actualizaMiSala();
       }).observe(gameName, {
         childList: true, characterData: true, subtree: true
       });

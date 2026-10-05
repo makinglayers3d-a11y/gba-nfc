@@ -507,6 +507,29 @@ window.ML3DLinkRuntime = {
   },
   stopTimers: stopGbaTimers,
   startTimers: startGbaTimers,
+  /* Huella de un juego de este dispositivo, por nombre: el que está abierto o
+     uno de la biblioteca. Es la misma huella corta que compara el lobby. La
+     usa para saber si dos jugadores llevan la misma copia antes de empezar.
+     Devuelve "" si el juego no está aquí. */
+  async gameHash(game) {
+    const wanted = normalizeGameName(game);
+    if (!wanted) return "";
+    let bytes = null;
+    if (currentGbaRomBytes && wanted === normalizeGameName(selected?.name)) {
+      bytes = currentGbaRomBytes;
+    } else {
+      const filename = await findLibraryRom(wanted);
+      const romUrl = filename ? urlDeContenido("games/" + filename) : null;
+      if (!romUrl) return "";
+      /* force-cache: es la misma petición que hará prepareForLink al empezar,
+         así que el juego no se descarga dos veces. */
+      const response = await fetch(romUrl, { cache: "force-cache" });
+      if (!response.ok) return "";
+      bytes = new Uint8Array(await response.arrayBuffer());
+    }
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  },
   /* Abre el juego que la sala ha elegido, si no es el que ya está puesto, y si
      lo es lo reinicia limpio. Lo llama LocalLinkSession al configurarse. */
   async prepareForLink(game) {

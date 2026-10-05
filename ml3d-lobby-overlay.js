@@ -211,6 +211,13 @@
       sendContext();
       return;
     }
+    if (data.type === "hash-request") {
+      const id = data.id;
+      Promise.resolve(window.ML3DLinkRuntime?.gameHash?.(String(data.name || "")))
+        .catch(() => "")
+        .then((hash) => post({ type: "hash-result", id, hash: String(hash || "") }));
+      return;
+    }
     if (data.type === "rom-request") {
       sendLocalRom();
       return;
