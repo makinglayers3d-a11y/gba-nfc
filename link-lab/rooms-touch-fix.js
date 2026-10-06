@@ -175,15 +175,9 @@
     const top = parseFloat(player.style.top || "58");
     if (!Number.isFinite(top)) return;
 
-    const normalized = Math.max(0, Math.min(1, (top - 28) / 60));
-    const scale = 0.86 + normalized * 0.17;
-    const scaleText = scale.toFixed(3);
-    if (player.style.getPropertyValue("--depth-scale") !== scaleText) {
-      player.style.setProperty("--depth-scale", scaleText);
-    }
-
-    const z = String(20 + Math.round(top));
-    if (player.style.zIndex !== z) player.style.zIndex = z;
+    /* La escala y el orden de profundidad los lleva sala.js. Aquí había una
+       escala según la altura (encogía al personaje y deformaba sus píxeles) y
+       un z-index que el tema anulaba y que además pisaba el de sala.js. */
 
     const previous = lastPositions.get(player);
     const current = `${player.style.left}|${player.style.top}`;

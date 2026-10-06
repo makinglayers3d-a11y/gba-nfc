@@ -1005,10 +1005,10 @@
       /* personajes.js pinta a partir de esto y lo valida antes de dibujar. */
       const aspecto = player.aspecto ? JSON.stringify(player.aspecto) : "";
       if (el.dataset.aspecto !== aspecto) el.dataset.aspecto = aspecto;
-      /* Quien está más abajo en la sala se dibuja delante. */
-      el.style.zIndex = String(10 + Math.round(player.y * 10));
-      el.style.left = `${player.x}%`;
-      el.style.top = `${player.y}%`;
+      /* Dónde pisa, en % de la sala. Cómo se ve (posición suavizada, quién
+         va delante, escala) lo decide sala.js. */
+      el.dataset.x = String(player.x);
+      el.dataset.y = String(player.y);
       const nameText = el.querySelector(".player-name-text");
       nameText.textContent = player.host ? `${player.name} ★` : player.name;
       const q = el.querySelector(".quality-dot");
