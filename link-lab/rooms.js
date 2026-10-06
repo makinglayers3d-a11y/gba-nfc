@@ -1002,6 +1002,7 @@
       existing.delete(player.id);
       el.classList.toggle("local", player.id === localPlayerId);
       el.classList.toggle("paused", Boolean(player.paused));
+      el.classList.toggle("silenciado", silenciados.has(player.id));
       /* personajes.js pinta a partir de esto y lo valida antes de dibujar. */
       const aspecto = player.aspecto ? JSON.stringify(player.aspecto) : "";
       if (el.dataset.aspecto !== aspecto) el.dataset.aspecto = aspecto;
@@ -1092,6 +1093,14 @@
       const label = document.createElement("span");
       label.textContent = player.host ? `${player.name} ★` : player.name;
       row.append(label);
+      const silencio = document.createElement("button");
+      silencio.type = "button";
+      silencio.className = "silenciar";
+      const callado = silenciados.has(player.id);
+      silencio.textContent = callado ? "🔇 QUITAR SILENCIO" : "🔇 SILENCIAR";
+      silencio.setAttribute("aria-pressed", String(callado));
+      silencio.addEventListener("click", () => { cambiaSilencio(player.id); renderListaJugadores(); });
+      row.append(silencio);
       const ui = window.ML3DLobbyUI;
       if (ui?.denuncia) {
         const boton = document.createElement("button");
@@ -1108,7 +1117,85 @@
     }
   }
 
+  /* ---------------------------------------------------------------- chat y gestos
+
+     El chat va directo entre navegadores y no se guarda en ningún servidor.
+     - Filtro de palabras (filtro-chat.js): al enviar, al repartir y al mostrar.
+     - Silenciar: quien silencia a un jugador deja de ver lo que dice y sus
+       gestos. Es cosa suya: el otro no se entera y los demás le siguen viendo.
+     - El anfitrión puede desactivar el chat de la sala. Entonces no reparte
+       ningún mensaje, aunque un navegador modificado los mande. */
+  const filtra = (text) => (window.ML3DFiltroChat ? window.ML3DFiltroChat.limpia(text) : text);
+  const silenciados = new Set();   /* ids de jugador, mientras dure la sala */
+  /* Va en la sesión y no en los datos de la sala: esos los refresca el
+     servidor de salas, que no sabe nada del chat, y lo borraba. */
+  function chatPermitido() {
+    return (hostSession || joinSession)?.chat !== false;
+  }
+  function avisa(texto) {
+    if (window.ML3DLobbyUI?.avisa) window.ML3DLobbyUI.avisa(texto, 3500);
+  }
+  /* El anfitrión cambia si hay chat; se lo cuenta a todos con la foto de la sala. */
+  function ponChat(activo) {
+    if (!hostSession) return;
+    hostSession.chat = Boolean(activo);
+    if (!activo) closeChat();
+    sendAll(lobbySnapshot());
+    pintaChat();
+  }
+  function pintaChat() {
+    const activo = chatPermitido();
+    document.body.classList.toggle("chat-desactivado", !activo);
+    const casilla = $("#hostChat");
+    if (casilla) casilla.checked = activo;
+    if (!activo && !$("#chatComposer").hidden) closeChat();
+  }
+  function cambiaSilencio(playerId) {
+    if (silenciados.has(playerId)) silenciados.delete(playerId);
+    else {
+      silenciados.add(playerId);
+      ultimosMensajes.delete(playerId);
+      playersLayer.querySelector(`.player[data-player-id="${CSS.escape(playerId)}"] .chat-bubble`)?.remove();
+    }
+    renderPlayers();
+  }
+
+  /* Gestos rápidos, sin escribir. Lista cerrada: por la red va solo el
+     nombre del gesto, y lo que no esté en la lista se ignora. */
+  const GESTOS = ["salto", "saludo", "aplauso", "risa", "corazon"];
+  const GESTO_CADA_MS = 1200;
+  const gestoTimers = new Map();
+  let ultimoGestoPropio = 0;
+  function muestraGesto(playerId, gesto) {
+    if (!GESTOS.includes(gesto) || silenciados.has(playerId)) return;
+    const el = playersLayer.querySelector(`.player[data-player-id="${CSS.escape(playerId)}"]`);
+    if (!el) return;
+    if (gesto === "salto") {
+      el.classList.remove("saltando");
+      void el.offsetWidth;   /* para que la animación vuelva a empezar */
+      el.classList.add("saltando");
+      setTimeout(() => el.classList.remove("saltando"), 520);
+      return;
+    }
+    el.dataset.gesto = gesto;
+    clearTimeout(gestoTimers.get(playerId));
+    gestoTimers.set(playerId, setTimeout(() => { delete el.dataset.gesto; gestoTimers.delete(playerId); }, 1900));
+  }
+  function sendGesto(gesto) {
+    if (!GESTOS.includes(gesto) || !localPlayerId) return false;
+    const ahora = Date.now();
+    if (ahora - ultimoGestoPropio < GESTO_CADA_MS) return false;
+    ultimoGestoPropio = ahora;
+    muestraGesto(localPlayerId, gesto);
+    if (hostSession) sendAll({ type: "lobby:gesto", playerId: "host", gesto, time: ahora });
+    else if (joinSession) safeSend(joinSession.channel, { type: "lobby:gesto", gesto, time: ahora });
+    return true;
+  }
+  window.ML3DLobbyGestos = { lista: [...GESTOS], envia: sendGesto };
+
   function showChatBubble(playerId, text) {
+    if (silenciados.has(playerId)) return;
+    text = filtra(text);
     apuntaMensaje(playerId, text);
     const el = playersLayer.querySelector(`.player[data-player-id="${CSS.escape(playerId)}"]`);
     if (!el) return;
@@ -1168,6 +1255,7 @@
     return {
       type: "lobby:snapshot",
       room: hostSession?.room || null,
+      chat: hostSession?.chat !== false,
       players: [...players.values()].map(playerSnapshot),
       time: Date.now()
     };
@@ -1359,8 +1447,20 @@
       return;
     }
 
+    if (packet.type === "lobby:gesto" && player) {
+      /* Lista cerrada y, como mucho, uno por segundo y jugador. */
+      const ahora = Date.now();
+      if (!GESTOS.includes(packet.gesto) || ahora - (peer.ultimoGesto || 0) < 1000) return;
+      peer.ultimoGesto = ahora;
+      muestraGesto(joinId, packet.gesto);
+      sendAll({ type: "lobby:gesto", playerId: joinId, gesto: packet.gesto, time: ahora }, joinId);
+      return;
+    }
+
     if (packet.type === "lobby:chat" && player) {
-      const text = cleanChat(packet.text);
+      /* Con el chat desactivado no se reparte nada, lo mande quien lo mande. */
+      if (!chatPermitido()) return;
+      const text = filtra(cleanChat(packet.text));
       if (!text) return;
       showChatBubble(joinId, text);
       sendAll({ type: "lobby:chat", playerId: joinId, text, time: Date.now() });
@@ -1523,6 +1623,12 @@
         joinSession.room = { ...joinSession.room, ...packet.room };
         updateToolbar(joinSession.room);
       }
+      /* ¿Hay chat en la sala? Lo dice el anfitrión en cada foto. */
+      const habia = chatPermitido();
+      const primera = joinSession.chat === undefined;
+      joinSession.chat = packet.chat !== false;
+      pintaChat();
+      if (!primera && habia !== chatPermitido()) avisa(chatPermitido() ? "El anfitrión ha activado el chat." : "El anfitrión ha desactivado el chat.");
       renderPlayers();
       /* La foto no sabe si este jugador está ahora mismo en pausa. */
       if (document.hidden) publicaPausa();
@@ -1548,7 +1654,13 @@
     }
 
     if (packet.type === "lobby:chat") {
-      showChatBubble(String(packet.playerId || ""), cleanChat(packet.text));
+      if (chatPermitido()) showChatBubble(String(packet.playerId || ""), cleanChat(packet.text));
+      return;
+    }
+
+    if (packet.type === "lobby:gesto") {
+      const quien = String(packet.playerId || "");
+      if (quien !== localPlayerId) muestraGesto(quien, String(packet.gesto || ""));
       return;
     }
 
@@ -1706,6 +1818,7 @@
       });
       players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
+    silenciados.clear();
       hostSession = {
         room: data.room, token: data.hostToken, peers: new Map(), pollBusy: false, joins: [],
         kind,
@@ -1715,6 +1828,9 @@
         tramitando: new Set(),   /* solicitudes que se están decidiendo */
         decididos: new Set()     /* solicitudes ya rechazadas */
       };
+      hostSession.chat = Boolean($("#roomChat")?.checked);
+      silenciados.clear();
+      pintaChat();
       rememberLocalLinkSession(data.room.id, 0, "host");
       ensureLocalPlayer("host", true, spawnPoint(0));
       updateToolbar(data.room);
@@ -2136,6 +2252,7 @@
     hostSession = null;
     players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
+    silenciados.clear();
     localPlayerId = null;
     setLobbyVisible(false);
     updateChannelButtons();
@@ -2226,6 +2343,7 @@
       });
       players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
+    silenciados.clear();
       joinSession = {
         room: selectedRoom,
         join: data.join,
@@ -2392,6 +2510,7 @@
     joinSession = null;
     players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
+    silenciados.clear();
     localPlayerId = null;
     setLobbyVisible(false);
     closeModal("selectModal");
@@ -2441,6 +2560,7 @@
 
   function openChat() {
     if (!localPlayerId) return;
+    if (!chatPermitido()) { avisa("El chat está desactivado en esta sala."); return; }
     $("#chatComposer").hidden = false;
     const input = $("#chatInput");
     input.value = "";
@@ -2453,8 +2573,8 @@
   }
 
   function sendChat(text) {
-    const cleaned = cleanChat(text);
-    if (!cleaned || !localPlayerId) return;
+    const cleaned = filtra(cleanChat(text));
+    if (!cleaned || !localPlayerId || !chatPermitido()) return;
     showChatBubble(localPlayerId, cleaned);
     if (hostSession) {
       sendAll({ type: "lobby:chat", playerId: "host", text: cleaned, time: Date.now() });
@@ -2535,6 +2655,7 @@
     $("#hostMenu").hidden = !hostSession;
     $("#guestMenu").hidden = !joinSession;
     renderListaJugadores();
+    pintaChat();
     if (hostSession) {
       updateToolbar(hostSession.room);
       renderManagePlayers();
@@ -2920,6 +3041,10 @@
   $("#hostIdleMinutes")?.addEventListener("change", (event) => {
     if (hostSession) hostSession.idleMinutes = Number(event.target.value) || 0;
   });
+  $("#hostChat")?.addEventListener("change", (event) => {
+    ponChat(event.target.checked);
+    avisa(event.target.checked ? "Chat activado para la sala." : "Chat desactivado para la sala.");
+  });
   $("#hostConfirmPlayers")?.addEventListener("change", (event) => {
     if (hostSession) hostSession.confirm = Boolean(event.target.checked);
   });
@@ -2928,6 +3053,8 @@
     const cerca = $("#roomKind")?.value === "nearby";
     const local = $("#roomKind")?.value === "local";
     $("#createRoom").textContent = cerca ? "CREAR SALA DE PROXIMIDAD" : "CREAR SALA PRIVADA";
+    /* Entre desconocidos, el chat empieza apagado; el anfitrión puede cambiarlo. */
+    if ($("#roomChat")) $("#roomChat").checked = !cerca;
     const nota = $("#roomKindNote");
     if (nota) {
       nota.textContent = local

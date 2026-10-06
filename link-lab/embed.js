@@ -246,7 +246,9 @@
     if (!help) return;
     if (chatOpen()) help.textContent = "ESCRIBE · B CERRAR";
     else if (openModalEl()) help.textContent = "✛ MOVER · A ELEGIR · B CERRAR";
-    else if (inRoom()) help.textContent = "✛ ANDAR · SELECT MENÚ · L PERSONAJE · R CHAT · B JUEGO";
+    else if (inRoom()) help.textContent = document.body.classList.contains("chat-desactivado")
+      ? "✛ ANDAR · A GESTO · SELECT MENÚ · L PERSONAJE · B JUEGO"
+      : "✛ ANDAR · A GESTO · SELECT MENÚ · L PERSONAJE · R CHAT · B JUEGO";
     else help.textContent = "✛ MOVER · A ELEGIR · B ATRÁS";
   }
 
@@ -757,7 +759,9 @@
     games()?.onChange(() => {
       refreshGameCorner();
       revisaMiJuego(false);
+      pintaListos();
     });
+    setInterval(pintaListos, 1500);
     games()?.onCheck(() => {
       /* En juegos distintos: si a este jugador le falta acceso al juego del
          otro, aquí le sale la opción de pedirlo. */
@@ -1003,6 +1007,80 @@
   /* rooms.js pregunta por aquí (admitir a un jugador, bloquear). Si llegan
      dos preguntas a la vez, la segunda espera a la primera. */
   let colaPreguntas = Promise.resolve();
+  /* ---------- teclado con el foco dentro del lobby ---------- */
+
+  /* Las teclas del emulador (X = A, Z = B, Enter = START, Mayús = SELECT) las
+     recoge la página de fuera y las manda aquí. Pero si el foco está dentro
+     del lobby (después de escribir en el chat o de pulsar algo con el ratón)
+     la página de fuera no las ve: se atienden aquí igual. Las flechas, solo
+     en menús y ventanas; andando por la sala las lleva rooms.js. */
+  const TECLAS = { KeyX: "A", KeyZ: "B", Enter: "START", ShiftLeft: "SELECT", ShiftRight: "SELECT" };
+  const FLECHAS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT" };
+  window.addEventListener("keydown", (event) => {
+    if (event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
+    if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']")) return;
+    const boton = TECLAS[event.code] || ((!inRoom() || openModalEl()) ? FLECHAS[event.code] : "");
+    if (!boton) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    handleInput(boton, true);
+  }, true);
+
+  /* ---------- gestos ---------- */
+
+  const GESTOS = [["salto", "⤴ SALTAR"], ["saludo", "👋 SALUDAR"], ["aplauso", "👏 APLAUDIR"], ["risa", "😄 REÍR"], ["corazon", "❤️ CORAZÓN"]];
+
+  /* Botón A en la sala: elegir un gesto. Con cruceta, A otra vez lo manda. */
+  function abreGestos() {
+    const gestos = window.ML3DLobbyGestos;
+    if (!gestos) return;
+    dialogo({
+      texto: "Gesto",
+      botones: [
+        ...GESTOS.filter(([id]) => gestos.lista.includes(id)).map(([id, texto]) => ({
+          texto,
+          accion: () => { if (!gestos.envia(id)) toast("Espera un momento.", 1200); }
+        })),
+        { texto: "CANCELAR" }
+      ]
+    });
+  }
+
+  /* ---------- "listo" ---------- */
+
+  /* Un jugador está listo cuando tiene su juego cargado y comprobado:
+     - sala normal: tiene el juego de la sala y la huella de su copia es la
+       misma que la del anfitrión;
+     - juegos distintos: ha elegido su juego.
+     Es automático; nadie lo marca a mano. El aviso de compartir la partida
+     se pide después, al iniciar la conexión: aquí todavía no existe. */
+  function pintaListos() {
+    const jugadores = [...document.querySelectorAll("#playersLayer .player")];
+    if (!jugadores.length) return;
+    const porNombre = new Map((games()?.peers() || []).map((peer) => [cleanName(peer.name), peer]));
+    const mixto = esMixto();
+    const wanted = gameKey(roomGame());
+    const yo = { ...context, hash: context.romLoaded ? context.romHash : "", sala: miSala };
+    const datos = (el) => (el.classList.contains("local") ? yo : porNombre.get(cleanName(el.querySelector(".player-name-text")?.textContent)));
+    const anfitrion = jugadores.find((el) => el.querySelector(".player-name-text")?.textContent?.includes("★"));
+    /* La huella que cuenta es la de la copia que tiene abierta ahora mismo,
+       si es el juego de la sala; si no la tiene abierta, la de la copia que
+       dijo que usará. */
+    const huella = (quien) => (quien.hash && gameKey(quien.game) === wanted ? quien.hash : huellaPara(quien, wanted));
+    const huellaAnfitrion = anfitrion && datos(anfitrion) ? huella(datos(anfitrion)) : "";
+    for (const el of jugadores) {
+      const quien = datos(el);
+      let listo = false;
+      if (quien && mixto) listo = Boolean(el.classList.contains("local") ? miJuego : quien.mio?.name);
+      else if (quien && wanted) {
+        const suya = huella(quien);
+        listo = hasGame(quien, wanted) && Boolean(suya) && Boolean(huellaAnfitrion) && suya === huellaAnfitrion;
+      }
+      const valor = listo ? "1" : "0";
+      if (el.dataset.listo !== valor) el.dataset.listo = valor;
+    }
+  }
+
   /* ---------- denunciar a un jugador ---------- */
 
   const MOTIVOS_DENUNCIA = [
@@ -1500,6 +1578,7 @@
       if (!down) return;
       if (key === "L") tapLobbyKey("l");
       else if (key === "R") tapLobbyKey("r");
+      else if (key === "A") abreGestos();
       else if (key === "SELECT") byId("selectButton")?.click();
       else if (key === "B") goBack();
       return;
