@@ -69,6 +69,7 @@
   root.innerHTML = `
     <header class="embed-bar" id="embedBar">
       <span class="embed-title" id="embedTitle">ML3D LINK</span>
+      <button type="button" class="embed-back embed-gesto" id="embedGesto" aria-label="Gestos" title="Gestos (G)" hidden>☺</button>
       <button type="button" class="embed-back" id="embedBack" aria-label="Volver al emulador">VOLVER ✕</button>
     </header>
     <div class="embed-view" id="embedView">
@@ -81,6 +82,7 @@
       <select class="embed-game-select" id="embedGameSelect" aria-label="Juego de la sala"></select>
       <span class="embed-game-value" id="embedGameValue"></span>
     </div>
+    <button type="button" class="embed-accion" id="embedAccion" hidden></button>
     <p class="embed-toast" id="embedToast" hidden></p>
     <div class="embed-dialog" id="embedDialog" hidden>
       <div class="embed-dialog-card">
@@ -247,8 +249,8 @@
     if (chatOpen()) help.textContent = "ESCRIBE · B CERRAR";
     else if (openModalEl()) help.textContent = "✛ MOVER · A ELEGIR · B CERRAR";
     else if (inRoom()) help.textContent = document.body.classList.contains("chat-desactivado")
-      ? "✛ ANDAR · A GESTO · SELECT MENÚ · L PERSONAJE · B JUEGO"
-      : "✛ ANDAR · A GESTO · SELECT MENÚ · L PERSONAJE · R CHAT · B JUEGO";
+      ? "✛ ANDAR · A ACCIÓN O SALTO · SELECT MENÚ · L PERSONAJE · B JUEGO"
+      : "✛ ANDAR · A ACCIÓN O SALTO · SELECT MENÚ · L PERSONAJE · R CHAT · B JUEGO";
     else help.textContent = "✛ MOVER · A ELEGIR · B ATRÁS";
   }
 
@@ -762,6 +764,17 @@
       pintaListos();
     });
     setInterval(pintaListos, 1500);
+    setInterval(pintaAccion, 300);
+    combates()?.onCambio(pintaAccion);
+    byId("embedAccion")?.addEventListener("click", accion);
+    byId("embedGesto")?.addEventListener("click", abreGestos);
+    /* Menú de la sala (SELECT): las mismas acciones, sin andar. */
+    const desdeMenu = (id, que) => byId(id)?.addEventListener("click", () => { byId("selectModal").hidden = true; que(); });
+    desdeMenu("salaAccion", accion);
+    desdeMenu("salaDesafiar", abreDesafiar);
+    desdeMenu("salaTabla", abreTabla);
+    desdeMenu("salaGestos", abreGestos);
+    byId("gestoButton")?.addEventListener("click", abreGestos);
     games()?.onCheck(() => {
       /* En juegos distintos: si a este jugador le falta acceso al juego del
          otro, aquí le sale la opción de pedirlo. */
@@ -795,6 +808,7 @@
   function dialogo({ texto, opciones = [], qr = "", botones = [], alCancelar = null, detalle = "", casilla = "" }) {
     const box = byId("embedDialog");
     if (!box) return;
+    box.classList.remove("embed-dialog-grande");
     byId("embedDialogText").textContent = texto;
     byId("embedDialogDetalle").hidden = !detalle;
     byId("embedDialogDetalle").textContent = detalle;
@@ -1014,7 +1028,7 @@
      del lobby (después de escribir en el chat o de pulsar algo con el ratón)
      la página de fuera no las ve: se atienden aquí igual. Las flechas, solo
      en menús y ventanas; andando por la sala las lleva rooms.js. */
-  const TECLAS = { KeyX: "A", KeyZ: "B", Enter: "START", ShiftLeft: "SELECT", ShiftRight: "SELECT" };
+  const TECLAS = { KeyX: "A", KeyZ: "B", Enter: "START", ShiftLeft: "SELECT", ShiftRight: "SELECT", KeyG: "G" };
   const FLECHAS = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT" };
   window.addEventListener("keydown", (event) => {
     if (event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
@@ -1025,6 +1039,169 @@
     event.stopImmediatePropagation();
     handleInput(boton, true);
   }, true);
+
+  /* ---------- acción por cercanía ---------- */
+
+  /* Un solo sistema para todo lo que se hace "yendo hasta allí": al acercarse
+     a algo interactivo aparece el botón de acción, y A (o tocar el botón) lo
+     hace. Si no hay nada cerca, A salta. Interactivo es: un jugador que
+     desafía, un jugador que puede pasarte su juego y la pantalla de la sala.
+     Lo mismo está en el menú de la sala, para quien no quiera andar. */
+  const combates = () => window.ML3DCombates;
+  const CERCA_PX = 78;                    /* en píxeles de la sala de referencia (720x480) */
+  const PANTALLA = { x: 50, y: 23.5 };    /* delante del cartel del fondo */
+  const distancia = (ax, ay, bx, by) => Math.hypot((ax - bx) * 7.2, (ay - by) * 4.8);
+
+  function cercania() {
+    const yo = document.querySelector("#playersLayer .player.local");
+    if (!yo || !inRoom()) return null;
+    const x = Number(yo.dataset.x), y = Number(yo.dataset.y);
+    const estado = combates()?.estado();
+    let mejor = null;
+    const prueba = (cosa, cx, cy) => { const d = distancia(x, y, cx, cy); if (d <= CERCA_PX && (!mejor || d < mejor.d)) mejor = { ...cosa, d }; };
+    for (const el of document.querySelectorAll("#playersLayer .player:not(.local)")) {
+      const id = el.dataset.playerId, ex = Number(el.dataset.x), ey = Number(el.dataset.y);
+      const nombre = cleanName(el.dataset.nombre || "");
+      /* un desafío que se puede aceptar */
+      if (combates()?.disponible && estado && !estado.duelo && !estado.combate && el.dataset.desafio && !combates().rechazado(el.dataset.desafio) && !combates().silenciado(id)) {
+        const d = estado.desafios.find((z) => z.id === el.dataset.desafio);
+        if (d) prueba({ tipo: "desafio", desafio: d, playerId: id, texto: `DESAFÍO DE ${d.nombre.toUpperCase()}` }, ex, ey);
+      }
+      /* un juego suyo que me puede pasar (solo con el envío de juegos encendido) */
+      const peer = (games()?.peers() || []).find((p) => cleanName(p.name) === nombre);
+      if (envioRoms() && peer && peer.origen === "local" && peer.game && !hasGame(context, gameKey(peer.game))) {
+        prueba({ tipo: "juego", peer, texto: `PEDIR «${peer.game.replace(/\.(gba|gbc|gb)$/i, "").toUpperCase()}» A ${nombre.toUpperCase()}` }, ex, ey);
+      }
+    }
+    prueba({ tipo: "pantalla", texto: estado?.combate ? "VER EL COMBATE" : "VER LA TABLA" }, PANTALLA.x, PANTALLA.y);
+    return mejor;
+  }
+
+  /* Lo que haría A ahora mismo. Con un combate propio en marcha, terminarlo. */
+  function accionActual() {
+    const duelo = combates()?.estado().duelo;
+    if (duelo && duelo.estado !== "conectando") return { tipo: "terminar", texto: duelo.mio ? "ESPERANDO AL RIVAL" : "TERMINAR EL COMBATE" };
+    if (duelo) return { tipo: "espera", texto: "CONECTANDO CON EL RIVAL…" };
+    return cercania();
+  }
+  function pintaAccion() {
+    const boton = byId("embedAccion");
+    if (!boton) return;
+    const gesto = byId("embedGesto");
+    if (gesto) gesto.hidden = !inRoom();
+    const a = inRoom() && !openModalEl() && !chatOpen() ? accionActual() : null;
+    boton.hidden = !a;
+    if (a && boton.textContent !== "A · " + a.texto) boton.textContent = "A · " + a.texto;
+    const menu = byId("salaAccion");
+    if (menu) menu.textContent = a ? "ACCIÓN: " + a.texto : "ACCIÓN: SALTAR (NADA CERCA)";
+    preguntaResultado();
+  }
+  function accion() {
+    const a = accionActual();
+    if (!a) { window.ML3DLobbyGestos?.envia("salto"); return; }
+    if (a.tipo === "desafio") aceptaDesafio(a);
+    else if (a.tipo === "juego") { const ok = games()?.request(a.peer.name, a.peer.game); toast(ok ? `PETICIÓN ENVIADA A ${a.peer.name.toUpperCase()}` : "NO SE PUDO ENVIAR LA PETICIÓN", 3200); }
+    else if (a.tipo === "pantalla") abreTabla();
+    else if (a.tipo === "terminar") terminaCombate();
+  }
+
+  /* ---------- desafíos ---------- */
+
+  function juegoParaDesafiar() {
+    return String(context.romLoaded ? (context.game || context.romFilename) : "").replace(/\.(gba|gbc|gb)$/i, "");
+  }
+  function abreDesafiar() {
+    const c = combates();
+    if (!c?.disponible) { toast("LOS DESAFÍOS SON PARA SALAS DE 3 O 4. EN UNA SALA DE 2, INICIAR CONEXIÓN.", 4200); return; }
+    const estado = c.estado();
+    if (!estado.habilitados) { toast("EL ANFITRIÓN HA DESACTIVADO LOS DESAFÍOS.", 3200); return; }
+    if (estado.desafios.some((d) => d.de === estado.yo)) {
+      dialogo({ texto: "Ya tienes un desafío lanzado.", botones: [{ texto: "RETIRARLO", principal: true, accion: () => c.retira() }, { texto: "DEJARLO" }] });
+      return;
+    }
+    const juego = juegoParaDesafiar();
+    if (!juego) { toast("ABRE PRIMERO EL JUEGO AL QUE QUIERES JUGAR.", 3600); return; }
+    dialogo({
+      texto: `Desafiar con «${juego}». Elige el tipo. Quien se acerque a ti y pulse A, acepta. Caduca en 45 segundos.`,
+      opciones: Object.entries(c.tipos),
+      botones: [{ texto: "CANCELAR" }, { texto: "LANZAR DESAFÍO", principal: true, accion: (tipo) => c.lanza(tipo, juego) }]
+    });
+  }
+
+  /* Aceptar: los dos necesitan el juego. Desde aquí también se puede decir que
+     no, silenciar a quien desafía o denunciarle. */
+  function aceptaDesafio({ desafio, playerId }) {
+    const c = combates();
+    const tipo = c.tipos[desafio.tipo] || desafio.tipo;
+    dialogo({
+      texto: `${desafio.nombre} desafía: ${tipo}${desafio.juego ? " · «" + desafio.juego + "»" : ""}. Jugaréis conectados directamente entre los dos.`,
+      botones: [
+        { texto: "ACEPTAR", principal: true, accion: () => {
+          const clave = gameKey(desafio.juego);
+          if (clave && !hasGame(context, clave)) {
+            if (esDeBiblioteca(clave) && context.acceso) pideAcceso(desafio.juego);
+            else toast(esDeBiblioteca(clave) ? "ESTE JUEGO ES SOLO PARA TESTERS." : `NO TIENES «${desafio.juego.toUpperCase()}».`, 4200);
+            return;
+          }
+          c.acepta(desafio.id);
+        } },
+        { texto: "RECHAZAR", accion: () => c.rechaza(desafio.id) },
+        { texto: "🔇 SILENCIAR", accion: () => { c.silencia(playerId); toast(`${desafio.nombre.toUpperCase()} SILENCIADO`, 2600); } },
+        { texto: "DENUNCIAR", accion: () => byId("selectButton")?.click() },
+        { texto: "CANCELAR" }
+      ]
+    });
+  }
+
+  function terminaCombate() {
+    const c = combates();
+    const duelo = c?.estado().duelo;
+    if (!duelo) return;
+    if (duelo.mio) { toast("ESPERANDO A QUE EL RIVAL DIGA SU RESULTADO…", 3200); return; }
+    dialogo({
+      texto: `Combate contra ${duelo.rival}. ¿Cómo ha acabado? Solo cuenta si los dos decís lo mismo.`,
+      botones: [
+        { texto: "GANÉ", accion: () => c.termina("gane") },
+        { texto: "PERDÍ", accion: () => c.termina("perdi") },
+        { texto: "EMPATE", accion: () => c.termina("empate") },
+        { texto: "ABANDONAR", accion: () => c.termina("abandono") },
+        { texto: duelo.estado === "jugando" ? "SEGUIR JUGANDO" : "CANCELAR" }
+      ]
+    });
+  }
+  /* El rival ha terminado: se me pregunta a mí, una vez. */
+  let preguntado = "";
+  function preguntaResultado() {
+    const duelo = combates()?.estado().duelo;
+    if (!duelo || duelo.estado !== "terminando" || duelo.mio || preguntado === duelo.id || openModalEl()) return;
+    preguntado = duelo.id;
+    terminaCombate();
+  }
+
+  /* ---------- tabla de resultados y estado del combate ---------- */
+
+  const RESULTADO = { empate: "empate", disputado: "disputado", abandonada: "abandonada", sin_conexion: "no se pudo conectar" };
+  const resultadoDe = (u) => u.resultado === "gana_a" ? "ganó " + u.nombreA : u.resultado === "gana_b" ? "ganó " + u.nombreB : RESULTADO[u.resultado] || u.resultado;
+  function textoTabla() {
+    const estado = combates()?.estado();
+    if (!estado) return "";
+    const lineas = [];
+    const c = estado.combate;
+    if (c) {
+      const seg = c.inicio ? Math.max(0, Math.floor((Date.now() - c.inicio) / 1000)) : 0;
+      lineas.push(`EN CURSO: ${c.nombreA} vs ${c.nombreB}`, `${combates().tipos[c.tipo] || c.tipo}${c.juego ? " · " + c.juego : ""}`, c.estado === "conectando" ? "conectando…" : `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}`, "");
+    }
+    if (estado.ultimo && !c) lineas.push(`ÚLTIMO: ${estado.ultimo.nombreA} vs ${estado.ultimo.nombreB} · ${resultadoDe(estado.ultimo)}`, "");
+    lineas.push("TABLA DE LA SALA");
+    if (!estado.tabla.length) lineas.push("Todavía no hay resultados.");
+    estado.tabla.forEach((f, i) => lineas.push(`${i + 1}. ${f.nombre.padEnd(12)}  G ${f.ganados} · P ${f.perdidos} · E ${f.empates}`));
+    for (const d of estado.desafios) lineas.push("", `DESAFÍA: ${d.nombre} · ${combates().tipos[d.tipo] || d.tipo}${d.juego ? " · " + d.juego : ""}`);
+    return lineas.join("\n");
+  }
+  function abreTabla() {
+    dialogo({ texto: "Pantalla de la sala", detalle: textoTabla(), botones: [{ texto: "CERRAR", principal: true }] });
+    byId("embedDialog")?.classList.add("embed-dialog-grande");   /* casi toda la pantalla: en un móvil la de la sala es diminuta */
+  }
 
   /* ---------- gestos ---------- */
 
@@ -1201,6 +1378,9 @@
   function revisaMiJuego(forzar) {
     if (!inRoom()) { avisadoDe = ""; return; }
     if (esMixto()) { avisadoDe = ""; return; }
+    /* En una sala de 3 o 4 no hay "juego de la sala": cada combate lleva el
+       suyo, y si falta se dice al aceptar el desafío. */
+    if (combates()?.disponible) { avisadoDe = ""; return; }
     const nombre = roomGame();
     const wanted = gameKey(nombre);
     if (!wanted || hasGame(context, wanted)) { avisadoDe = ""; return; }
@@ -1578,7 +1758,8 @@
       if (!down) return;
       if (key === "L") tapLobbyKey("l");
       else if (key === "R") tapLobbyKey("r");
-      else if (key === "A") abreGestos();
+      else if (key === "A") accion();
+      else if (key === "G") abreGestos();
       else if (key === "SELECT") byId("selectButton")?.click();
       else if (key === "B") goBack();
       return;

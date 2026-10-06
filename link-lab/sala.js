@@ -61,6 +61,34 @@
   document.addEventListener("visibilitychange", paraLuces);
   paraLuces();
 
+  /* ---------- pantalla de la sala ---------- */
+
+  /* El cartel del fondo hace de pantalla. Sin combate alterna cada 5 s entre
+     el cartel tal cual y la tabla de resultados; con un combate en marcha
+     dice quién juega, a qué y cuánto lleva. Solo texto: no hay vídeo. En un
+     móvil es muy pequeña; ahí se abre a tamaño completo con A o desde el
+     menú de la sala. */
+  const pantalla = document.createElement("div");
+  pantalla.className = "sala-pantalla";
+  pantalla.hidden = true;
+  capa.before(pantalla);
+  function pintaPantalla() {
+    const estado = window.ML3DCombates?.estado();
+    const c = estado?.combate;
+    let lineas = null;
+    if (c) {
+      const seg = c.inicio ? Math.max(0, Math.floor((Date.now() - c.inicio) / 1000)) : 0;
+      lineas = ["EN CURSO", `${c.nombreA} vs ${c.nombreB}`, (c.juego || "").slice(0, 26), c.estado === "conectando" ? "conectando…" : `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, "0")}`];
+    } else if (estado?.tabla.length && Math.floor(Date.now() / 5000) % 2 === 1) {
+      lineas = ["RESULTADOS", ...estado.tabla.slice(0, 3).map((f, i) => `${i + 1}. ${f.nombre}  ${f.ganados}-${f.perdidos}-${f.empates}`)];
+    }
+    pantalla.hidden = !lineas;
+    const texto = lineas ? lineas.join("\n") : "";
+    if (pantalla.textContent !== texto) pantalla.textContent = texto;
+    pantalla.classList.toggle("en-curso", Boolean(c));
+  }
+  setInterval(pintaPantalla, 500);
+
   /* ---------- escala ---------- */
 
   let k = 1;
@@ -108,7 +136,9 @@
     const silenciado = el.classList.contains("silenciado");
     const gesto = ICONO_GESTO[el.dataset.gesto] || "";
     const listo = el.dataset.listo === "1";
-    const firma = (nombre?.innerHTML || "") + "|" + (bocadillo?.textContent ?? "\u0000") + "|" + pausado + "|" + el.classList.contains("local") + "|" + silenciado + "|" + gesto + "|" + listo;
+    /* "DESAFIANDO" sobre quien ha lanzado un desafío; "EN COMBATE" sobre los dos que juegan. */
+    const duelo = el.dataset.duelo || "";
+    const firma = (nombre?.innerHTML || "") + "|" + (bocadillo?.textContent ?? "\u0000") + "|" + pausado + "|" + el.classList.contains("local") + "|" + silenciado + "|" + gesto + "|" + listo + "|" + duelo;
     if (st.firma === firma) return;
     st.firma = firma;
     const e = st.etiqueta;
@@ -116,6 +146,13 @@
     e.textContent = "";
     if (gesto) { const g = document.createElement("div"); g.className = "player-gesto"; g.textContent = gesto; e.append(g); }
     if (bocadillo) e.append(bocadillo.cloneNode(true));
+    if (duelo) {
+      const m = document.createElement("div");
+      m.className = "player-duelo" + (duelo === "combate" ? " en-combate" : "");
+      const tipo = window.ML3DCombates?.tipos[duelo.split(":")[1]] || "";
+      m.textContent = duelo === "combate" ? "⚔ EN COMBATE" : "⚔ DESAFIANDO" + (tipo ? " · " + tipo.toUpperCase() : "");
+      e.append(m);
+    }
     if (pausado) { const p = document.createElement("div"); p.className = "player-paused-tag"; p.textContent = "PAUSADO"; e.append(p); }
     if (silenciado) { const s = document.createElement("div"); s.className = "player-silenciado"; s.textContent = "🔇 SILENCIADO"; e.append(s); }
     if (nombre) {

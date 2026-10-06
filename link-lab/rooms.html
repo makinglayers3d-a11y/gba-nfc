@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="rooms.css?v=4">
   <link rel="stylesheet" href="rooms-theme-ml3d-v2.css?v=3">
   <link rel="stylesheet" href="personajes.css?v=3">
-  <link rel="stylesheet" href="sala.css?v=2">
+  <link rel="stylesheet" href="sala.css?v=3">
   <!-- Solo actúa con ?embed=1, cuando el lobby va dentro de la pantalla del emulador. -->
-  <link rel="stylesheet" href="embed.css?v=9">
+  <link rel="stylesheet" href="embed.css?v=10">
   <script src="../ml3d-edad.js?v=1"></script>
   <style>html.edad-pendiente body > *:not(dialog) { display: none !important; }</style>
   <script>
@@ -132,6 +132,7 @@
       <div class="side-buttons">
         <button type="button" id="avatarButton" class="shoulder">L<br><small>PERSONAJE</small></button>
         <button type="button" id="chatButton" class="shoulder">R<br><small>CHAT</small></button>
+        <button type="button" id="gestoButton" class="shoulder">G<br><small>GESTO</small></button>
         <button type="button" id="selectButton" class="select-button">SELECT</button>
       </div>
     </div>
@@ -185,6 +186,13 @@
 <div id="selectModal" class="modal" hidden>
   <div class="modal-card select-menu-card">
     <div class="modal-head"><h2>SELECT · Sala</h2><button type="button" data-close-modal="selectModal">×</button></div>
+    <details open id="accionesSala">
+      <summary>Acciones</summary>
+      <button type="button" id="salaAccion">ACCIÓN</button>
+      <button type="button" id="salaDesafiar" class="top-gap">DESAFIAR</button>
+      <button type="button" id="salaTabla" class="top-gap">TABLA DE RESULTADOS</button>
+      <button type="button" id="salaGestos" class="top-gap">GESTOS</button>
+    </details>
     <details open id="jugadoresSala">
       <summary>Jugadores</summary>
       <div id="listaJugadores"></div>
@@ -200,6 +208,7 @@
         <summary>Gestión de jugadores</summary>
         <div id="managePlayers"></div>
         <label class="check-line top-gap"><input type="checkbox" id="hostChat" checked> Chat de texto en la sala</label>
+        <label class="check-line"><input type="checkbox" id="hostDesafios" checked> Desafíos en la sala</label>
         <label class="check-line"><input type="checkbox" id="hostConfirmPlayers"> Confirmar jugadores</label>
         <label for="hostIdleMinutes">Expulsar a quien lleve en pausa</label>
         <select id="hostIdleMinutes">
@@ -233,6 +242,7 @@
         <summary>Conexión</summary>
         <p class="hint">Comprueba los círculos de calidad antes de iniciar.</p>
         <button type="button" id="startSession" class="primary">INICIAR CONEXIÓN</button>
+        <p class="hint solo-sala-grande">En salas de 3 o 4 el cable empieza cuando alguien acepta un desafío.</p>
         <button type="button" class="top-gap" data-open-link-emulator>ABRIR EMULADOR LINK</button>
         <p class="hint">El emulador se abrirá dentro del propio ML3D Link y mantendrá esta sala WebRTC activa.</p>
       </details>
@@ -265,12 +275,12 @@
 
 <script src="personajes.js?v=3"></script>
 <script src="filtro-chat.js?v=1"></script>
-<script src="sala.js?v=2"></script>
+<script src="sala.js?v=3"></script>
 <script src="walkable-final.js?v=1"></script>
-<script src="rooms-runtime-loader.js?v=28"></script>
+<script src="rooms-runtime-loader.js?v=29"></script>
 <script src="rooms-touch-fix.js?v=6"></script>
 <script src="rooms-arena-final.js?v=2"></script>
 <script src="embed-games.js?v=5"></script>
-<script src="embed.js?v=14"></script>
+<script src="embed.js?v=15"></script>
 </body>
 </html>

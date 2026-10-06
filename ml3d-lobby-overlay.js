@@ -318,6 +318,13 @@
       event.preventDefault();
       closeByUser();
     }
+    /* G: gestos. No es un botón de la GBA, así que app.js no la manda; va
+       desde aquí. Nunca mientras se escribe. */
+    const escribiendo = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
+    if (isOpen && event.code === "KeyG" && !escribiendo && !event.ctrlKey && !event.altKey && !event.metaKey && !event.repeat) {
+      event.preventDefault();
+      post({ type: "input", key: "G", down: true });
+    }
   }, true);
 
   /* Juego recibido de otro jugador en el lobby: se guarda en este dispositivo
