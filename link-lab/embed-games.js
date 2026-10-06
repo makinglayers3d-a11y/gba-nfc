@@ -70,6 +70,9 @@
   }
 
   function wireChannel(channel, nativeSend) {
+    /* El canal directo de un combate lleva solo el cable. Los avisos y el
+       envío de juegos van por el canal de la sala, entre anfitrión e invitado. */
+    if (channel.label === "ml3d-duelo") return;
     if (channel.__ml3dGames) return;
     channel.__ml3dGames = true;
     channel.__ml3dGamesSend = (text) => nativeSend.call(channel, text);
@@ -114,9 +117,10 @@
 
   function channelOf(name) {
     const wanted = clean(name);
-    for (const channel of channels) {
-      if (channel.readyState === "open" && channel.__ml3dGamesPeer === wanted) return channel;
-    }
+    /* En una sala de 3 o 4 puede haber dos jugadores con el mismo nombre: si
+       no se sabe a cuál de los dos, no se envía a ninguno. */
+    const suyos = [...channels].filter((channel) => channel.readyState === "open" && channel.__ml3dGamesPeer === wanted);
+    if (suyos.length) return suyos.length === 1 ? suyos[0] : null;
     /* Con dos jugadores solo hay un canal: sirve aunque aún no tenga nombre. */
     const open = [...channels].filter((channel) => channel.readyState === "open");
     return open.length === 1 ? open[0] : null;

@@ -205,6 +205,34 @@
     else { const f = Math.min(1, (st.reloj - a.t) / Math.max(1, b.t - a.t)); st.x = a.x + (b.x - a.x) * f; st.y = a.y + (b.y - a.y) * f; }
   }
 
+  /* Dos personajes juntos: sus etiquetas se pisarían. La de quien está
+     delante (más abajo) se queda en su sitio y las otras suben lo justo para
+     quedar encima. Solo se vuelve a medir cuando algo ha cambiado. */
+  let firmaEtiquetas = "";
+  function separaEtiquetas() {
+    const todas = [...etiquetas.children];
+    const firma = todas.map((e) => e.style.left + e.style.top + e.childElementCount + ":" + e.textContent.length).join("|") + "|" + capa.clientWidth;
+    if (firma === firmaEtiquetas) return;
+    firmaEtiquetas = firma;
+    const cajas = todas.map((e) => {
+      const antes = Number(e.dataset.sube) || 0, r = e.getBoundingClientRect();
+      return { e, izq: r.left, der: r.right, arr: r.top + antes, aba: r.bottom + antes, sube: 0 };
+    }).sort((a, b) => b.aba - a.aba);
+    const puestas = [];
+    for (const c of cajas) {
+      /* subir para librar una puede hacerla pisar otra: se repasa */
+      for (let vuelta = 0; vuelta < puestas.length; vuelta++) {
+        for (const p of puestas) {
+          const pisa = c.izq < p.der && c.der > p.izq && c.arr - c.sube < p.aba - p.sube && c.aba - c.sube > p.arr - p.sube;
+          if (pisa) c.sube = c.aba - (p.arr - p.sube) + 2;
+        }
+      }
+      puestas.push(c);
+      const px = Math.round(c.sube);
+      if ((Number(c.e.dataset.sube) || 0) !== px) { c.e.dataset.sube = String(px); c.e.style.setProperty("--sube", px + "px"); }
+    }
+  }
+
   function cuadro(ahora) {
     const vivas = new Set();
     for (const el of capa.querySelectorAll(":scope > .player")) {
@@ -227,6 +255,7 @@
       if (st.etiqueta.style.top !== arr) st.etiqueta.style.top = arr;
     }
     for (const e of [...etiquetas.children]) if (!vivas.has(e)) e.remove();
+    separaEtiquetas();
     requestAnimationFrame(cuadro);
   }
 

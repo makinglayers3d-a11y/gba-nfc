@@ -1170,6 +1170,13 @@
     intercambio: { nombre: "Intercambio", cuenta: false },
     libre: { nombre: "Libre", cuenta: false }
   };
+  /* Un desafío se acepta yendo hasta quien lo lanza. CERCA_PX es la distancia
+     a la que aparece el botón (en píxeles de la sala de referencia, 720x480).
+     El anfitrión lo comprueba con sus propias posiciones y algo de margen:
+     la posición de los demás le llega con un pequeño retraso. */
+  const CERCA_PX = 78;
+  const ACEPTA_PX = 120;
+  const distanciaSala = (a, b) => Math.hypot((a.x - b.x) * 7.2, (a.y - b.y) * 4.8);
   const DESAFIO_CADUCA_MS = 45000;
   const DESAFIO_CADA_MS = 20000;
   const DIRECTO_ESPERA_MS = 15000;
@@ -1195,7 +1202,7 @@
     if (!hostSession) return;
     combates = {
       habilitados: arbitro.habilitados,
-      desafios: arbitro.desafios.map((d) => ({ id: d.id, de: d.de, nombre: nombrePublico(d.de), tipo: d.tipo, juego: d.juego, caduca: d.caduca })),
+      desafios: arbitro.desafios.map((d) => ({ id: d.id, de: d.de, nombre: nombrePublico(d.de), tipo: d.tipo, juego: d.juego, biblioteca: d.biblioteca, caduca: d.caduca })),
       combate: arbitro.combate ? { ...arbitro.combate } : null,
       tabla: [...arbitro.tabla.values()].sort((a, b) => b.ganados - a.ganados || a.perdidos - b.perdidos).slice(0, 8),
       ultimo: arbitro.ultimoFin
@@ -1220,7 +1227,7 @@
     if (ahora - (arbitro.ultimo.get(quien) || 0) < DESAFIO_CADA_MS) return respondeA(quien, "espera");
     arbitro.ultimo.set(quien, ahora);
     const id = "d" + arbitro.siguiente++;
-    arbitro.desafios.push({ id, de: quien, tipo, juego: cleanName(packet.juego || "").slice(0, 80), caduca: ahora + DESAFIO_CADUCA_MS });
+    arbitro.desafios.push({ id, de: quien, tipo, juego: cleanName(packet.juego || "").slice(0, 80), biblioteca: packet.biblioteca === true, caduca: ahora + DESAFIO_CADUCA_MS });
     /* A quién ha silenciado quien desafía: no podrán aceptarle. No se publica. */
     arbitro.vetados.set(id, new Set((Array.isArray(packet.vetados) ? packet.vetados : []).slice(0, 8).map(String)));
     publicaCombates();
@@ -1239,6 +1246,7 @@
     if (arbitro.combate) return respondeA(quien, "ya_aceptado");
     if (desafio.de === quien || !players.has(quien) || !players.has(desafio.de)) return;
     if (arbitro.vetados.get(id)?.has(quien)) return respondeA(quien, "no_puedes");
+    if (!(distanciaSala(players.get(quien), players.get(desafio.de)) <= ACEPTA_PX)) return respondeA(quien, "lejos");
     arbitro.combate = { id, a: desafio.de, b: quien, nombreA: nombrePublico(desafio.de), nombreB: nombrePublico(quien), tipo: desafio.tipo, juego: desafio.juego, estado: "conectando", inicio: 0, listos: [] };
     arbitro.desafios = arbitro.desafios.filter((d) => d.de !== desafio.de && d.de !== quien);
     arbitro.resultados.clear();
@@ -1529,7 +1537,7 @@
   }
 
   function alRecibirRespuesta(packet) {
-    const TEXTO = { ya_aceptado: "Ya aceptado: otro jugador llegó antes.", caducado: "Ese desafío ya no está.", no_puedes: "No puedes aceptar este desafío.",
+    const TEXTO = { ya_aceptado: "Ya aceptado: otro jugador llegó antes.", caducado: "Ese desafío ya no está.", no_puedes: "No puedes aceptar este desafío.", lejos: "Estás demasiado lejos. Acércate a quien desafía.",
       desactivados: "Los desafíos están desactivados en esta sala.", hay_combate: "Ya hay un combate en la sala. Espera a que termine.",
       ya_tienes_uno: "Ya tienes un desafío lanzado.", espera: "Espera un poco antes de lanzar otro desafío." };
     avisa(TEXTO[packet.motivo] || "No se ha podido.");
@@ -1566,13 +1574,17 @@
   }
 
   window.ML3DCombates = {
+    cerca: CERCA_PX,
     tipos: Object.fromEntries(Object.entries(TIPOS_DESAFIO).map(([id, t]) => [id, t.nombre])),
     get disponible() { return Boolean(hostSession || joinSession) && !salaDeCable(); },
     estado() {
       return { ...combates, yo: localPlayerId, esAnfitrion: Boolean(hostSession),
         duelo: duelo ? { id: duelo.id, estado: duelo.estado, rival: duelo.nombreOtro, juego: duelo.juego, tipo: duelo.tipo, mio: duelo.mio, suyo: duelo.suyo } : null };
     },
-    lanza(tipo, juego) { avisaArbitro({ type: "desafio:lanza", tipo, juego, vetados: [...silenciados] }); },
+    /* "biblioteca": quien desafía dice si su juego es de la biblioteca de
+       testers, para que a quien le falte se le ofrezca pedir acceso. Es solo
+       una pista para el aviso: el acceso lo decide el servidor. */
+    lanza(tipo, juego, biblioteca = false) { avisaArbitro({ type: "desafio:lanza", tipo, juego, biblioteca: biblioteca === true, vetados: [...silenciados] }); },
     retira() { avisaArbitro({ type: "desafio:retira" }); },
     acepta(id) { avisaArbitro({ type: "desafio:acepta", id }); },
     rechaza(id) { rechazados.add(id); avisaCombates(); },
@@ -1957,7 +1969,7 @@
       const c = packet.combate && typeof packet.combate === "object" ? packet.combate : null;
       combates = {
         habilitados: packet.habilitados !== false,
-        desafios: (Array.isArray(packet.desafios) ? packet.desafios : []).slice(0, 4).filter((d) => TIPOS_DESAFIO[d?.tipo]).map((d) => ({ id: texto(d.id, 12), de: texto(d.de, 64), nombre: filtra(texto(d.nombre, NOMBRE_TABLA_MAX)), tipo: d.tipo, juego: texto(d.juego, 80), caduca: Number(d.caduca) || 0 })),
+        desafios: (Array.isArray(packet.desafios) ? packet.desafios : []).slice(0, 4).filter((d) => TIPOS_DESAFIO[d?.tipo]).map((d) => ({ id: texto(d.id, 12), de: texto(d.de, 64), nombre: filtra(texto(d.nombre, NOMBRE_TABLA_MAX)), tipo: d.tipo, juego: texto(d.juego, 80), biblioteca: d.biblioteca === true, caduca: Number(d.caduca) || 0 })),
         combate: c && TIPOS_DESAFIO[c.tipo] ? { id: texto(c.id, 12), a: texto(c.a, 64), b: texto(c.b, 64), nombreA: filtra(texto(c.nombreA, NOMBRE_TABLA_MAX)), nombreB: filtra(texto(c.nombreB, NOMBRE_TABLA_MAX)), tipo: c.tipo, juego: texto(c.juego, 80), estado: texto(c.estado, 12), inicio: Number(c.inicio) || 0 } : null,
         tabla: (Array.isArray(packet.tabla) ? packet.tabla : []).slice(0, 8).map((f) => ({ nombre: filtra(texto(f?.nombre, NOMBRE_TABLA_MAX)), ganados: Number(f?.ganados) | 0, perdidos: Number(f?.perdidos) | 0, empates: Number(f?.empates) | 0 })),
         ultimo: packet.ultimo && typeof packet.ultimo === "object" ? { id: texto(packet.ultimo.id, 12), nombreA: filtra(texto(packet.ultimo.nombreA, NOMBRE_TABLA_MAX)), nombreB: filtra(texto(packet.ultimo.nombreB, NOMBRE_TABLA_MAX)), tipo: texto(packet.ultimo.tipo, 12), juego: texto(packet.ultimo.juego, 80), resultado: texto(packet.ultimo.resultado, 14) } : null

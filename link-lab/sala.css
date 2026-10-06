@@ -47,6 +47,8 @@
   gap: calc(2px * var(--k));
   /* justo encima de la cabeza del personaje */
   transform: translate(-50%, calc(-100% - 96px * var(--k)));
+  /* lo que sube para no pisar la etiqueta de otro personaje (sala.js) */
+  translate: 0 calc(-1 * var(--sube, 0px));
   white-space: nowrap;
 }
 
@@ -250,6 +252,6 @@ body.chat-desactivado #chatButton { display: none; }
 /* En una sala de dos sigue valiendo INICIAR CONEXIÓN; en una de 3 o 4, no. */
 body:not(.sala-de-cable) #startSession { display: none; }
 body.sala-de-cable .solo-sala-grande { display: none; }
-body.sala-de-cable #salaDesafiar { display: none; }
+body.sala-de-cable #salaDesafiar, body.sala-de-cable #salaAceptar { display: none; }
 /* En una sala de 3 o 4 no hay "juego de la sala": cada combate lleva el suyo. */
 body:not(.sala-de-cable) #embedGame { display: none !important; }

@@ -772,6 +772,7 @@
     const desdeMenu = (id, que) => byId(id)?.addEventListener("click", () => { byId("selectModal").hidden = true; que(); });
     desdeMenu("salaAccion", accion);
     desdeMenu("salaDesafiar", abreDesafiar);
+    desdeMenu("salaAceptar", aceptaDesdeMenu);
     desdeMenu("salaTabla", abreTabla);
     desdeMenu("salaGestos", abreGestos);
     byId("gestoButton")?.addEventListener("click", abreGestos);
@@ -1048,7 +1049,7 @@
      desafía, un jugador que puede pasarte su juego y la pantalla de la sala.
      Lo mismo está en el menú de la sala, para quien no quiera andar. */
   const combates = () => window.ML3DCombates;
-  const CERCA_PX = 78;                    /* en píxeles de la sala de referencia (720x480) */
+  const cercaPx = () => combates()?.cerca || 78;   /* en píxeles de la sala de referencia (720x480) */
   const PANTALLA = { x: 50, y: 23.5 };    /* delante del cartel del fondo */
   const distancia = (ax, ay, bx, by) => Math.hypot((ax - bx) * 7.2, (ay - by) * 4.8);
 
@@ -1058,15 +1059,10 @@
     const x = Number(yo.dataset.x), y = Number(yo.dataset.y);
     const estado = combates()?.estado();
     let mejor = null;
-    const prueba = (cosa, cx, cy) => { const d = distancia(x, y, cx, cy); if (d <= CERCA_PX && (!mejor || d < mejor.d)) mejor = { ...cosa, d }; };
+    const prueba = (cosa, cx, cy) => { const d = distancia(x, y, cx, cy); if (d <= cercaPx() && (!mejor || d < mejor.d)) mejor = { ...cosa, d }; };
     for (const el of document.querySelectorAll("#playersLayer .player:not(.local)")) {
       const id = el.dataset.playerId, ex = Number(el.dataset.x), ey = Number(el.dataset.y);
       const nombre = cleanName(el.dataset.nombre || "");
-      /* un desafío que se puede aceptar */
-      if (combates()?.disponible && estado && !estado.duelo && !estado.combate && el.dataset.desafio && !combates().rechazado(el.dataset.desafio) && !combates().silenciado(id)) {
-        const d = estado.desafios.find((z) => z.id === el.dataset.desafio);
-        if (d) prueba({ tipo: "desafio", desafio: d, playerId: id, texto: `DESAFÍO DE ${d.nombre.toUpperCase()}` }, ex, ey);
-      }
       /* un juego suyo que me puede pasar (solo con el envío de juegos encendido) */
       const peer = (games()?.peers() || []).find((p) => cleanName(p.name) === nombre);
       if (envioRoms() && peer && peer.origen === "local" && peer.game && !hasGame(context, gameKey(peer.game))) {
@@ -1074,7 +1070,36 @@
       }
     }
     prueba({ tipo: "pantalla", texto: estado?.combate ? "VER EL COMBATE" : "VER LA TABLA" }, PANTALLA.x, PANTALLA.y);
+    const desafio = desafioMasCercano();
+    if (desafio && desafio.d <= cercaPx() && (!mejor || desafio.d < mejor.d)) mejor = desafio;
     return mejor;
+  }
+
+  /* El desafío que podría aceptar más cercano, esté o no al alcance. */
+  function desafioMasCercano() {
+    const yo = document.querySelector("#playersLayer .player.local");
+    const c = combates();
+    const estado = c?.estado();
+    if (!yo || !c?.disponible || !estado || estado.duelo || estado.combate) return null;
+    let mejor = null;
+    for (const el of document.querySelectorAll("#playersLayer .player:not(.local)")) {
+      const id = el.dataset.playerId;
+      if (!el.dataset.desafio || c.rechazado(el.dataset.desafio) || c.silenciado(id)) continue;
+      const desafio = estado.desafios.find((z) => z.id === el.dataset.desafio);
+      const d = distancia(Number(yo.dataset.x), Number(yo.dataset.y), Number(el.dataset.x), Number(el.dataset.y));
+      if (desafio && (!mejor || d < mejor.d)) mejor = { tipo: "desafio", desafio, playerId: id, texto: `DESAFÍO DE ${desafio.nombre.toUpperCase()}`, d };
+    }
+    return mejor;
+  }
+
+  /* Desde el menú de la sala: el desafío más cercano, si está al alcance. */
+  function aceptaDesdeMenu() {
+    const c = combates();
+    if (!c?.disponible) { toast("LOS DESAFÍOS SON PARA SALAS DE 3 O 4.", 3600); return; }
+    const desafio = desafioMasCercano();
+    if (!desafio) toast(c.estado().combate ? "YA HAY UN COMBATE EN LA SALA." : "NADIE TE DESAFÍA AHORA MISMO.", 3200);
+    else if (desafio.d > cercaPx()) toast(`EL DESAFÍO DE ${desafio.desafio.nombre.toUpperCase()} NO ESTÁ A TU ALCANCE. ACÉRCATE.`, 4200);
+    else aceptaDesafio(desafio);
   }
 
   /* Lo que haría A ahora mismo. Con un combate propio en marcha, terminarlo. */
@@ -1100,7 +1125,7 @@
     const a = accionActual();
     if (!a) { window.ML3DLobbyGestos?.envia("salto"); return; }
     if (a.tipo === "desafio") aceptaDesafio(a);
-    else if (a.tipo === "juego") { const ok = games()?.request(a.peer.name, a.peer.game); toast(ok ? `PETICIÓN ENVIADA A ${a.peer.name.toUpperCase()}` : "NO SE PUDO ENVIAR LA PETICIÓN", 3200); }
+    else if (a.tipo === "juego") { pedidoA = a.peer.name; const ok = games()?.request(a.peer.name, a.peer.game); toast(ok ? `PETICIÓN ENVIADA A ${a.peer.name.toUpperCase()}` : "NO SE PUDO ENVIAR LA PETICIÓN", 3200); }
     else if (a.tipo === "pantalla") abreTabla();
     else if (a.tipo === "terminar") terminaCombate();
   }
@@ -1124,7 +1149,7 @@
     dialogo({
       texto: `Desafiar con «${juego}». Elige el tipo. Quien se acerque a ti y pulse A, acepta. Caduca en 45 segundos.`,
       opciones: Object.entries(c.tipos),
-      botones: [{ texto: "CANCELAR" }, { texto: "LANZAR DESAFÍO", principal: true, accion: (tipo) => c.lanza(tipo, juego) }]
+      botones: [{ texto: "CANCELAR" }, { texto: "LANZAR DESAFÍO", principal: true, accion: (tipo) => c.lanza(tipo, juego, context.source === "remote") }]
     });
   }
 
@@ -1139,8 +1164,9 @@
         { texto: "ACEPTAR", principal: true, accion: () => {
           const clave = gameKey(desafio.juego);
           if (clave && !hasGame(context, clave)) {
-            if (esDeBiblioteca(clave) && context.acceso) pideAcceso(desafio.juego);
-            else toast(esDeBiblioteca(clave) ? "ESTE JUEGO ES SOLO PARA TESTERS." : `NO TIENES «${desafio.juego.toUpperCase()}».`, 4200);
+            const deBiblioteca = desafio.biblioteca || esDeBiblioteca(clave);
+            if (deBiblioteca && context.acceso) pideAcceso(desafio.juego);
+            else toast(deBiblioteca ? "ESTE JUEGO ES SOLO PARA TESTERS." : `NO TIENES «${desafio.juego.toUpperCase()}».`, 4200);
             return;
           }
           c.acepta(desafio.id);
