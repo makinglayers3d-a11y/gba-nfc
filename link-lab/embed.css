@@ -691,3 +691,15 @@ body.ml3d-embed .embed-share-button {
 .embed-local-consola label {
   font-weight: 800;
 }
+
+/* SILENCIAR, bien visible junto a cada jugador del menú SELECT. */
+.manage-player .silenciar {
+  border-color: #b98a4a;
+  background: #3a2a14;
+  color: #ffe2bd;
+}
+
+.manage-player .silenciar[aria-pressed="true"] {
+  background: #7a4a12;
+  outline: 2px solid #ffc26b;
+}

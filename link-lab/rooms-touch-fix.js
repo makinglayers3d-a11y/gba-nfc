@@ -41,6 +41,9 @@
     const composer = document.getElementById("chatComposer");
     const input = document.getElementById("chatInput");
     if (!composer) return;
+    /* El anfitrión ha desactivado el chat de la sala: este atajo abría la
+       caja por su cuenta, saltándose a rooms.js. */
+    if (document.body.classList.contains("chat-desactivado")) return;
     composer.hidden = false;
     try { input?.focus({ preventScroll: false }); } catch { input?.focus(); }
   }

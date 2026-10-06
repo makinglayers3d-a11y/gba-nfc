@@ -77,3 +77,131 @@
 @media (prefers-reduced-motion: reduce) {
   .lobby-stage .player-tag .chat-bubble { animation: none !important; }
 }
+
+/* ---- luces del fondo ---- */
+
+.lobby-stage .sala-luces {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.sala-luz { position: absolute; }
+
+/* El portal de la parte baja: late. */
+.sala-luz-portal {
+  left: 50%;
+  top: 94.2%;
+  width: 13%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 190, 80, .9), rgba(255, 140, 30, .45) 45%, transparent 75%);
+  animation: sala-late 2.4s ease-in-out infinite;
+}
+
+/* El emblema del centro: un halo que respira despacio. */
+.sala-luz-emblema {
+  left: 50%;
+  top: 52.5%;
+  width: 40%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, transparent 52%, rgba(80, 200, 255, .38) 66%, transparent 80%);
+  animation: sala-respira 4.6s ease-in-out infinite;
+}
+
+/* El cartel de arriba: un reflejo que lo cruza de vez en cuando. */
+.sala-luz-cartel {
+  left: 36%;
+  top: 3.6%;
+  width: 28%;
+  height: 10%;
+  overflow: hidden;
+  border-radius: 8% / 30%;
+}
+
+.sala-luz-cartel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .5), transparent);
+  animation: sala-reflejo 6s linear infinite;
+}
+
+/* Una línea de luz que recorre el suelo de izquierda a derecha. */
+.sala-luz-barrido {
+  left: 0;
+  top: 50.5%;
+  width: 9%;
+  height: 1.4%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(150, 230, 255, .85), transparent);
+  animation: sala-barrido 7s linear infinite;
+}
+
+@keyframes sala-late { 0%, 100% { opacity: .35; transform: translate(-50%, -50%) scale(.9); } 50% { opacity: .95; transform: translate(-50%, -50%) scale(1.12); } }
+@keyframes sala-respira { 0%, 100% { opacity: .15; } 50% { opacity: .75; } }
+@keyframes sala-reflejo { 0%, 62% { transform: translateX(-120%); } 100% { transform: translateX(460%); } }
+@keyframes sala-barrido { 0% { transform: translateX(60%); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(1050%); opacity: 0; } }
+
+/* Con la pestaña oculta, paradas. */
+.sala-luces.paradas .sala-luz,
+.sala-luces.paradas .sala-luz::before {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sala-luz, .sala-luz::before { animation: none !important; }
+  .sala-luz-portal { opacity: .6; }
+  .sala-luz-emblema { opacity: .4; }
+  .sala-luz-cartel::before, .sala-luz-barrido { display: none; }
+}
+
+/* ---- gestos ---- */
+
+/* Saltar: sube el cuerpo y la sombra se encoge. El jugador no se mueve de sitio. */
+.player.saltando .personaje-lienzo { animation: sala-salto .5s cubic-bezier(.3, .7, .4, 1); }
+.player.saltando .personaje-sombra { animation: sala-salto-sombra .5s ease-out; }
+@keyframes sala-salto { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(calc(-22px * var(--k))); } }
+@keyframes sala-salto-sombra { 0%, 100% { transform: translateX(-50%) scale(1); opacity: 1; } 45% { transform: translateX(-50%) scale(.6); opacity: .55; } }
+
+.player-tag .player-gesto {
+  font-size: max(16px, calc(26px * var(--k)));
+  line-height: 1;
+  animation: sala-gesto 1.9s ease-out both;
+}
+@keyframes sala-gesto { 0% { transform: translateY(8px) scale(.4); opacity: 0; } 12% { transform: translateY(0) scale(1.15); opacity: 1; } 20%, 80% { transform: scale(1); opacity: 1; } 100% { transform: translateY(-6px) scale(1); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .player.saltando .personaje-lienzo, .player.saltando .personaje-sombra, .player-tag .player-gesto { animation: none; }
+}
+
+/* ---- listo y silenciado ---- */
+
+.player-tag .player-listo {
+  margin-left: .35em;
+  color: #6be675;
+  font-weight: 900;
+}
+
+.player-tag .player-silenciado {
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 190, 120, .7);
+  border-radius: 4px;
+  background: rgba(30, 16, 6, .85);
+  color: #ffd9b0;
+  font-size: max(7px, calc(10px * var(--k)));
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+
+/* Chat desactivado por el anfitrión: fuera el botón. */
+body.chat-desactivado #chatButton { display: none; }

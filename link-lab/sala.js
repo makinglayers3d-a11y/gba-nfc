@@ -42,6 +42,25 @@
   etiquetas.setAttribute("aria-hidden", "true");
   capa.after(etiquetas);
 
+  /* ---------- luces del fondo ---------- */
+
+  /* Bucles cortos de luz sobre el dibujo de la sala: el portal de abajo, el
+     emblema del centro y el cartel de arriba. Son capas encima de la imagen;
+     el dibujo no cambia. Se paran cuando la pestaña no se ve, y no se
+     mueven si el sistema pide menos movimiento (eso lo hace el CSS). */
+  const luces = document.createElement("div");
+  luces.className = "sala-luces";
+  luces.setAttribute("aria-hidden", "true");
+  for (const cual of ["portal", "emblema", "cartel", "barrido"]) {
+    const luz = document.createElement("div");
+    luz.className = "sala-luz sala-luz-" + cual;
+    luces.append(luz);
+  }
+  capa.before(luces);
+  const paraLuces = () => luces.classList.toggle("paradas", document.hidden);
+  document.addEventListener("visibilitychange", paraLuces);
+  paraLuces();
+
   /* ---------- escala ---------- */
 
   let k = 1;
@@ -67,6 +86,9 @@
 
   /* ---------- jugadores ---------- */
 
+  /* Gestos con icono sobre la cabeza. El salto no lleva icono: se ve. */
+  const ICONO_GESTO = { saludo: "👋", aplauso: "👏", risa: "😄", corazon: "❤️" };
+
   const estado = new WeakMap();   /* .player -> { x, y, etiqueta, firma } */
 
   function etiquetaDe(el) {
@@ -83,15 +105,25 @@
     const nombre = el.querySelector(":scope > .player-name");
     const bocadillo = el.querySelector(":scope > .chat-bubble");
     const pausado = el.classList.contains("paused");
-    const firma = (nombre?.innerHTML || "") + "|" + (bocadillo?.textContent ?? "\u0000") + "|" + pausado + "|" + el.classList.contains("local");
+    const silenciado = el.classList.contains("silenciado");
+    const gesto = ICONO_GESTO[el.dataset.gesto] || "";
+    const listo = el.dataset.listo === "1";
+    const firma = (nombre?.innerHTML || "") + "|" + (bocadillo?.textContent ?? "\u0000") + "|" + pausado + "|" + el.classList.contains("local") + "|" + silenciado + "|" + gesto + "|" + listo;
     if (st.firma === firma) return;
     st.firma = firma;
     const e = st.etiqueta;
     e.classList.toggle("local", el.classList.contains("local"));
     e.textContent = "";
+    if (gesto) { const g = document.createElement("div"); g.className = "player-gesto"; g.textContent = gesto; e.append(g); }
     if (bocadillo) e.append(bocadillo.cloneNode(true));
     if (pausado) { const p = document.createElement("div"); p.className = "player-paused-tag"; p.textContent = "PAUSADO"; e.append(p); }
-    if (nombre) e.append(nombre.cloneNode(true));
+    if (silenciado) { const s = document.createElement("div"); s.className = "player-silenciado"; s.textContent = "🔇 SILENCIADO"; e.append(s); }
+    if (nombre) {
+      const copia = nombre.cloneNode(true);
+      /* "Listo": tiene su juego cargado y comprobado (lo decide embed.js). */
+      if (listo) { const l = document.createElement("span"); l.className = "player-listo"; l.textContent = "✓"; l.title = "Listo"; copia.append(l); }
+      e.append(copia);
+    }
   }
 
   /* Otro jugador: se apunta cada posición nueva con su hora de llegada y se

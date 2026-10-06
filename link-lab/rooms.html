@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="rooms.css?v=4">
   <link rel="stylesheet" href="rooms-theme-ml3d-v2.css?v=3">
   <link rel="stylesheet" href="personajes.css?v=3">
-  <link rel="stylesheet" href="sala.css?v=1">
+  <link rel="stylesheet" href="sala.css?v=2">
   <!-- Solo actúa con ?embed=1, cuando el lobby va dentro de la pantalla del emulador. -->
-  <link rel="stylesheet" href="embed.css?v=8">
+  <link rel="stylesheet" href="embed.css?v=9">
   <script src="../ml3d-edad.js?v=1"></script>
   <style>html.edad-pendiente body > *:not(dialog) { display: none !important; }</style>
   <script>
@@ -70,6 +70,7 @@
         <div><label for="maxPlayers">Jugadores</label><select id="maxPlayers"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select></div>
       </div>
       <label class="check-line top-gap"><input type="checkbox" id="confirmPlayers"> Confirmar jugadores: decido yo quién entra</label>
+      <label class="check-line"><input type="checkbox" id="roomChat" checked> Chat de texto en la sala</label>
       <button id="createRoom" class="primary top-gap">CREAR SALA</button>
     </section>
 
@@ -198,7 +199,8 @@
       <details>
         <summary>Gestión de jugadores</summary>
         <div id="managePlayers"></div>
-        <label class="check-line top-gap"><input type="checkbox" id="hostConfirmPlayers"> Confirmar jugadores</label>
+        <label class="check-line top-gap"><input type="checkbox" id="hostChat" checked> Chat de texto en la sala</label>
+        <label class="check-line"><input type="checkbox" id="hostConfirmPlayers"> Confirmar jugadores</label>
         <label for="hostIdleMinutes">Expulsar a quien lleve en pausa</label>
         <select id="hostIdleMinutes">
           <option value="0" selected>Nunca</option>
@@ -262,12 +264,13 @@
 </div>
 
 <script src="personajes.js?v=3"></script>
-<script src="sala.js?v=1"></script>
+<script src="filtro-chat.js?v=1"></script>
+<script src="sala.js?v=2"></script>
 <script src="walkable-final.js?v=1"></script>
-<script src="rooms-runtime-loader.js?v=27"></script>
-<script src="rooms-touch-fix.js?v=5"></script>
+<script src="rooms-runtime-loader.js?v=28"></script>
+<script src="rooms-touch-fix.js?v=6"></script>
 <script src="rooms-arena-final.js?v=2"></script>
 <script src="embed-games.js?v=5"></script>
-<script src="embed.js?v=13"></script>
+<script src="embed.js?v=14"></script>
 </body>
 </html>
