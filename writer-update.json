@@ -1,13 +1,13 @@
 {
   "enabled": true,
-  "versionCode": 42,
-  "versionName": "0.15.0",
-  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.15.0/ml3d-nfc-writer-0.15.0.apk",
-  "sha256": "f09a686f62ded16d297b289a7aa1cfbdd60b02041375b9c1fb227aa035575684",
-  "sizeBytes": 7910866,
+  "versionCode": 43,
+  "versionName": "0.15.1",
+  "downloadUrl": "https://github.com/makinglayers3d-a11y/gba-nfc/releases/download/ml3d-nfc-writer-v0.15.1/ml3d-nfc-writer-0.15.1.apk",
+  "sha256": "819452782a89f16e7096570150c066f1aa8403bbb1ba97e5d25a2f5840a50020",
+  "sizeBytes": 7910986,
   "changelog": [
-    "Denuncias del lobby: verlas, bloquear al dispositivo o descartarlas desde Gestion de accesos",
-    "Interruptor para permitir adjuntar mensajes de chat a una denuncia (apagado) y plazo de conservacion"
+    "Actualizar ya no pide confirmar la instalacion en Android 12 o posterior",
+    "Al terminar, la app se cierra y deja una notificacion para abrirla"
   ],
   "minVersionCode": 36,
   "updateRequiredMessage": "Esta version ya no puede ver el catalogo de juegos. Actualiza la app para seguir grabando etiquetas."
