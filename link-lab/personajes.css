@@ -1,34 +1,37 @@
 /* ML3D Link — personajes del lobby (kit por capas, ./personajes/) */
 
-/* rooms.js sigue rellenando .avatar-wrap con su maqueta y la reconstruye en
-   cada render, así que el lienzo cuelga del .player. El wrap se queda como
-   hueco invisible para que el nombre no se solape con el personaje. */
-#playersLayer .player > .avatar-wrap {
-  visibility: hidden;
-  width: 64px;
-  height: 96px;
-}
-
+/* El lienzo ocupa el cuerpo del jugador (.player), que sala.css dimensiona
+   a la escala de la sala (--k). */
 .personaje-host {
   position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
+  inset: 0;
   pointer-events: none;
 }
 
-/* Pixel art: tamaño exacto de la celda, sin suavizado. */
+/* Pixel art: siempre sin suavizado, también cuando la escala no es entera. */
 .personaje-lienzo {
+  position: relative;
   display: block;
-  width: 64px;
-  height: 96px;
-  image-rendering: pixelated;
+  width: 100%;
+  height: 100%;
   image-rendering: crisp-edges;
-  filter: drop-shadow(0 4px 3px rgba(0, 0, 0, .38));
+  image-rendering: pixelated;
+}
+
+/* Sombra pequeña en el suelo, bajo los pies. */
+.personaje-sombra {
+  position: absolute;
+  left: 50%;
+  bottom: calc(-2px * var(--k, 1));
+  width: calc(38px * var(--k, 1));
+  height: calc(11px * var(--k, 1));
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, .5), rgba(0, 0, 0, .28) 60%, transparent);
 }
 
 .player.local .personaje-lienzo {
-  filter: drop-shadow(0 0 4px rgba(88, 190, 255, .88));
+  filter: drop-shadow(0 0 calc(4px * var(--k, 1)) rgba(88, 190, 255, .88));
 }
 
 /* Jugador en pausa: holográfico. La regla anterior apuntaba al hueco
@@ -113,8 +116,8 @@
   border: 1px solid #334b61;
   border-radius: 14px;
   background: radial-gradient(circle at 50% 60%, #1c3a52, #071019 64%);
-  image-rendering: pixelated;
   image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .personaje-apartado { margin-top: 12px; }
@@ -159,8 +162,8 @@
 
 .personaje-opcion canvas {
   display: block;
-  image-rendering: pixelated;
   image-rendering: crisp-edges;
+  image-rendering: pixelated;
   pointer-events: none;
 }
 
@@ -254,8 +257,8 @@
   flex: 0 0 auto;
   width: 32px;
   height: 48px;
-  image-rendering: pixelated;
   image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .embed-personaje-nombre {

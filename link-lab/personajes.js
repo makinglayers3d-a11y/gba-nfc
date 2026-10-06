@@ -168,10 +168,12 @@
       lienzo.className = "personaje-lienzo";
       lienzo.width = CELDA_W;
       lienzo.height = CELDA_H;
-      host.append(lienzo);
+      const sombra = document.createElement("div");
+      sombra.className = "personaje-sombra";
+      host.append(sombra, lienzo);
       el.append(host);
     }
-    return host.firstChild;
+    return host.lastChild;
   }
 
   function pintaJugador(el, ahora) {

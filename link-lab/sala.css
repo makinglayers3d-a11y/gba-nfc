@@ -1,0 +1,79 @@
+/* ML3D Link — la sala en pantalla: escala, profundidad, etiquetas y sombra.
+   Lo mueve sala.js. --k es la escala de la sala (1 = 720x480). Va después de
+   los temas, y con !important donde estos lo usan. */
+
+.lobby-stage {
+  --k: 1;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* El jugador es solo su cuerpo, del tamaño del personaje a la escala de la
+   sala. Su posición (left, top) es el punto donde pisa. Sin la escala por
+   profundidad del tema anterior, que encogía al personaje (0,979x en el centro
+   de la sala) y deformaba sus píxeles. La posición la interpola sala.js. */
+.lobby-stage #playersLayer .player {
+  width: calc(64px * var(--k)) !important;
+  height: calc(96px * var(--k)) !important;
+  transform: translate(-50%, -100%) !important;
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Nombre, "PAUSADO" y bocadillo se ven en la capa de etiquetas. Los que
+   rooms.js deja dentro del jugador quedan como dato, sin pintarse. */
+.lobby-stage #playersLayer .player > .player-name,
+.lobby-stage #playersLayer .player > .chat-bubble,
+.lobby-stage #playersLayer .player > .player-paused-tag,
+.lobby-stage #playersLayer .player > .avatar-wrap {
+  display: none !important;
+}
+
+/* ---- etiquetas: por encima de todos los cuerpos ---- */
+
+.lobby-stage .tags-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.player-tag {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(2px * var(--k));
+  /* justo encima de la cabeza del personaje */
+  transform: translate(-50%, calc(-100% - 96px * var(--k)));
+  white-space: nowrap;
+}
+
+.lobby-stage .player-tag .player-name {
+  position: static !important;
+  max-width: max(72px, calc(120px * var(--k))) !important;
+  font-size: max(8px, calc(11px * var(--k))) !important;
+}
+
+.lobby-stage .player-tag .chat-bubble {
+  position: relative !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  margin-bottom: 5px;
+  max-width: max(120px, calc(190px * var(--k))) !important;
+  font-size: max(9px, calc(12px * var(--k))) !important;
+  white-space: normal;
+}
+
+.lobby-stage .player-tag .player-paused-tag {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  font-size: max(7px, calc(10px * var(--k))) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-stage .player-tag .chat-bubble { animation: none !important; }
+}
