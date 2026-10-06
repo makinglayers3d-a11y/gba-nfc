@@ -282,9 +282,19 @@
   ></span>
 </button>
 <style>
-  #reload-game {
+  /* El botón de redes sube con margen negativo y su caja (transparente por
+     arriba) queda encima de "Reiniciar juego". style.css pone a todos los
+     hijos del menú el mismo z-index ("body.sp-skin-test #menu .menu-card > *"
+     { z-index: 2 }), así que ganaba el de redes por ir después: el clic en
+     Reiniciar abría Instagram. Estas dos reglas llevan dos identificadores
+     para ganarle a esa: Reiniciar por delante, redes por detrás. */
+  #menu .menu-card > button#reload-game {
     position: relative;
-    z-index: 2;
+    z-index: 3;
+  }
+
+  #menu .menu-card > button#social-link {
+    z-index: 1;
   }
 
   .menu-card > button#social-link {
@@ -554,7 +564,7 @@
 <script src="user_scripts/LocalLinkSession.js?v=distintos-1"></script>
 <script src="ml3d-recibidas.js?v=1"></script>
 <script src="ml3d-sala-local.js?v=1"></script>
-<script src="ml3d-lobby-overlay.js?v=lobby-embed-12"></script>
+<script src="ml3d-lobby-overlay.js?v=lobby-embed-13"></script>
 <script src="dev-access.js?v=dev-access-6"></script>
 <script src="ml3d-contenido.js?v=previas-3"></script>
 <script src="ml3d-aviso-acceso.js?v=proteccion-6"></script>
@@ -565,7 +575,8 @@
 <script src="graphics-enhancer.js?v=scalefx-main-1"></script>
 <script src="local-save-manager.js?v=partidas-cable-1"></script>
 <script src="mgba-compat.js?v=sala-local-1"></script>
-<script src="app.js?v=limpieza-6"></script>
+<script src="ml3d-menu-cruceta.js?v=1"></script>
+<script src="app.js?v=limpieza-7"></script>
   
 </body>
 </html>

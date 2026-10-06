@@ -2,7 +2,7 @@
   "use strict";
 
   async function boot() {
-    const response = await fetch("./rooms.js?v=25", { cache: "no-store" });
+    const response = await fetch("./rooms.js?v=26", { cache: "no-store" });
     if (!response.ok) throw new Error(`rooms.js: HTTP ${response.status}`);
     let source = await response.text();
 
