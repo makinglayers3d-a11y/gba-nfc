@@ -145,6 +145,30 @@
     note.className = "embed-note";
     note.id = "embedNote";
     menu.append(note);
+    /* Tu personaje, en pequeño, y EDITAR: no hace falta crear una sala para
+       cambiarlo. Lo dibuja personajes.js (lienzo "personaje-retrato"). Va al
+       final para el cursor y arriba a la vista (order en el CSS): subir desde
+       la primera opción lleva a EDITAR. */
+    const ficha = document.createElement("div");
+    ficha.className = "embed-personaje";
+    const retrato = document.createElement("canvas");
+    retrato.className = "personaje-retrato";
+    retrato.width = 64;
+    retrato.height = 96;
+    retrato.setAttribute("aria-hidden", "true");
+    const nombre = document.createElement("span");
+    nombre.className = "embed-personaje-nombre";
+    nombre.id = "embedPersonajeNombre";
+    nombre.textContent = byId("playerName")?.value || "Jugador";
+    const editar = document.createElement("button");
+    editar.type = "button";
+    editar.className = "embed-personaje-editar";
+    editar.id = "embedPersonajeEditar";
+    editar.textContent = "EDITAR";
+    editar.setAttribute("aria-label", "Editar tu personaje");
+    editar.addEventListener("click", () => byId("avatarButton")?.click());
+    ficha.append(retrato, nombre, editar);
+    menu.append(ficha);
   }
 
   /* ---------- vistas ---------- */
@@ -253,7 +277,15 @@
       .filter((el) => !el.disabled && !el.hidden && isVisible(el));
   }
 
+  /* La pantalla de personalizar el personaje lleva su propio cursor, por
+     filas (personajes.js): tiras horizontales, pestañas y colores. */
+  function editorDePersonaje() {
+    const kit = window.ML3DPersonajes;
+    return openModalEl()?.id === "avatarModal" && kit?.tecla ? kit : null;
+  }
+
   function paintCursor() {
+    if (editorDePersonaje()) { editorDePersonaje().cursor(); return; }
     document.querySelectorAll(".embed-cursor").forEach((el) => el.classList.remove("embed-cursor"));
     const items = cursorItems();
     if (!items.length) return;
@@ -1402,6 +1434,7 @@
     }
 
     if (!down) return;
+    if (editorDePersonaje()?.tecla(key)) return;
     if (key === "UP") moveCursor(-1);
     else if (key === "DOWN") moveCursor(1);
     else if (key === "LEFT") adjustValue(-1);

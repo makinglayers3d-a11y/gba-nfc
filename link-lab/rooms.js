@@ -2413,7 +2413,7 @@
   }
 
   function openAvatarEditor() {
-    if (!localPlayerId && !hostSession && !joinSession) return;
+    /* También fuera de una sala: se edita desde el menú del lobby. */
     $("#profileName").value = profile.name;
     syncEditorButtons();
     renderEditorPreview();

@@ -745,6 +745,16 @@ function isEditableKeyboardTarget(target) {
 window.addEventListener(
   "keydown",
   (event) => {
+    /* Con el menú abierto, la cruceta lo recorre (ml3d-menu-cruceta.js) y la
+       pulsación no le llega al juego. Va antes que lo demás: también cuando
+       el foco está en el desplegable de velocidad o en el volumen. */
+    const menuKey = keyboardMap[event.code];
+    if (menuKey && !window.ml3dStartupGateLocked && window.ML3DMenuCruceta?.tecla(menuKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     if (isEditableKeyboardTarget(event.target)) {
       return;
     }

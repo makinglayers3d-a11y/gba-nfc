@@ -446,6 +446,7 @@
   }
 
   window.ML3DLobbyOverlay = {
+    get isOpen() { return isOpen; },
     open,
     close,
     handleKey,

@@ -52,70 +52,231 @@
 
 .personaje-editor { margin-top: 12px; }
 
+/* La vista previa y las pestañas se quedan arriba al bajar por los apartados. */
+.personaje-cabecera {
+  position: sticky;
+  top: -1px;
+  z-index: 3;
+  height: 106px;
+  background: #111821;
+}
+
+.personaje-pestanas {
+  position: sticky;
+  top: 105px;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  padding-bottom: 6px;
+  background: #111821;
+}
+
+.modal-card .personaje-pestana {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 7px 2px;
+  border: 2px solid #2b3746;
+  border-radius: 10px;
+  background: #0b1119;
+  font-size: .72em;
+  font-weight: 800;
+  letter-spacing: .03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-card .personaje-pestana[aria-selected="true"] {
+  border-color: #7fc2ff;
+  background: #203e59;
+}
+
+/* Que el cursor no se quede tapado por la cabecera fija al subir. */
+.personaje-fila > * { scroll-margin-top: 190px; }
+
+/* Pantalla baja (el lobby dentro de la pantalla del emulador en un móvil):
+   fijas quedan solo las pestañas; la vista previa sube con lo demás. */
+@media (max-height: 380px) {
+  .personaje-cabecera { position: static; }
+  .personaje-pestanas { top: -1px; padding: 4px 0; }
+  .personaje-fila > * { scroll-margin-top: 48px; }
+  .personaje-apartado { margin-top: 6px; }
+}
+
 .personaje-vista {
   display: block;
   width: 256px;
   max-width: 100%;
   height: auto;
-  margin: 0 auto 12px;
+  margin: 0 auto 6px;
   border: 1px solid #334b61;
   border-radius: 14px;
-  background: radial-gradient(circle at 50% 60%, rgba(54, 112, 158, .22), rgba(5, 12, 19, .88) 64%);
+  background: radial-gradient(circle at 50% 60%, #1c3a52, #071019 64%);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
 
-.personaje-campo {
-  display: grid;
-  grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+.personaje-apartado { margin-top: 12px; }
+
+.personaje-apartado h3 {
+  margin: 0 0 6px;
+  font-size: .9em;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
-.personaje-campo label { margin: 0; }
+/* Tira horizontal de cuadros: se desliza con el dedo, la rueda o la barra. */
+.personaje-tira {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  padding: 3px 3px 8px;
+  scrollbar-width: thin;
+}
 
-.personaje-colores { margin-top: 10px; }
+.modal-card .personaje-opcion {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 84px;
+  min-height: 0;
+  padding: 6px 4px;
+  border: 2px solid #2b3746;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 45%, #1a3044, #0b1119 70%);
+  font-size: .68em;
+  font-weight: 700;
+  line-height: 1.15;
+  scroll-snap-align: start;
+}
+
+.personaje-opcion canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  pointer-events: none;
+}
+
+.personaje-opcion span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-card .personaje-opcion[aria-pressed="true"] {
+  border-color: #7fc2ff;
+  background: radial-gradient(circle at 50% 45%, #2b5a80, #12283a 70%);
+  box-shadow: 0 0 0 1px #7fc2ff;
+}
 
 .personaje-color {
-  display: grid;
-  grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 6px;
 }
 
-.personaje-color-nombre { font-size: .85em; }
+.personaje-color-nombre {
+  flex: 0 0 6.5em;
+  font-size: .78em;
+}
 
 .personaje-muestras {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px;
+  scrollbar-width: none;
 }
 
-.personaje-muestra {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  min-height: 22px;
+.modal-card .personaje-muestra {
+  flex: 0 0 auto;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, .55);
-  border-radius: 5px;
+  border-radius: 50%;
 }
 
-.personaje-libre {
-  width: 34px;
-  height: 24px;
+.modal-card .personaje-muestra[aria-pressed="true"],
+.modal-card .personaje-original[aria-pressed="true"] {
+  outline: 2px solid #7fc2ff;
+  outline-offset: 1px;
+}
+
+.modal-card .personaje-libre {
+  flex: 0 0 auto;
+  width: 36px;
+  min-width: 36px;
+  height: 26px;
+  min-height: 26px;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, .55);
-  border-radius: 5px;
+  border-radius: 6px;
   background: none;
 }
 
-.personaje-original {
+.modal-card .personaje-original {
+  flex: 0 0 auto;
   width: auto;
-  min-height: 24px;
+  min-height: 26px;
   padding: 2px 8px;
-  font-size: .72em;
+  font-size: .68em;
+}
+
+.personaje-mechas { margin-top: 6px; }
+
+/* ---- tu personaje en el menú del lobby ---- */
+
+.embed-personaje {
+  order: -1;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.3em 0.6em;
+  border: 1px solid #2b3746;
+  border-radius: 0.6em;
+  background: radial-gradient(circle at 12% 50%, #1c3a52, #0b1119 60%);
+}
+
+.embed-personaje .personaje-retrato {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 48px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.embed-personaje-nombre {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.embed-personaje .embed-personaje-editar {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 0;
+  padding: 0.35em 0.7em;
+  border: 1px solid #42546a;
+  border-radius: 0.5em;
+  background: #1b2633;
+  color: #f5f7fa;
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
 }

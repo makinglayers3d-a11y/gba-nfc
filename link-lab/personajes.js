@@ -208,88 +208,152 @@
     }
     for (const id of [...estado.keys()]) if (!vivos.has(id)) estado.delete(id);
     if (editor.abierto) pintaVistaPrevia(ahora);
+    pintaRetratos();
     requestAnimationFrame(pintaTodos);
   }
 
   /* ---------- pantalla de personalizar ---------- */
 
-  const editor = { abierto: false, aspecto: null, hoja: null, pendiente: "", montado: false };
+  /* Arriba, la vista previa y las pestañas (Cuerpo, Peinado, Ropa,
+     Accesorios); solo se ve una. Dentro, cada apartado es una tira horizontal
+     de cuadros, uno por opción, con el personaje actual llevando esa opción.
+     Debajo de cada tira, sus colores. */
 
-  function campo(texto, control) {
-    const fila = document.createElement("div");
-    fila.className = "personaje-campo";
-    const etiqueta = document.createElement("label");
-    etiqueta.textContent = texto;
-    if (control.id) etiqueta.htmlFor = control.id;
-    fila.append(etiqueta, control);
-    return fila;
-  }
+  const editor = { abierto: false, aspecto: null, hoja: null, pendiente: "", montado: false, vuelta: 0, cuadros: [], colores: [], pestana: "cuerpo", cursor: { f: 1, c: 0 } };
 
-  function desplegable(id, opciones, valor, alCambiar, vetadas = []) {
-    const select = document.createElement("select");
-    select.id = id;
-    for (const [clave, nombre] of Object.entries(opciones)) {
-      if (vetadas.includes(clave)) continue;
-      const o = document.createElement("option");
-      o.value = clave;
-      o.textContent = typeof nombre === "string" ? nombre : nombre.nombre;
-      select.append(o);
-    }
-    select.value = valor;
-    select.addEventListener("change", () => { alCambiar(select.value); cambia(); });
-    return select;
-  }
+  const PESTANAS = [["cuerpo", "Cuerpo"], ["peinado", "Peinado"], ["ropa", "Ropa"], ["accesorios", "Accesorios"]];
 
-  function casilla(texto, valor, alCambiar) {
-    const linea = document.createElement("label");
-    linea.className = "check-line";
-    const caja = document.createElement("input");
-    caja.type = "checkbox";
-    caja.checked = valor;
-    caja.addEventListener("change", () => { alCambiar(caja.checked); cambia(); });
-    linea.append(caja, document.createTextNode(" " + texto));
-    return linea;
+  /* Qué trozo de la celda (64x96, mirando al frente) enseña cada cuadro:
+     x, y, ancho, alto y aumento. */
+  const RECORTE = {
+    entero: [0, 0, 64, 96, 1],
+    cabeza: [0, 0, 64, 64, 1],
+    torso: [0, 26, 64, 64, 1],
+    piernas: [0, 32, 64, 64, 1],
+    pies: [16, 64, 32, 32, 2]
+  };
+
+  /* capa: la del kit que pinta esa opción, para saber qué colores tiene.
+     "" = nada que colorear; "*" = complemento, su color vale siempre. */
+  const APARTADOS = [
+    { id: "cuerpo", pestana: "cuerpo", titulo: "Cuerpo", recorte: "entero", colores: ["piel", "iris", "ropaInterior"],
+      opciones: () => M.cuerpos, lee: (a) => a.cuerpo, pon: (a, v) => { a.cuerpo = v; }, capa: () => "base" },
+    { id: "peinado", pestana: "peinado", titulo: "Peinado", recorte: "cabeza", colores: ["pelo", "mechas"], mechas: true,
+      opciones: () => M.opciones.peinado, lee: (a) => a.peinado, pon: (a, v) => { a.peinado = v; }, capa: (v) => (v === "original" ? "base" : "hair_" + v) },
+    { id: "arriba", pestana: "ropa", titulo: "Parte de arriba", recorte: "torso", colores: ["prendaSuperior", "cuello", "camisetaInterior", "detalles"],
+      opciones: () => M.opciones.arriba, lee: (a) => a.arriba, pon: (a, v) => { a.arriba = v; }, capa: (v) => "top_" + v },
+    { id: "abajo", pestana: "ropa", titulo: "Parte de abajo", recorte: "piernas", colores: ["prendaInferior", "detalles"],
+      opciones: () => M.opciones.abajo, lee: (a) => a.abajo, pon: (a, v) => { a.abajo = v; }, capa: (v) => "bottom_" + v },
+    { id: "calzado", pestana: "ropa", titulo: "Calzado", recorte: "pies", colores: ["calzado", "suela"],
+      opciones: () => M.opciones.calzado, lee: (a) => a.calzado, pon: (a, v) => { a.calzado = v; }, capa: (v) => (v === "nada" ? "" : "shoes_" + v) },
+    { id: "cabeza", pestana: "accesorios", titulo: "Sombrero", recorte: "cabeza", colores: ["sombrero"],
+      opciones: () => M.opciones.cabeza, lee: (a) => a.complementos.cabeza, pon: (a, v) => { a.complementos.cabeza = v; }, capa: (v) => (v === "nada" ? "" : "*") },
+    { id: "gafas", pestana: "accesorios", titulo: "Gafas", recorte: "cabeza", colores: ["gafas"],
+      opciones: () => M.opciones.gafas, lee: (a) => a.complementos.gafas, pon: (a, v) => { a.complementos.gafas = v; }, capa: (v) => (v === "nada" ? "" : "*") },
+    { id: "auriculares", pestana: "accesorios", titulo: "Auriculares", recorte: "cabeza", colores: ["auriculares"],
+      opciones: () => ({ no: "Sin auriculares", si: "Con auriculares" }), lee: (a) => (a.complementos.auriculares ? "si" : "no"), pon: (a, v) => { a.complementos.auriculares = v === "si"; }, capa: (v) => (v === "si" ? "*" : "") },
+    { id: "cinta", pestana: "accesorios", titulo: "Cinta", recorte: "cabeza", colores: ["cinta"],
+      opciones: () => ({ no: "Sin cinta", si: "Con cinta" }), lee: (a) => (a.complementos.cinta ? "si" : "no"), pon: (a, v) => { a.complementos.cinta = v === "si"; }, capa: (v) => (v === "si" ? "*" : "") }
+  ];
+
+  /* ¿Tiene ese color algo que pintar con la opción elegida? Se mira en el
+     manifest qué materiales lleva la capa. */
+  function colorAplica(apartado, clave) {
+    const capa = apartado.capa(apartado.lee(editor.aspecto));
+    if (!capa) return false;
+    if (capa === "*") return true;
+    const material = M.colores[clave].material;
+    const capas = M.capas["cuerpo" + editor.aspecto.cuerpo] || {};
+    return Boolean(capas[capa]?.colores_base?.[material]);
   }
 
   function filaColor(clave) {
     const fila = document.createElement("div");
     fila.className = "personaje-color";
+    fila.dataset.color = clave;
     const nombre = document.createElement("span");
     nombre.className = "personaje-color-nombre";
     nombre.textContent = NOMBRE_COLOR[clave] || clave;
     const muestras = document.createElement("div");
-    muestras.className = "personaje-muestras";
-    const pon = (color) => {
+    muestras.className = "personaje-muestras personaje-fila";
+    const sugeridos = M.colores[clave].sugeridos;
+    /* Cualquier otro color. Es un color, no una imagen. */
+    const libre = document.createElement("input");
+    libre.type = "color";
+    libre.className = "personaje-libre";
+    libre.setAttribute("aria-label", `${NOMBRE_COLOR[clave] || clave}: otro color`);
+    const original = document.createElement("button");
+    const marca = () => {
+      const actual = editor.aspecto.colores[clave] || "";
+      libre.value = actual || sugeridos[0];
+      for (const b of muestras.querySelectorAll(".personaje-muestra")) b.setAttribute("aria-pressed", String(b.dataset.valor === actual));
+      original.setAttribute("aria-pressed", String(!actual));
+    };
+    const pon = (color, conCuadros = true) => {
       if (color) editor.aspecto.colores[clave] = color; else delete editor.aspecto.colores[clave];
-      libre.value = editor.aspecto.colores[clave] || M.colores[clave].sugeridos[0];
-      cambia();
+      /* "Detalles" sale en dos apartados: las dos filas se marcan a la vez. */
+      for (const otra of editor.colores) if (otra.clave === clave && otra.libre !== libre) otra.marca();
+      if (conCuadros) marca();
+      cambia(conCuadros);
     };
     /* Los colores sugeridos del kit, como atajos. */
-    for (const color of M.colores[clave].sugeridos) {
+    for (const color of sugeridos) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "personaje-muestra";
+      b.dataset.valor = color;
       b.style.background = color;
       b.title = color;
       b.setAttribute("aria-label", `${NOMBRE_COLOR[clave] || clave} ${color}`);
       b.addEventListener("click", () => pon(color));
       muestras.append(b);
     }
-    /* Y cualquier otro color. Es un color, no una imagen. */
-    const libre = document.createElement("input");
-    libre.type = "color";
-    libre.className = "personaje-libre";
-    libre.value = editor.aspecto.colores[clave] || M.colores[clave].sugeridos[0];
-    libre.setAttribute("aria-label", `${NOMBRE_COLOR[clave] || clave}: otro color`);
-    libre.addEventListener("input", () => { editor.aspecto.colores[clave] = libre.value.toLowerCase(); cambia(); });
-    const original = document.createElement("button");
+    /* Mientras se arrastra el selector solo cambia la vista previa grande.
+       Los cuadros se redibujan al soltar: en un móvil, redibujarlos a cada
+       paso iba a tirones. */
+    libre.addEventListener("input", () => pon(libre.value.toLowerCase(), false));
+    libre.addEventListener("change", () => pon(libre.value.toLowerCase(), true));
     original.type = "button";
     original.className = "personaje-original";
     original.textContent = "ORIGINAL";
     original.addEventListener("click", () => pon(""));
     muestras.append(libre, original);
     fila.append(nombre, muestras);
+    editor.colores.push({ clave, marca, libre });
+    marca();
     return fila;
+  }
+
+  /* Los colores de un apartado: solo los que pintan algo con lo elegido. */
+  function pintaColores(apartado, caja) {
+    editor.colores = editor.colores.filter((c) => c.caja !== caja);
+    caja.textContent = "";
+    const desde = editor.colores.length;
+    for (const clave of apartado.colores) if (colorAplica(apartado, clave)) caja.append(filaColor(clave));
+    if (apartado.mechas && colorAplica(apartado, "mechas")) {
+      const linea = document.createElement("label");
+      linea.className = "check-line personaje-mechas personaje-fila";
+      const casilla = document.createElement("input");
+      casilla.type = "checkbox";
+      casilla.checked = editor.aspecto.sinMechas;
+      casilla.addEventListener("change", () => { editor.aspecto.sinMechas = casilla.checked; cambia(); });
+      linea.append(casilla, document.createTextNode(" Mechas del color del pelo"));
+      caja.append(linea);
+    }
+    for (const c of editor.colores.slice(desde)) c.caja = caja;
+  }
+
+  function ponPestana(id) {
+    editor.pestana = id;
+    const raiz = $("#avatarModal .personaje-editor");
+    if (!raiz) return;
+    for (const b of raiz.querySelectorAll(".personaje-pestana")) b.setAttribute("aria-selected", String(b.dataset.pestana === id));
+    for (const s of raiz.querySelectorAll(".personaje-apartado")) s.hidden = s.dataset.pestana !== id;
+    /* Lo elegido de cada tira, a la vista. */
+    for (const c of editor.cuadros) {
+      if (c.apartado.pestana === id && c.apartado.lee(editor.aspecto) === c.valor) c.boton.parentElement.scrollLeft = Math.max(0, c.boton.offsetLeft - c.boton.parentElement.offsetLeft - 8);
+    }
+    cambia();
   }
 
   function montaEditor() {
@@ -305,62 +369,128 @@
       if (!etiqueta.closest(".personaje-editor") && etiqueta.htmlFor !== "profileName") etiqueta.hidden = true;
     }
     tarjeta.querySelector(".personaje-editor")?.remove();
+    editor.cuadros = [];
+    editor.colores = [];
 
-    const a = editor.aspecto;
     const raiz = document.createElement("div");
     raiz.className = "personaje-editor";
 
+    /* Vista previa y pestañas se quedan arriba al bajar por los apartados. */
+    const cabecera = document.createElement("div");
+    cabecera.className = "personaje-cabecera";
     const vista = document.createElement("canvas");
     vista.id = "personajeVista";
     vista.className = "personaje-vista";
     vista.width = CELDA_W * 4;
     vista.height = CELDA_H;
     vista.setAttribute("aria-label", "Vista previa del personaje en las cuatro direcciones");
-    raiz.append(vista);
+    const pestanas = document.createElement("div");
+    pestanas.className = "personaje-pestanas personaje-fila";
+    pestanas.setAttribute("role", "tablist");
+    for (const [id, texto] of PESTANAS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "personaje-pestana";
+      b.dataset.pestana = id;
+      b.setAttribute("role", "tab");
+      b.textContent = texto;
+      b.addEventListener("click", () => ponPestana(id));
+      pestanas.append(b);
+    }
+    cabecera.append(vista);
+    raiz.append(cabecera, pestanas);
 
-    raiz.append(
-      campo("Cuerpo", desplegable("personajeCuerpo", M.cuerpos, a.cuerpo, (v) => { a.cuerpo = v; })),
-      campo("Peinado", desplegable("personajePeinado", M.opciones.peinado, a.peinado, (v) => { a.peinado = v; })),
-      campo("Parte de arriba", desplegable("personajeArriba", M.opciones.arriba, a.arriba, (v) => { a.arriba = v; }, VETADAS.arriba)),
-      campo("Parte de abajo", desplegable("personajeAbajo", M.opciones.abajo, a.abajo, (v) => { a.abajo = v; }, VETADAS.abajo)),
-      campo("Calzado", desplegable("personajeCalzado", M.opciones.calzado, a.calzado, (v) => { a.calzado = v; })),
-      campo("Cabeza", desplegable("personajeCabeza", M.opciones.cabeza, a.complementos.cabeza, (v) => { a.complementos.cabeza = v; })),
-      campo("Gafas", desplegable("personajeGafas", M.opciones.gafas, a.complementos.gafas, (v) => { a.complementos.gafas = v; })),
-      casilla("Auriculares", a.complementos.auriculares, (v) => { a.complementos.auriculares = v; }),
-      casilla("Cinta", a.complementos.cinta, (v) => { a.complementos.cinta = v; }),
-      casilla("Mechas del color del pelo", a.sinMechas, (v) => { a.sinMechas = v; })
-    );
-
-    const colores = document.createElement("details");
-    colores.className = "personaje-colores";
-    const titulo = document.createElement("summary");
-    titulo.textContent = "Colores";
-    colores.append(titulo);
-    for (const clave of Object.keys(M.colores)) colores.append(filaColor(clave));
-    raiz.append(colores);
+    const cajas = [];
+    for (const apartado of APARTADOS) {
+      const seccion = document.createElement("section");
+      seccion.className = "personaje-apartado";
+      seccion.dataset.apartado = apartado.id;
+      seccion.dataset.pestana = apartado.pestana;
+      const titulo = document.createElement("h3");
+      titulo.textContent = apartado.titulo;
+      const tira = document.createElement("div");
+      tira.className = "personaje-tira personaje-fila";
+      tira.setAttribute("role", "group");
+      tira.setAttribute("aria-label", apartado.titulo);
+      const caja = document.createElement("div");
+      caja.className = "personaje-colores";
+      const [, , ancho, alto, aumento] = RECORTE[apartado.recorte];
+      for (const [valor, dato] of Object.entries(apartado.opciones())) {
+        if ((VETADAS[apartado.id] || []).includes(valor)) continue;
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.className = "personaje-opcion";
+        boton.dataset.valor = valor;
+        const lienzo = document.createElement("canvas");
+        lienzo.width = ancho;
+        lienzo.height = alto;
+        lienzo.style.width = ancho * aumento + "px";
+        lienzo.style.height = alto * aumento + "px";
+        const nombre = document.createElement("span");
+        nombre.textContent = typeof dato === "string" ? dato : dato.nombre;
+        boton.append(lienzo, nombre);
+        boton.addEventListener("click", () => {
+          apartado.pon(editor.aspecto, valor);
+          /* Otro cuerpo u otra prenda tienen otras zonas de color. */
+          for (const [otro, suCaja] of cajas) if (otro === apartado || apartado.id === "cuerpo") pintaColores(otro, suCaja);
+          cambia();
+        });
+        tira.append(boton);
+        editor.cuadros.push({ apartado, valor, boton, lienzo });
+      }
+      seccion.append(titulo, tira, caja);
+      raiz.append(seccion);
+      cajas.push([apartado, caja]);
+      pintaColores(apartado, caja);
+    }
 
     const nota = document.createElement("p");
     nota.className = "hint";
     nota.textContent = "Se guarda en este dispositivo y lo ven los jugadores de tu sala.";
     raiz.append(nota);
 
-    tarjeta.insertBefore(raiz, $("#saveProfile") || null);
+    /* El personaje va arriba; el nombre queda abajo, junto a GUARDAR: en la
+       pantalla pequeña del emulador lo primero que se ve son las opciones. */
+    tarjeta.insertBefore(raiz, tarjeta.querySelector('label[for="profileName"]') || $("#saveProfile") || null);
     editor.montado = true;
-    cambia();
+    editor.cursor = { f: 1, c: -1 };
+    ponPestana(editor.pestana);
+    pintaCursor();
   }
 
-  /* Tras cada cambio se vuelve a componer la vista previa. */
-  function cambia() {
+  /* Tras cada cambio: la vista previa primero y después los cuadros de la
+     pestaña abierta, uno a uno. Si llega otro cambio a mitad, lo que quedara
+     por dibujar del anterior se deja. conCuadros = false: solo la vista
+     previa (mientras se arrastra el selector de color). */
+  function cambia(conCuadros = true) {
     const aspecto = valida(editor.aspecto) || { ...DEFECTO };
     const clave = JSON.stringify(aspecto);
+    const vuelta = ++editor.vuelta;
     editor.pendiente = clave;
+    for (const c of editor.cuadros) c.boton.setAttribute("aria-pressed", String(c.apartado.lee(editor.aspecto) === c.valor));
     cola = cola.then(async () => {
-      if (editor.pendiente !== clave) return;   /* ya hay un cambio más nuevo */
+      if (editor.vuelta !== vuelta) return;
       try {
         const hoja = await comp.componer({ ...aspecto, frames: 8 });
-        if (editor.pendiente === clave) editor.hoja = hoja;
+        if (editor.vuelta !== vuelta) return;
+        editor.hoja = hoja;
+        if (!conCuadros) return;
+        for (const c of editor.cuadros) {
+          if (c.apartado.pestana !== editor.pestana || c.boton.dataset.pintado === clave) continue;
+          const con = JSON.parse(clave);
+          c.apartado.pon(con, c.valor);
+          const reposo = await comp.componer({ ...con, frames: 4 });
+          if (editor.vuelta !== vuelta) return;
+          const [x, y, ancho, alto] = RECORTE[c.apartado.recorte];
+          const ctx = c.lienzo.getContext("2d");
+          ctx.clearRect(0, 0, ancho, alto);
+          ctx.drawImage(reposo, x, y, ancho, alto, 0, 0, ancho, alto);
+          c.boton.dataset.pintado = clave;
+          /* Entre cuadro y cuadro se cede el paso, para no trabar la pantalla. */
+          await new Promise((sigue) => setTimeout(sigue, 0));
+        }
       } catch (error) {
-        console.error("ML3D personajes (vista previa):", error);
+        console.error("ML3D personajes (pantalla de personalizar):", error);
       }
     });
   }
@@ -376,6 +506,91 @@
     ctx.clearRect(0, 0, vista.width, vista.height);
     for (let fila = 0; fila < 4; fila++) {
       ctx.drawImage(editor.hoja, columna * CELDA_W, fila * CELDA_H, CELDA_W, CELDA_H, fila * CELDA_W, 0, CELDA_W, CELDA_H);
+    }
+  }
+
+  /* ---------- la pantalla de personalizar con los botones del emulador ---------- */
+
+  /* Filas del cursor, de arriba abajo: las pestañas, de la pestaña abierta
+     cada tira y cada fila de colores, el nombre y GUARDAR. */
+  function filasCursor() {
+    const tarjeta = $("#avatarModal .modal-card");
+    if (!tarjeta || !editor.montado) return [];
+    const filas = [];
+    for (const fila of tarjeta.querySelectorAll(".personaje-fila, #profileName, #saveProfile")) {
+      if (fila.closest("[hidden]")) continue;
+      const cosas = fila.matches(".personaje-fila") ? [...fila.querySelectorAll("button, input")].filter((el) => !el.disabled) : [fila];
+      if (cosas.length) filas.push(cosas);
+    }
+    return filas;
+  }
+
+  /* Al llegar a una fila, el cursor va a lo que está elegido en ella. */
+  function elegidoDe(fila) {
+    const i = fila.findIndex((el) => el.getAttribute("aria-pressed") === "true" || el.getAttribute("aria-selected") === "true");
+    return i < 0 ? 0 : i;
+  }
+
+  function pintaCursor() {
+    const filas = filasCursor();
+    if (!filas.length) return;
+    const k = editor.cursor;
+    k.f = Math.max(0, Math.min(filas.length - 1, k.f));
+    if (k.c < 0) k.c = elegidoDe(filas[k.f]);
+    k.c = Math.max(0, Math.min(filas[k.f].length - 1, k.c));
+    document.querySelectorAll(".embed-cursor").forEach((el) => el.classList.remove("embed-cursor"));
+    /* El cursor es para quien maneja con botones; con ratón o dedo no hace
+       falta, pero no estorba: es solo un contorno. */
+    const el = filas[k.f][k.c];
+    el.classList.add("embed-cursor");
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /* Botón del emulador (UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT).
+     Devuelve true si lo ha atendido; B y SELECT se dejan a quien llama, que
+     cierra la ventana. */
+  function tecla(boton) {
+    if (!editor.abierto || !editor.montado) return false;
+    const filas = filasCursor();
+    if (!filas.length) return false;
+    const k = editor.cursor;
+    if (boton === "UP" || boton === "DOWN") {
+      k.f = (k.f + (boton === "UP" ? -1 : 1) + filas.length) % filas.length;
+      k.c = -1;
+    } else if (boton === "LEFT" || boton === "RIGHT") {
+      k.c = Math.max(0, Math.min(filas[k.f].length - 1, k.c + (boton === "LEFT" ? -1 : 1)));
+    } else if (boton === "L" || boton === "R") {
+      const i = PESTANAS.findIndex(([id]) => id === editor.pestana);
+      ponPestana(PESTANAS[(i + (boton === "L" ? -1 : 1) + PESTANAS.length) % PESTANAS.length][0]);
+      k.f = 1;
+      k.c = -1;
+    } else if (boton === "A" || boton === "START") {
+      const el = filas[k.f]?.[k.c];
+      if (!el) return true;
+      if (el instanceof HTMLInputElement && el.type === "text") { el.focus(); el.select?.(); } else el.click();
+    } else return false;
+    pintaCursor();
+    return true;
+  }
+
+  /* Retrato del personaje propio, parado y de frente, para cualquier lienzo
+     con la clase "personaje-retrato" (el menú del lobby lo usa). */
+  function pintaRetratos() {
+    const lienzos = document.querySelectorAll("canvas.personaje-retrato");
+    if (!lienzos.length) return;
+    const propio = valida(window.ML3DPersonajes.actual?.());
+    const texto = propio ? JSON.stringify(propio) : "";
+    const hoja = hojaPara(texto);
+    if (!hoja?.lista) return;
+    const firma = hoja === hojas.get(CLAVE_DEFECTO) ? "d" : texto;
+    for (const lienzo of lienzos) {
+      if (lienzo.dataset.firma === firma) continue;
+      lienzo.dataset.firma = firma;
+      lienzo.width = CELDA_W;
+      lienzo.height = CELDA_H;
+      const ctx = lienzo.getContext("2d");
+      ctx.clearRect(0, 0, CELDA_W, CELDA_H);
+      ctx.drawImage(hoja.reposo, 0, 0, CELDA_W, CELDA_H, 0, 0, CELDA_W, CELDA_H);
     }
   }
 
@@ -425,6 +640,10 @@
     borrador() {
       return editor.montado && editor.aspecto ? valida(editor.aspecto) : null;
     },
+    /* embed.js pasa aquí los botones del emulador mientras la pantalla de
+       personalizar está abierta, y pide que se pinte el cursor. */
+    tecla,
+    cursor: pintaCursor,
     /* rooms.js dice aquí cuál es el aspecto guardado del jugador. */
     actual: null,
     get porDefecto() { return DEFECTO ? JSON.parse(JSON.stringify(DEFECTO)) : null; }
