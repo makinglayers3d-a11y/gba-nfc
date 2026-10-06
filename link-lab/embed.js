@@ -86,7 +86,9 @@
       <div class="embed-dialog-card">
         <p class="embed-dialog-text" id="embedDialogText"></p>
         <div class="embed-dialog-qr" id="embedDialogQr" hidden></div>
-        <select class="embed-dialog-select" id="embedDialogSelect" aria-label="Tus juegos" hidden></select>
+        <select class="embed-dialog-select" id="embedDialogSelect" aria-label="Opciones" hidden></select>
+        <pre class="embed-dialog-detalle" id="embedDialogDetalle" hidden></pre>
+        <label class="check-line embed-dialog-casilla" id="embedDialogCasilla" hidden><input type="checkbox" id="embedDialogCheck"> <span id="embedDialogCheckTexto"></span></label>
         <div class="embed-dialog-actions" id="embedDialogActions"></div>
       </div>
     </div>
@@ -783,18 +785,28 @@
 
   /* Un aviso con botones, manejable con la cruceta como el resto del lobby.
      `opciones` llena un desplegable; `qr` es un SVG ya generado. */
-  function dialogo({ texto, opciones = [], qr = "", botones = [], alCancelar = null }) {
+  /* detalle: texto que se enseña tal cual (lo que se va a enviar).
+     casilla: una casilla sin marcar; a la acción del botón le llega, después
+     de la opción elegida, si quedó marcada. */
+  function dialogo({ texto, opciones = [], qr = "", botones = [], alCancelar = null, detalle = "", casilla = "" }) {
     const box = byId("embedDialog");
     if (!box) return;
     byId("embedDialogText").textContent = texto;
+    byId("embedDialogDetalle").hidden = !detalle;
+    byId("embedDialogDetalle").textContent = detalle;
+    byId("embedDialogCasilla").hidden = !casilla;
+    byId("embedDialogCheckTexto").textContent = casilla;
+    byId("embedDialogCheck").checked = false;
 
     const select = byId("embedDialogSelect");
     select.textContent = "";
     select.hidden = !opciones.length;
-    for (const name of opciones) {
+    for (const opcion of opciones) {
+      /* Una opción es su texto, o [valor, texto]. */
+      const [valor, nombre] = Array.isArray(opcion) ? opcion : [opcion, opcion];
       const option = document.createElement("option");
-      option.value = name;
-      option.textContent = name;
+      option.value = valor;
+      option.textContent = nombre;
       select.append(option);
     }
 
@@ -811,8 +823,9 @@
       if (boton.principal) el.className = "primary";
       el.addEventListener("click", () => {
         const valor = select.hidden ? "" : select.value;
+        const marcada = !byId("embedDialogCasilla").hidden && byId("embedDialogCheck").checked;
         cierraDialogo();
-        boton.accion?.(valor);
+        boton.accion?.(valor, marcada);
       });
       acciones.append(el);
     }
@@ -990,7 +1003,66 @@
   /* rooms.js pregunta por aquí (admitir a un jugador, bloquear). Si llegan
      dos preguntas a la vez, la segunda espera a la primera. */
   let colaPreguntas = Promise.resolve();
+  /* ---------- denunciar a un jugador ---------- */
+
+  const MOTIVOS_DENUNCIA = [
+    ["chat_insultos", "Insultos en el chat"],
+    ["chat_acoso", "Acoso en el chat"],
+    ["chat_sexual", "Contenido sexual en el chat"],
+    ["chat_spam", "Spam en el chat"],
+    ["nombre_ofensivo", "Nombre ofensivo"],
+    ["molestar", "Molesta o no deja jugar"],
+    ["otro", "Otro motivo"]
+  ];
+  const RESPUESTA_DENUNCIA = {
+    ya_denunciado: "Ya habías denunciado a este jugador en esta sala.",
+    demasiadas_denuncias: "Has llegado al límite de denuncias de hoy.",
+    tope_del_dia: "Hoy no se pueden enviar más denuncias.",
+    sin_identificar: "No se pudo enviar la denuncia desde este navegador.",
+    no_disponible: "Las denuncias no están disponibles ahora.",
+    sin_red: "No se pudo enviar la denuncia. Revisa la conexión."
+  };
+
+  /* Dos pasos. Primero el motivo. Después, lo que se va a enviar: si el
+     motivo es del chat, el administrador lo tiene activado y hay mensajes de
+     ese jugador, se enseñan tal cual con una casilla sin marcar. Sin marcar
+     la casilla, la denuncia sale sin mensajes. */
+  function denuncia({ nombre, id, mensajes, envia }) {
+    dialogo({
+      texto: `Denunciar a ${nombre}. Elige el motivo.`,
+      opciones: MOTIVOS_DENUNCIA,
+      botones: [
+        { texto: "CANCELAR" },
+        { texto: "CONTINUAR", principal: true, accion: (motivo) => confirmaDenuncia({ nombre, id, mensajes, envia, motivo }) }
+      ]
+    });
+  }
+
+  async function confirmaDenuncia({ nombre, id, mensajes, envia, motivo }) {
+    let adjuntar = false;
+    if (motivo.startsWith("chat_") && mensajes.length) {
+      try { adjuntar = (await window.parent?.ML3DContenido?.ajustes?.())?.denunciaMensajes === true; } catch { adjuntar = false; }
+    }
+    const etiqueta = MOTIVOS_DENUNCIA.find(([clave]) => clave === motivo)?.[1] || motivo;
+    const manda = async (conMensajes) => {
+      const r = await envia({ target: id, reason: motivo, messages: conMensajes ? mensajes : undefined });
+      if (r.ok && r.status !== "ya_denunciado") toast(r.messagesStored ? `Denuncia enviada, con ${r.messagesStored} mensajes.` : "Denuncia enviada.", 4000);
+      else toast(RESPUESTA_DENUNCIA[r.status] || RESPUESTA_DENUNCIA[r.reason] || "No se pudo enviar la denuncia.", 4500);
+    };
+    dialogo({
+      texto: `Se enviará una denuncia contra ${nombre} por: ${etiqueta}. Solo la verá el administrador. Lleva tu nombre y el suyo, la sala y la fecha.`
+        + (adjuntar ? ` Puedes adjuntar sus últimos ${mensajes.length} mensajes. Se enviaría exactamente esto:` : ""),
+      detalle: adjuntar ? mensajes.map((m) => "· " + m).join("\n") : "",
+      casilla: adjuntar ? "Acepto enviar estos mensajes con la denuncia" : "",
+      botones: [
+        { texto: "CANCELAR" },
+        { texto: "ENVIAR DENUNCIA", principal: true, accion: (_, marcada) => manda(adjuntar && marcada) }
+      ]
+    });
+  }
+
   window.ML3DLobbyUI = {
+    denuncia,
     confirma(texto, si = "SÍ", no = "NO") {
       const turno = colaPreguntas.then(() => new Promise((resolve) => {
         /* Si el anfitrión tiene el lobby quitado (está en su juego), se le

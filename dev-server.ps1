@@ -17,7 +17,9 @@ param(
   [switch]$DosJugadores,
   # Servidor de salas al que se reenvia /api. Por defecto, el publicado. Para
   # probar una version sin desplegar: -ApiSalas http://127.0.0.1:8790
-  [string]$ApiSalas = ""
+  [string]$ApiSalas = "",
+  # Lo mismo con el servidor de accesos: -ApiAcceso http://127.0.0.1:8791
+  [string]$ApiAcceso = ""
 )
 
 $Root = $PSScriptRoot
@@ -34,6 +36,7 @@ if ($ApiSalas) { $ApiTarget = $ApiSalas.TrimEnd("/") }
 # solo se podía probar el camino de "sin acceso". dev-access.js apunta aquí
 # cuando la página se sirve desde localhost.
 $AccesoTarget = "https://ml3d-dev-access.makinglayers3d.workers.dev"
+if ($ApiAcceso) { $AccesoTarget = $ApiAcceso.TrimEnd("/") }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Send-ToWorker($context, $target) {
@@ -48,7 +51,10 @@ function Send-ToWorker($context, $target) {
   if ($pase) { $request.Headers.Add("X-ML3D-Content-Pass", $pase) }
 
   if ($context.Request.HasEntityBody) {
-    $reader = New-Object System.IO.StreamReader($context.Request.InputStream, $context.Request.ContentEncoding)
+    # Siempre UTF-8: sin "charset" en la cabecera, ContentEncoding es la
+    # codificación de Windows y los acentos llegaban rotos al worker (solo en
+    # local; en producción no hay este reenvío).
+    $reader = New-Object System.IO.StreamReader($context.Request.InputStream, [System.Text.Encoding]::UTF8)
     $body = $reader.ReadToEnd()
     $reader.Close()
     $payload = [System.Text.Encoding]::UTF8.GetBytes($body)

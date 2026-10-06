@@ -555,6 +555,28 @@ body.ml3d-embed .embed-share-button {
   font-size: 0.85em;
 }
 
+/* Lo que se va a enviar, tal cual. */
+.embed-dialog-detalle {
+  max-height: 34dvh;
+  margin: 0 0 0.6em;
+  padding: 0.5em;
+  overflow: auto;
+  border: 1px solid #334457;
+  border-radius: 0.5em;
+  background: #070b10;
+  font: inherit;
+  font-size: 0.78em;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.embed-dialog-casilla {
+  margin: 0 0 0.6em;
+  font-size: 0.82em;
+  text-align: left;
+}
+
 .embed-dialog-qr {
   display: grid;
   place-items: center;

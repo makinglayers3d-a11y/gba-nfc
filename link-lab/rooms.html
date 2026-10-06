@@ -10,7 +10,19 @@
   <link rel="stylesheet" href="personajes.css?v=3">
   <link rel="stylesheet" href="sala.css?v=1">
   <!-- Solo actúa con ?embed=1, cuando el lobby va dentro de la pantalla del emulador. -->
-  <link rel="stylesheet" href="embed.css?v=7">
+  <link rel="stylesheet" href="embed.css?v=8">
+  <script src="../ml3d-edad.js?v=1"></script>
+  <style>html.edad-pendiente body > *:not(dialog) { display: none !important; }</style>
+  <script>
+    /* El lobby abierto directamente, sin pasar por el emulador: la misma
+       comprobación de edad antes de enseñar nada. */
+    if (window.ML3DEdad && !window.ML3DEdad.superada) {
+      document.documentElement.classList.add("edad-pendiente");
+      window.addEventListener("DOMContentLoaded", () => window.ML3DEdad.pide().then((puede) => {
+        if (puede) document.documentElement.classList.remove("edad-pendiente");
+      }));
+    }
+  </script>
 </head>
 <body data-state="idle">
 <main>
@@ -172,6 +184,10 @@
 <div id="selectModal" class="modal" hidden>
   <div class="modal-card select-menu-card">
     <div class="modal-head"><h2>SELECT · Sala</h2><button type="button" data-close-modal="selectModal">×</button></div>
+    <details open id="jugadoresSala">
+      <summary>Jugadores</summary>
+      <div id="listaJugadores"></div>
+    </details>
     <div id="hostMenu" hidden>
       <details open>
         <summary>Juego</summary>
@@ -248,10 +264,10 @@
 <script src="personajes.js?v=3"></script>
 <script src="sala.js?v=1"></script>
 <script src="walkable-final.js?v=1"></script>
-<script src="rooms-runtime-loader.js?v=26"></script>
+<script src="rooms-runtime-loader.js?v=27"></script>
 <script src="rooms-touch-fix.js?v=5"></script>
 <script src="rooms-arena-final.js?v=2"></script>
 <script src="embed-games.js?v=5"></script>
-<script src="embed.js?v=12"></script>
+<script src="embed.js?v=13"></script>
 </body>
 </html>
