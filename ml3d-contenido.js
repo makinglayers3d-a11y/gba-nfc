@@ -63,15 +63,22 @@
      Si el worker no contesta, apagado. */
   async function ajustes() {
     let envioRoms = false;
+    /* Adjuntar mensajes de chat a una denuncia del lobby. Otro interruptor
+       de la app de gestión; apagado si no se sabe. */
+    let denunciaMensajes = false;
     try {
       const url = await direccion();
       if (url) {
         const respuesta = await fetch(url + "/v1/settings", { cache: "no-store" });
-        if (respuesta.ok) envioRoms = (await respuesta.json()).envioRoms === true;
+        if (respuesta.ok) {
+          const datos = await respuesta.json();
+          envioRoms = datos.envioRoms === true;
+          denunciaMensajes = datos.denunciaMensajes === true;
+        }
       }
     } catch (_) {}
     window.ML3D_ENVIO_ROMS = envioRoms;
-    return { envioRoms };
+    return { envioRoms, denunciaMensajes };
   }
   ajustes();
 

@@ -187,6 +187,14 @@
   }
 
   function open() {
+    /* Antes de nada, la comprobación de edad (ml3d-edad.js): una vez por
+       dispositivo. Por aquí pasan todas las entradas al lobby: el menú, la
+       biblioteca, un enlace de invitación o un QR. */
+    const edad = window.ML3DEdad;
+    if (edad && !edad.superada) {
+      edad.pide().then((puede) => { if (puede) open(); });
+      return;
+    }
     if (!build()) return;
     document.getElementById("menu")?.close?.();
     isOpen = true;

@@ -1044,7 +1044,72 @@
     }
   }
 
+  /* ---------------------------------------------------------------- denuncias
+
+     Los últimos mensajes de chat de cada jugador de la sala, SOLO en memoria:
+     no se escriben en disco y se borran al salir de la sala. Sirven para que
+     quien denuncia a alguien por el chat pueda, si quiere y si el
+     administrador lo permite, adjuntar lo que esa persona dijo. */
+  const MAX_MENSAJES_DENUNCIA = 20;
+  const ultimosMensajes = new Map();   /* id de jugador -> textos */
+  function apuntaMensaje(playerId, text) {
+    if (!text || playerId === localPlayerId) return;
+    const lista = ultimosMensajes.get(playerId) || [];
+    lista.push(text);
+    while (lista.length > MAX_MENSAJES_DENUNCIA) lista.shift();
+    ultimosMensajes.set(playerId, lista);
+  }
+
+  /* La denuncia va al servidor de salas con la llave de este jugador. A quién
+     se denuncia se dice por su sitio en la sala: quién es de verdad lo pone
+     el servidor. */
+  async function enviaDenuncia({ target, reason, messages }) {
+    const sesion = hostSession || joinSession;
+    if (!sesion) return { ok: false, reason: "sin_sala" };
+    try {
+      const res = await fetch(`${apiBase()}/v1/rooms/${encodeURIComponent(sesion.room.id)}/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sesion.token}` },
+        body: JSON.stringify({ from: hostSession ? "host" : sesion.join.id, target, reason, ...(messages ? { messages } : {}) }),
+        cache: "no-store"
+      });
+      const datos = await res.json().catch(() => ({}));
+      return { ok: res.ok && datos.ok !== false, status: datos.status || "", reason: datos.reason || (res.ok ? "" : "error"), messagesStored: datos.messagesStored || 0 };
+    } catch { return { ok: false, reason: "sin_red" }; }
+  }
+
+  /* Los demás jugadores de la sala, cada uno con DENUNCIAR. Lo ven todos, no
+     solo el anfitrión. La ventana de la denuncia la pone embed.js. */
+  function renderListaJugadores() {
+    const box = $("#listaJugadores");
+    if (!box) return;
+    box.textContent = "";
+    const otros = [...players.values()].filter((p) => p.id !== localPlayerId);
+    $("#jugadoresSala").hidden = !otros.length;
+    for (const player of otros) {
+      const row = document.createElement("div");
+      row.className = "manage-player";
+      const label = document.createElement("span");
+      label.textContent = player.host ? `${player.name} ★` : player.name;
+      row.append(label);
+      const ui = window.ML3DLobbyUI;
+      if (ui?.denuncia) {
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.className = "danger";
+        boton.textContent = "DENUNCIAR";
+        boton.addEventListener("click", () => {
+          closeModal("selectModal");
+          ui.denuncia({ id: player.id, nombre: player.name, mensajes: [...(ultimosMensajes.get(player.id) || [])], envia: enviaDenuncia });
+        });
+        row.append(boton);
+      }
+      box.append(row);
+    }
+  }
+
   function showChatBubble(playerId, text) {
+    apuntaMensaje(playerId, text);
     const el = playersLayer.querySelector(`.player[data-player-id="${CSS.escape(playerId)}"]`);
     if (!el) return;
     let bubble = el.querySelector(".chat-bubble");
@@ -1631,10 +1696,16 @@
           password: $("#roomPassword").value,
           maxPlayers: Math.min(Number($("#maxPlayers").value) || 2, MAX_JUGADORES_ONLINE),
           kind,
+          /* Quién crea la sala: para los bloqueos del administrador y para
+             que un invitado pueda denunciar al anfitrión. */
+          displayName: profile.name,
+          deviceId: deviceId(),
+          ...(testerPass() ? { pass: testerPass() } : {}),
           ...(loc ? { lat: loc.lat, lon: loc.lon } : {})
         }
       });
       players = new Map();
+    ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
       hostSession = {
         room: data.room, token: data.hostToken, peers: new Map(), pollBusy: false, joins: [],
         kind,
@@ -2064,6 +2135,7 @@
     clearLocalLinkSession(room.id);
     hostSession = null;
     players = new Map();
+    ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     localPlayerId = null;
     setLobbyVisible(false);
     updateChannelButtons();
@@ -2153,6 +2225,7 @@
         }
       });
       players = new Map();
+    ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
       joinSession = {
         room: selectedRoom,
         join: data.join,
@@ -2318,6 +2391,7 @@
     clearLocalLinkSession(session.room?.id || "");
     joinSession = null;
     players = new Map();
+    ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     localPlayerId = null;
     setLobbyVisible(false);
     closeModal("selectModal");
@@ -2460,6 +2534,7 @@
     if (!hostSession && !joinSession) return;
     $("#hostMenu").hidden = !hostSession;
     $("#guestMenu").hidden = !joinSession;
+    renderListaJugadores();
     if (hostSession) {
       updateToolbar(hostSession.room);
       renderManagePlayers();
