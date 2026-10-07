@@ -1276,6 +1276,10 @@ function currentLocalSaveContext() {
     filename: currentGbaRomFilename || selected?.rom || "",
     saveId: currentSaveId,
     mgbaNamespace: window.ML3DMgbaCompat?.getNamespace?.() || "",
+    /* Código del cartucho de GBA abierto (cuatro letras de su cabecera): con
+       él, «Datos de guardado» sabe a qué familia de juego pertenece. */
+    gameCode: currentSystem === "gba" && currentGbaRomBytes && currentGbaRomBytes.length > 0xB0
+      ? String.fromCharCode(...currentGbaRomBytes.subarray(0xAC, 0xB0)) : "",
     exportLegacySave: exportLegacySaveForDevice
   };
 }

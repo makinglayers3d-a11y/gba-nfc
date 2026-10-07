@@ -24,7 +24,7 @@
 
   function sanitizeFilename(name) {
     const clean = String(name || "partida")
-      .replace(/\.(gba|gb|gbc)$/i, "")
+      .replace(/\.(gba|gb|gbc|sav|srm)$/i, "")
       .replace(/[\\/:*?"<>|]+/g, "_")
       .trim();
     return (clean || "partida") + ".sav";
@@ -731,27 +731,273 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
-  async function importInternalFile() {
+  /* ---------------------------------------------------------------------
+     Importar una partida externa (.sav), solo GBA.
+
+     Todo ocurre en este navegador: el archivo se lee aquí y no se envía a
+     ningún sitio.
+
+     Dos caminos, por archivo:
+       COMPROBAR .SAV  solo lectura; informe y veredicto. No cambia nada y no
+                       exige cerrar el juego.
+       IMPORTAR        con las protecciones mínimas siempre: tamaño y vacío,
+                       destino elegido a mano, juego cerrado, confirmación
+                       que dice qué se sustituye, y copia previa con fecha.
+     --------------------------------------------------------------------- */
+  const IMPORTADA_PREFIX = "ml3d-sav-importada:";
+  function marcaImportada(filename) {
+    let cuando = "";
+    try { cuando = localStorage.getItem(IMPORTADA_PREFIX + filename) || ""; } catch (_) {}
+    return cuando ? " · importada el " + new Date(cuando).toLocaleDateString("es-ES") : "";
+  }
+
+  function eligeArchivos() {
     return new Promise((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = ".sav,application/octet-stream";
+      input.multiple = true;
+      input.accept = ".sav,.srm,application/octet-stream";
       input.addEventListener("change", async () => {
-        const file = input.files?.[0];
-        if (!file) return resolve(false);
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const filename = sanitizeFilename(file.name);
-        await writeInternalSave(bytes, filename);
-        if (supportsDirectoryAccess()) {
-          try {
-            const root = await getRootDirectory(false);
-            if (root) await writeToDirectory(bytes, filename, false);
-          } catch (_) {}
-        }
-        resolve(true);
+        const archivos = [];
+        for (const file of input.files || []) archivos.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+        resolve(archivos);
       }, { once: true });
+      input.addEventListener("cancel", () => resolve([]), { once: true });
       input.click();
     });
+  }
+
+  /* Juegos de GBA a los que se puede dar una partida: el que está abierto,
+     los de la biblioteca y los que ya tienen partida guardada. */
+  async function destinosImportar() {
+    const ctx = currentContext();
+    const lista = new Map();
+    const pon = (nombre, extra = {}) => {
+      const limpio = sanitizeFilename(nombre).replace(/\.sav$/i, "");
+      if (limpio && limpio !== "partida") lista.set(limpio, { ...(lista.get(limpio) || {}), nombre: limpio, ...extra });
+    };
+    const biblioteca = typeof allGames !== "undefined" && Array.isArray(allGames) ? allGames : [];
+    const noGba = new Set(biblioteca.filter((g) => /\.(gb|gbc)$/i.test(String(g.filename || ""))).map((g) => sanitizeFilename(g.name || g.filename).replace(/\.sav$/i, "")));
+    for (const g of biblioteca) if (/\.gba$/i.test(String(g.filename || ""))) pon(g.name || g.filename);
+    for (const f of await listInternalSaves().catch(() => [])) {
+      const n = f.name.replace(/\.sav$/i, "");
+      if (!noGba.has(n)) pon(n, { conPartida: true });
+    }
+    if (ctx.system === "gba" && ctx.displayName && ctx.displayName !== "partida") pon(ctx.displayName, { abierto: Boolean(ctx.running), codigo: String(ctx.gameCode || "") });
+    return [...lista.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }
+
+  /** Informe de solo lectura. No escribe nada. */
+  async function comprobarSav(bytes) {
+    if (!window.ML3DSavComprueba) throw new Error("No se ha cargado el comprobador de partidas.");
+    return window.ML3DSavComprueba.comprueba(bytes, { juegos: await destinosImportar() });
+  }
+
+  /* La partida con la que ese juego arrancaría ahora mismo. */
+  async function partidaActual(filename) {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && key.startsWith(OWNER_PREFIX) && localStorage.getItem(key) === filename) {
+        const enNucleo = await readMgbaBrowserSram(key.slice(OWNER_PREFIX.length));
+        if (hasSaveData(enNucleo)) return enNucleo;
+      }
+    }
+    try {
+      const interna = await readInternalSave(filename);
+      if (hasSaveData(interna)) return interna;
+    } catch (_) {}
+    return null;
+  }
+
+  const dosCifras = (n) => String(n).padStart(2, "0");
+  const tiempoTexto = (t) => (t ? t.horas + " h " + dosCifras(t.minutos) + " min" : "");
+
+  /**
+   * Importa `bytes` como la partida de `destino`. Devuelve { ok, motivo, copia }.
+   * `confirma(texto)` decide si se sigue; sin ella no se importa nada.
+   */
+  async function importarSav(bytes, destino, confirma) {
+    const S = window.ML3DSavComprueba;
+    if (!S) return { ok: false, motivo: "No se ha cargado el comprobador de partidas." };
+    const rapida = S.rapida(bytes);
+    if (!rapida.ok) return { ok: false, motivo: rapida.motivo };
+    const nombre = sanitizeFilename(destino || "").replace(/\.sav$/i, "");
+    if (!destino || !nombre || nombre === "partida") return { ok: false, motivo: "Hay que elegir para qué juego es la partida." };
+    const filename = nombre + ".sav";
+
+    const ctx = currentContext();
+    if (ctx.running && sanitizeFilename(ctx.displayName) === filename) {
+      return { ok: false, motivo: "«" + nombre + "» está abierto. Ciérralo (abre otro juego o recarga la página) y vuelve a importar: con el juego abierto, su partida pisaría la importada." };
+    }
+
+    const actual = await partidaActual(filename);
+    let pregunta = "No hay ninguna partida de «" + nombre + "»: no se sustituye nada.";
+    if (actual) {
+      let detalle = "";
+      try { const d = S.comprueba(actual).datos; if (d?.entrenador) detalle = " (entrenador " + d.entrenador + (d.tiempo ? ", " + tiempoTexto(d.tiempo) + " de juego" : "") + ")"; } catch (_) {}
+      pregunta = "Se sustituye la partida actual de «" + nombre + "»" + detalle + ". Antes se guarda una copia con la fecha de hoy en Datos de guardado → «Copias de antes de importar una partida», de donde se puede restaurar.";
+    }
+    if (rapida.recortado) pregunta += " El archivo trae 16 bytes de reloj al final: se recortan.";
+    if (typeof confirma !== "function" || !(await confirma(pregunta))) return { ok: false, motivo: "Cancelado: no se ha cambiado nada.", cancelado: true };
+
+    let copia = "";
+    if (actual) {
+      copia = await copiaGuarda(nombre, actual, "importar").catch(() => "");
+      if (!copia) return { ok: false, motivo: "No se pudo guardar la copia de la partida actual. No se ha cambiado nada." };
+    }
+    const nuevos = Uint8Array.from(rapida.bytes);
+    await writeInternalSave(nuevos, filename);
+    /* Si la carpeta de mGBA tiene ahora mismo la partida de este juego, se
+       cambia también: si no, al abrirlo mandaría la vieja. */
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && key.startsWith(OWNER_PREFIX) && localStorage.getItem(key) === filename) {
+        await writeMgbaBrowserSram(key.slice(OWNER_PREFIX.length), nuevos);
+      }
+    }
+    if (supportsDirectoryAccess()) {
+      try {
+        const root = await getRootDirectory(false);
+        if (root) await writeToDirectory(nuevos, filename, false);
+      } catch (_) {}
+    }
+    try { localStorage.setItem(IMPORTADA_PREFIX + filename, new Date().toISOString()); } catch (_) {}
+    return { ok: true, juego: nombre, copia };
+  }
+
+  function lineasInforme(inf) {
+    const l = [];
+    l.push("VEREDICTO: " + inf.veredicto.toUpperCase());
+    for (const g of inf.graves) l.push("✖ " + g);
+    for (const a of inf.avisos) l.push("⚠ " + a);
+    l.push("Tamaño: " + (inf.tamanoTexto || inf.tamano + " bytes") + ".");
+    if (inf.pokemon) {
+      l.push("Familia de juego: " + (inf.familiaNombre || "no se reconoce") + (inf.versionProbable ? " (probablemente " + inf.versionProbable + ", por los Pokémon del equipo; no es seguro)." : "."));
+      for (const h of inf.huecos || []) {
+        l.push("Guardado " + h.hueco + ": " + (h.firmados === 0 && h.enBlanco === h.presentes ? "sin usar" : h.presentes + " de 14 secciones, " + h.firmados + " con firma, " + h.sumasBien + " con la suma correcta" + (h.completo ? " — completo" : " — incompleto o dañado")) + ".");
+      }
+      if (inf.huecoQueCarga) l.push("El juego cargaría el guardado " + inf.huecoQueCarga + ".");
+      const d = inf.datos;
+      if (d?.entrenador !== undefined) {
+        l.push("Entrenador: " + (d.entrenador || "(sin nombre)") + (d.sexo ? " (" + d.sexo + ")" : "") + " · ID " + d.id + ".");
+        l.push("Tiempo de juego: " + tiempoTexto(d.tiempo) + ".");
+        l.push("Pokédex: " + d.pokedex.capturados + " capturados, " + d.pokedex.vistos + " vistos.");
+      }
+      if (d?.equipo) {
+        l.push("Equipo (" + d.equipo.length + "):" + (d.equipo.length ? "" : " vacío."));
+        for (const p of d.equipo) l.push("   " + (p.huevo ? "Huevo" : (p.mote || "(sin mote)") + " · nivel " + p.nivel + " · Pokédex n.º " + (p.pokedex || "?")) + (p.sumaBien ? "" : " · suma incorrecta"));
+      }
+      l.push(inf.juegos.length ? "Juegos tuyos que encajan: " + inf.juegos.map((j) => j.nombre + " (por " + j.por + ")").join(", ") + "." : "Ningún juego tuyo encaja por nombre con esa familia.");
+      l.push("No se puede saber con certeza si es de Rubí o de Zafiro, ni de Rojo Fuego o de Verde Hoja, ni el idioma del cartucho.");
+    }
+    l.push(inf.formato);
+    l.push(inf.nota);
+    return l;
+  }
+
+  /** La ventana de importar, con los archivos ya leídos: [{ name, bytes }]. */
+  async function abreImportar(archivos) {
+    let dialog = document.getElementById("ml3d-sav-import-dialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "ml3d-sav-import-dialog";
+      const style = document.createElement("style");
+      style.textContent = `
+        #ml3d-sav-import-dialog{border:0;padding:0;background:transparent;color:#fff;width:min(94vw,560px)}
+        #ml3d-sav-import-dialog::backdrop{background:#000c;backdrop-filter:blur(5px)}
+        .ml3d-sav-card{background:#0e1118;border:1px solid #ffffff26;border-radius:18px;padding:16px;box-shadow:0 24px 70px #000b;font-family:inherit;max-height:88vh;overflow:auto}
+        .ml3d-sav-card header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+        .ml3d-sav-card header small{display:block;color:#aeb8c8}
+        .ml3d-sav-card button{border:0;border-radius:10px;padding:8px 10px;font:inherit;font-weight:800;background:#fff;color:#111;cursor:pointer}
+        .ml3d-sav-card button:focus-visible,.ml3d-sav-card select:focus-visible{outline:3px solid #8fd0ff;outline-offset:2px}
+        .ml3d-sav-fila{background:#171c26;border:1px solid #ffffff16;border-radius:12px;padding:10px;margin-top:10px}
+        .ml3d-sav-fila strong{display:block;overflow-wrap:anywhere}.ml3d-sav-fila small{color:#9ca8ba}
+        .ml3d-sav-botones{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+        .ml3d-sav-informe{white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.45 ui-monospace,monospace;background:#0a0d12;border:1px solid #2a3442;border-radius:8px;padding:10px;margin-top:8px}
+        .ml3d-sav-card select{font:inherit;padding:8px;border-radius:10px;max-width:100%}
+        .ml3d-sav-nota{color:#aeb8c8;font-size:.8rem;margin:6px 0 0}
+      `;
+      document.head.appendChild(style);
+      document.body.appendChild(dialog);
+    }
+    dialog.innerHTML = `
+      <section class="ml3d-sav-card">
+        <header>
+          <div><strong>Importar partidas</strong><small>Solo juegos de GBA. El archivo no sale de este dispositivo.</small></div>
+          <button type="button" data-close aria-label="Cerrar">×</button>
+        </header>
+        <div data-filas></div>
+      </section>`;
+    const cerrado = new Promise((resolve) => dialog.addEventListener("close", resolve, { once: true }));
+    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    const filas = dialog.querySelector("[data-filas]");
+    const confirma = (texto) => promptDialog("Importar partida", texto, [{ label: "Cancelar", value: false }, { label: "Importar", value: true, primary: true }]);
+
+    for (const archivo of archivos) {
+      const fila = document.createElement("div");
+      fila.className = "ml3d-sav-fila";
+      fila.innerHTML = `<strong></strong><small></small>
+        <div class="ml3d-sav-botones"><button type="button" data-comprobar>COMPROBAR .SAV</button><button type="button" data-importar>IMPORTAR</button></div>
+        <div data-zona role="status" aria-live="polite"></div>`;
+      fila.querySelector("strong").textContent = archivo.name;
+      fila.querySelector("small").textContent = humanSize(archivo.bytes.length);
+      const zona = fila.querySelector("[data-zona]");
+      const di = (texto) => { zona.innerHTML = ""; const p = document.createElement("div"); p.className = "ml3d-sav-informe"; p.textContent = texto; zona.appendChild(p); };
+
+      const importa = async (destino) => {
+        const r = await importarSav(archivo.bytes, destino, confirma).catch((error) => ({ ok: false, motivo: String(error?.message || error) }));
+        di(r.ok ? "Partida importada para «" + r.juego + "». Ábrelo para jugar con ella." + (r.copia ? "\nCopia de la anterior: " + r.copia : "") : "No se ha importado. " + r.motivo);
+        if (r.ok) fila.querySelectorAll("[data-comprobar],[data-importar]").forEach((b) => (b.disabled = true));
+      };
+      /* Destino explícito: una lista, nunca el nombre del archivo. */
+      const eligeDestino = async (zonaBotones) => {
+        const destinos = await destinosImportar();
+        if (!destinos.length) { di("No hay ningún juego de GBA al que darle la partida. Abre antes el juego una vez."); return; }
+        const caja = document.createElement("div");
+        caja.className = "ml3d-sav-botones";
+        const etiqueta = document.createElement("label");
+        etiqueta.textContent = "Para el juego: ";
+        const lista = document.createElement("select");
+        lista.innerHTML = `<option value="">— elige —</option>`;
+        for (const d of destinos) { const o = document.createElement("option"); o.value = d.nombre; o.textContent = d.nombre + (d.abierto ? " (abierto ahora)" : d.conPartida ? " (ya tiene partida)" : ""); lista.appendChild(o); }
+        etiqueta.appendChild(lista);
+        const ya = document.createElement("button");
+        ya.type = "button"; ya.textContent = "IMPORTAR PARA ESTE JUEGO";
+        ya.addEventListener("click", () => { if (lista.value) importa(lista.value); else lista.focus(); });
+        caja.append(etiqueta, ya);
+        zonaBotones.appendChild(caja);
+      };
+
+      fila.querySelector("[data-comprobar]").addEventListener("click", async () => {
+        const inf = await comprobarSav(archivo.bytes).catch((error) => null);
+        if (!inf) { di("No se ha podido comprobar el archivo."); return; }
+        di(lineasInforme(inf).join("\n"));
+        if (inf.veredicto === "no importar") return;
+        const botones = document.createElement("div");
+        botones.className = "ml3d-sav-botones";
+        for (const j of inf.juegos) {
+          const b = document.createElement("button");
+          b.type = "button"; b.textContent = "IMPORTAR PARA «" + j.nombre + "»";
+          b.addEventListener("click", () => importa(j.nombre));
+          botones.appendChild(b);
+        }
+        zona.appendChild(botones);
+        if (!inf.juegos.length) await eligeDestino(zona);
+      });
+      fila.querySelector("[data-importar]").addEventListener("click", async () => {
+        const rapida = window.ML3DSavComprueba?.rapida(archivo.bytes);
+        if (!rapida?.ok) { di("No se ha importado. " + (rapida?.motivo || "No se ha cargado el comprobador de partidas.")); return; }
+        zona.innerHTML = "";
+        await eligeDestino(zona);
+      });
+      filas.appendChild(fila);
+    }
+    const nota = document.createElement("p");
+    nota.className = "ml3d-sav-nota";
+    nota.textContent = "Antes de sustituir una partida se guarda una copia con fecha. Un informe válido no garantiza que no haya Pokémon modificados.";
+    filas.appendChild(nota);
+    if (!dialog.open) dialog.showModal();
+    await cerrado;
   }
 
   async function deleteInternalFile(name) {
@@ -796,7 +1042,10 @@
       document.head.appendChild(style);
       dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
       dialog.querySelector("[data-import]").addEventListener("click", async () => {
-        if (await importInternalFile()) await renderDataFolder(dialog);
+        const archivos = await eligeArchivos();
+        if (!archivos.length) return;
+        await abreImportar(archivos);
+        await renderDataFolder(dialog);
       });
       dialog.querySelector("[data-link]").addEventListener("click", async () => {
         if (!supportsDirectoryAccess()) {
@@ -865,7 +1114,7 @@
         <button type="button" data-delete>Eliminar</button>
       `;
       row.querySelector("strong").textContent = file.name;
-      row.querySelector("small").textContent = humanSize(file.size) + " · " + new Date(file.modified).toLocaleString("es-ES");
+      row.querySelector("small").textContent = humanSize(file.size) + " · " + new Date(file.modified).toLocaleString("es-ES") + marcaImportada(file.name);
 
       row.querySelector("[data-export]").addEventListener("click", async () => {
         let bytes = null;
@@ -902,6 +1151,7 @@
         } else {
           await deleteInternalFile(file.name);
         }
+        try { localStorage.removeItem(IMPORTADA_PREFIX + file.name); } catch (_) {}
         await renderDataFolder(dialog);
       });
 
@@ -968,36 +1218,46 @@
       dos(date.getHours()) + dos(date.getMinutes()) + dos(date.getSeconds());
   }
 
-  async function cableBackupList() {
+  /* Dos tipos de copia en la misma carpeta: "cable" (antes de una sesión de
+     cable) e "importar" (antes de sustituir la partida por una importada).
+     Se guardan las 5 últimas de cada tipo y de cada juego, por separado: una
+     importación nunca expulsa una copia del cable. */
+  const COPIA = /^(.*)__(\d{8}-\d{6})(__importar)?\.sav$/;
+  async function copiaList(tipo) {
     const dir = await backupDirectory(false);
     const rows = [];
     if (!dir) return rows;
     for await (const [name, handle] of dir.entries()) {
-      const partes = /^(.*)__(\d{8}-\d{6})\.sav$/.exec(name);
+      const partes = COPIA.exec(name);
       if (handle.kind !== "file" || !partes) continue;
+      const suyo = partes[3] ? "importar" : "cable";
+      if (tipo && tipo !== suyo) continue;
       const file = await handle.getFile();
-      rows.push({ name, game: partes[1], size: file.size, modified: file.lastModified });
+      rows.push({ name, game: partes[1], tipo: suyo, size: file.size, modified: file.lastModified });
     }
     rows.sort((a, b) => b.modified - a.modified);
     return rows;
   }
+  const cableBackupList = () => copiaList("cable");
 
-  /** Copia de la partida antes de una sesión de cable. Guarda las 5 últimas. */
-  async function cableBackup(displayName, bytes) {
+  async function copiaGuarda(displayName, bytes, tipo) {
     if (!hasSaveData(bytes)) return false;
     const dir = await backupDirectory(true);
     if (!dir) return false;
     const game = sanitizeFilename(displayName).replace(/\.sav$/i, "");
-    const handle = await dir.getFileHandle(game + "__" + backupStamp(new Date()) + ".sav", { create: true });
+    const name = game + "__" + backupStamp(new Date()) + (tipo === "importar" ? "__importar" : "") + ".sav";
+    const handle = await dir.getFileHandle(name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(bytes);
     await writable.close();
-    const viejas = (await cableBackupList()).filter((row) => row.game === game).slice(BACKUPS_PER_GAME);
+    const viejas = (await copiaList(tipo)).filter((row) => row.game === game).slice(BACKUPS_PER_GAME);
     for (const row of viejas) {
       try { await dir.removeEntry(row.name); } catch (_) {}
     }
-    return true;
+    return name;
   }
+  /** Copia de la partida antes de una sesión de cable. Guarda las 5 últimas. */
+  const cableBackup = async (displayName, bytes) => Boolean(await copiaGuarda(displayName, bytes, "cable"));
 
   async function cableBackupRead(name) {
     const dir = await backupDirectory(false);
@@ -1012,7 +1272,7 @@
 
   /** Devuelve una copia a su sitio: será la partida del juego al abrirlo. */
   async function cableBackupRestore(name) {
-    const partes = /^(.*)__\d{8}-\d{6}\.sav$/.exec(name);
+    const partes = COPIA.exec(name);
     const bytes = partes ? await cableBackupRead(name) : null;
     if (!hasSaveData(bytes)) return false;
     const filename = partes[1] + ".sav";
@@ -1032,12 +1292,16 @@
   }
 
   async function renderCableBackups(host) {
-    const copias = await cableBackupList().catch(() => []);
+    await renderCopias(host, "cable", "Copias de antes de jugar con cable (solo en este dispositivo)");
+    await renderCopias(host, "importar", "Copias de antes de importar una partida (solo en este dispositivo)");
+  }
+  async function renderCopias(host, tipo, titulo) {
+    const copias = await copiaList(tipo).catch(() => []);
     if (!copias.length) return;
 
     const title = document.createElement("div");
     title.style.cssText = "padding:14px 2px 8px;color:#9ca8ba;font-size:.78rem";
-    title.textContent = "Copias de antes de jugar con cable (solo en este dispositivo)";
+    title.textContent = titulo;
     host.appendChild(title);
 
     copias.forEach((copia) => {
@@ -1139,6 +1403,12 @@
     cableBackup,
     cableBackupList,
     cableBackupRestore,
+    copiaList,
+    /* Importar una partida externa. Todo ocurre en el navegador. */
+    comprobarSav,
+    importarSav,
+    abreImportar,
+    destinosImportar,
     getMode: () => localStorage.getItem(MODE_KEY) || "browser",
     resetChoice() {
       localStorage.removeItem(MODE_KEY);
