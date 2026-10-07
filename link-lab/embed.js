@@ -1770,6 +1770,11 @@
   }
 
   function handleInput(key, down) {
+    /* Mientras se entra en una sala, los botones son de la pantalla de conexión. */
+    if (window.ML3DConexion?.activa()) {
+      if (down) window.ML3DConexion.tecla(key);
+      return;
+    }
     if (chatOpen()) {
       if (key === "B" && down) goBack();
       return;

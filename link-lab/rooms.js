@@ -205,6 +205,158 @@
 
   /* Preguntas y avisos: dentro del emulador los pinta embed.js con su propio
      diálogo, manejable con la cruceta; fuera, lo de siempre. */
+  /* ---------------------------------------------------------------- pantalla de conexión
+
+     Al entrar en una sala (por código, QR, buscar cerca, enlace de invitación
+     o al volver a la propia tras recargar) se tapa todo con «CONECTANDO…» y
+     los pasos por los que va. Si algo falla o tarda demasiado, dice por qué y
+     ofrece REINTENTAR y VOLVER. No cambia cómo se conecta: si el relevo
+     falla, se dice; no hay ningún camino a una conexión directa. */
+  const CONEXION_TOPE_MS = 20000;        /* de principio a fin, sin contar la espera al anfitrión */
+  const CONEXION_ANFITRION_MS = 60000;   /* con «Confirmar jugadores», lo que tarde una persona */
+  const CONEXION_DUDA_MS = 3000;         /* sin oferta en este tiempo: el anfitrión está decidiendo */
+  const CONEXION_PASOS = ["Buscando la sala…", "Pidiendo conexión segura…", "Conectando con los jugadores…", "Entrando…"];
+  const CONEXION_MOTIVOS = {
+    llena: "La sala está completa.",
+    noEsta: "No se ha encontrado la sala, o ya se ha cerrado.",
+    relevo: "El servicio de conexión no responde.",
+    sinConexion: "No se ha podido conectar con la sala.",
+    rechazado: "El anfitrión no te ha admitido.",
+    bloqueado: "No puedes entrar en esta sala.",
+    tiempo: "La sala no ha contestado a tiempo.",
+    anfitrion: "El anfitrión no ha contestado a tiempo.",
+    recarga: "Hay una versión nueva: recarga la página para poder entrar.",
+    salas: "No se puede contactar con el servidor de salas.",
+    inactivo: "Expulsado de la sala por inactividad.",
+    expulsado: "Expulsado de la sala."
+  };
+  const conexion = { activa: false, fallo: false, paso: 0, esperando: false, sala: null, nombre: "", clave: "", plazo: null, duda: null, cierre: null };
+  const elConexion = (id) => document.getElementById(id);
+  function conexionMotivo(mensaje) {
+    const m = String(mensaje || "");
+    if (m === SIN_RELEVO) return "relevo";
+    if (/completa/i.test(m)) return "llena";
+    if (/no encontrada|ya no está disponible|ya no existe/i.test(m)) return "noEsta";
+    if (/no está disponible en este dispositivo/i.test(m)) return "bloqueado";
+    if (/recarga la página|Conexión no válida/i.test(m)) return "recarga";
+    if (/No se pudo contactar/i.test(m)) return "salas";
+    return "";
+  }
+  function conexionPlazo(ms, motivo) {
+    clearTimeout(conexion.plazo);
+    conexion.plazo = setTimeout(() => conexionFalla(motivo), ms);
+  }
+  function conexionPinta() {
+    const pasos = [...elConexion("conectandoPasos").children];
+    pasos.forEach((li, i) => { li.dataset.estado = i + 1 < conexion.paso ? "hecho" : i + 1 === conexion.paso ? "ahora" : "pendiente"; });
+  }
+  function conexionPaso(n, texto) {
+    if (!conexion.activa || conexion.fallo) return;
+    conexion.paso = n;
+    conexionPinta();
+    elConexion("conectandoTexto").textContent = texto || CONEXION_PASOS[n - 1];
+  }
+  function conexionAbre() {
+    clearTimeout(conexion.cierre); clearTimeout(conexion.duda);
+    Object.assign(conexion, { activa: true, fallo: false, esperando: false, sala: selectedRoom ? { ...selectedRoom } : null, nombre: $("#playerName").value, clave: $("#joinPassword").value });
+    const caja = elConexion("conectando");
+    caja.dataset.estado = "conectando";
+    caja.hidden = false;
+    elConexion("conectandoTitulo").textContent = "CONECTANDO…";
+    elConexion("conectandoReintentar").hidden = true;
+    elConexion("conectandoVolver").hidden = true;
+    elConexion("conectandoCancelar").hidden = false;
+    conexionPaso(1);
+    conexionPlazo(CONEXION_TOPE_MS, "tiempo");
+    elConexion("conectandoCancelar").focus();
+    log("Conexión: entrando en la sala…");
+  }
+  /* La sala existe y ha apuntado la entrada. Falta que el anfitrión mande su oferta. */
+  function conexionPedida() {
+    conexionPaso(2);
+    clearTimeout(conexion.duda);
+    conexion.duda = setTimeout(() => {
+      if (!conexion.activa || conexion.fallo || conexion.paso !== 2 || joinSession?.pc) return;
+      conexion.esperando = true;
+      elConexion("conectandoTexto").textContent = "Esperando a que el anfitrión te acepte…";
+      conexionPlazo(CONEXION_ANFITRION_MS, "anfitrion");
+    }, CONEXION_DUDA_MS);
+  }
+  /* Ha llegado la oferta del anfitrión: se piden las credenciales del relevo. */
+  function conexionOferta() {
+    if (!conexion.activa || conexion.fallo) return;
+    clearTimeout(conexion.duda);
+    conexion.esperando = false;
+    conexionPaso(2);
+    conexionPlazo(CONEXION_TOPE_MS, "tiempo");
+  }
+  function conexionCierra() {
+    clearTimeout(conexion.plazo); clearTimeout(conexion.duda); clearTimeout(conexion.cierre);
+    conexion.activa = false; conexion.fallo = false;
+    elConexion("conectando").hidden = true;
+  }
+  function conexionDentro() {
+    if (!conexion.activa || conexion.fallo) return;
+    clearTimeout(conexion.plazo); clearTimeout(conexion.duda);
+    conexionPaso(4);
+    log("Conexión: dentro.");
+    conexion.cierre = setTimeout(conexionCierra, 500);
+  }
+  async function conexionFalla(motivo, detalle = "") {
+    if (!conexion.activa || conexion.fallo) return;
+    conexion.fallo = true;
+    clearTimeout(conexion.plazo); clearTimeout(conexion.duda); clearTimeout(conexion.cierre);
+    const texto = CONEXION_MOTIVOS[motivo] || detalle || "No se ha podido entrar en la sala.";
+    const caja = elConexion("conectando");
+    caja.dataset.estado = "fallo";
+    elConexion("conectandoTitulo").textContent = "NO SE HA PODIDO ENTRAR";
+    elConexion("conectandoTexto").textContent = texto;
+    elConexion("conectandoCancelar").hidden = true;
+    elConexion("conectandoReintentar").hidden = false;
+    elConexion("conectandoVolver").hidden = false;
+    elConexion("conectandoReintentar").focus();
+    log(`Conexión: no se ha podido entrar (${motivo || "error"}: ${texto})`);
+    /* Se deja la sala limpia: la entrada a medias no se queda ocupando un hueco. */
+    if (joinSession) { try { await leaveRoom(true); } catch (_) {} }
+    setState("idle", texto);
+  }
+  async function conexionCancela() {
+    if (!conexion.activa) return;
+    const habia = Boolean(joinSession);
+    conexionCierra();
+    log("Conexión: cancelada.");
+    if (habia) { try { await leaveRoom(true); } catch (_) {} }
+    setState("idle", "Entrada cancelada.");
+  }
+  function conexionReintenta() {
+    if (!conexion.activa || !conexion.fallo || !conexion.sala) return conexionCierra();
+    selectedRoom = { ...conexion.sala };
+    $("#playerName").value = conexion.nombre;
+    $("#joinPassword").value = conexion.clave;
+    conexion.fallo = false;
+    relevoFallo = null;   /* lo pide una persona: se vuelve a preguntar al servicio de conexión */
+    joinSelectedRoom();
+  }
+  window.ML3DConexion = {
+    activa: () => conexion.activa,
+    estado: () => ({ activa: conexion.activa, fallo: conexion.fallo, paso: conexion.paso, esperando: conexion.esperando, texto: elConexion("conectandoTexto")?.textContent || "" }),
+    /* Botones de la consola y cruceta: B cancela o vuelve, A pulsa lo enfocado. */
+    tecla(tecla) {
+      if (!conexion.activa) return false;
+      const botones = [...elConexion("conectando").querySelectorAll("button")].filter((b) => !b.hidden);
+      if (tecla === "B") { if (conexion.fallo) conexionCierra(); else conexionCancela(); }
+      else if (tecla === "A" || tecla === "START") (botones.includes(document.activeElement) ? document.activeElement : botones[0])?.click();
+      else if (["LEFT", "RIGHT", "UP", "DOWN"].includes(tecla) && botones.length) {
+        const i = botones.indexOf(document.activeElement), paso = tecla === "LEFT" || tecla === "UP" ? -1 : 1;
+        botones[(i + paso + botones.length) % botones.length].focus();
+      }
+      return true;
+    }
+  };
+  elConexion("conectandoCancelar").addEventListener("click", conexionCancela);
+  elConexion("conectandoVolver").addEventListener("click", conexionCierra);
+  elConexion("conectandoReintentar").addEventListener("click", conexionReintenta);
+
   function pregunta(texto, si = "SÍ", no = "NO") {
     const ui = window.ML3DLobbyUI;
     if (ui?.confirma) return ui.confirma(texto, si, no);
@@ -366,7 +518,7 @@
     } catch (error) {
       log(`Relevo: ${error.message}`);
       relevoFallo = { clave: s.clave, hasta: Date.now() + RELEVO_REINTENTA_MS };
-      if (!renovando) aviso(SIN_RELEVO.toUpperCase());
+      if (!renovando && !conexion.activa) aviso(SIN_RELEVO.toUpperCase());
       throw new Error(SIN_RELEVO);
     }
   }
@@ -530,6 +682,7 @@
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
       if (pc.connectionState === "connected") olvidaCaida();
+      if (pc.connectionState === "failed" && conexion.activa && joinSession?.pc === pc) conexionFalla("sinConexion");
       if (pc.connectionState === "closed" || pc.connectionState === "failed") {
         conexionesVivas.delete(pc);
         avisaCaidaAlEmulador("la conexion con el otro jugador se ha perdido");
@@ -3029,6 +3182,7 @@
     try {
       const typedName = cleanName($("#playerName").value);
       saveProfileLocal({ ...profile, name: typedName });
+      conexionAbre();
       setState("working", "Solicitando entrada…");
       const data = await api(`/v1/rooms/${encodeURIComponent(selectedRoom.id)}/join`, {
         method: "POST",
@@ -3055,6 +3209,7 @@
       };
       localPlayerId = data.join.id;
       setState("working", "Esperando a que el anfitrión te admita…");
+      conexionPedida();
       log(`Solicitud enviada a ${selectedRoom.name}.`);
       joinSession.pollTimer = setInterval(pollJoinState, 1000);
       joinSession.heartbeatTimer = setInterval(() => {
@@ -3066,12 +3221,17 @@
       await pollJoinState();
     } catch (e) {
       if (selectedRoom && /contrase/i.test(e.message || "")) {
+        /* Contraseña: no es un fallo de conexión, se vuelve a pedir. */
+        conexionCierra();
         selectedRoom.locked = true;
         $("#joinPasswordWrap").hidden = false;
         $("#joinPassword").value = "";
         $("#joinPassword").focus();
+        fail(e, "No se pudo entrar en la sala");
+        return;
       }
       fail(e, "No se pudo entrar en la sala");
+      conexionFalla(conexionMotivo(e.message), e.message);
     }
   }
 
@@ -3090,7 +3250,8 @@
         joinSession.pollBusy = false;
         await leaveRoom(false);
         setState("idle", texto.charAt(0) + texto.slice(1).toLowerCase());
-        aviso(texto);
+        if (conexion.activa) conexionFalla({ rejected: "rechazado", blocked: "bloqueado", full: "llena", outdated: "recarga", inactive: "inactivo" }[state.reason] || "expulsado");
+        else aviso(texto);
         return;
       }
       if (state.status === "offer_ready" && state.offer && !joinSession.answerSent) {
@@ -3100,6 +3261,9 @@
       }
     } catch (e) {
       log(`Polling jugador: ${e.message}`);
+      /* Mientras se entra, un fallo aquí es el final: se dice por qué. */
+      const motivo = conexionMotivo(e.message);
+      if (conexion.activa && (motivo === "relevo" || motivo === "noEsta" || motivo === "recarga")) conexionFalla(motivo);
     } finally {
       if (joinSession) joinSession.pollBusy = false;
     }
@@ -3107,6 +3271,7 @@
 
   async function answerHostOffer(offerText) {
     const { room, join, token } = joinSession;
+    conexionOferta();
     const oferta = descripcionRelevo(offerText, "offer");
     const cfg = await configRelevo();
     if (!joinSession || joinSession.join.id !== join.id || joinSession.pc) return;
@@ -3125,6 +3290,7 @@
       body: { answer: serializaRelevo(pc.localDescription) }
     });
     joinSession.answerSent = true;
+    conexionPaso(3);
     setState("working", "Respuesta enviada · conectando…");
     log("Jugador: respuesta WebRTC enviada al host.");
   }
@@ -3133,6 +3299,7 @@
     channel.binaryType = "arraybuffer";
     channel.addEventListener("open", async () => {
       log("Jugador: canal de lobby abierto.");
+      conexionDentro();
       setState("connected", "LINK CONECTADO");
       setLobbyVisible(true);
       updateToolbar(joinSession.room);
