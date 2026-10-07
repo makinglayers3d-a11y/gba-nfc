@@ -987,11 +987,12 @@
   }
 
   /* Ni en el nombre de un jugador ni en el de una sala se enseña una dirección web. */
-  const sinEnlaces = (text) => (window.ML3DFiltroChat?.sinEnlaces ? window.ML3DFiltroChat.sinEnlaces(text) : String(text ?? ""));
+  /* Declarada con function: cleanName se usa ya al arrancar, antes de llegar aquí. */
+  function sinEnlaces(text) { return window.ML3DFiltroChat?.sinEnlaces ? window.ML3DFiltroChat.sinEnlaces(text) : String(text ?? ""); }
   function cleanName(value) {
     return sinEnlaces(String(value || "Jugador").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32)) || "Jugador";
   }
-  const nombreSala = (room) => sinEnlaces(room?.name || "") || "Sala";
+  function nombreSala(room) { return sinEnlaces(room?.name || "") || "Sala"; }
 
   function cleanChat(value) {
     return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 90);
