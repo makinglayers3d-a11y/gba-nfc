@@ -342,30 +342,56 @@
     /* Si acaba de fallar no se insiste en cada intento: el servidor tiene un tope. */
     if (relevoFallo && relevoFallo.clave === s.clave && Date.now() < relevoFallo.hasta) throw new Error(SIN_RELEVO);
     try {
-      const data = await api(s.ruta, { method: "POST", token: s.token });
+      /* Para probar la renovación sin esperar 5 horas: con
+         localStorage "ml3d-relevo-ttl" = segundos, se piden credenciales más
+         cortas. El servidor solo admite acortarlas, nunca alargarlas. */
+      let corta = 0;
+      try { corta = Number(localStorage.getItem("ml3d-relevo-ttl")) || 0; } catch {}
+      const data = await api(s.ruta, { method: "POST", token: s.token, body: corta >= 60 ? { ttl: corta } : {} });
       const servidores = (Array.isArray(data.iceServers) ? data.iceServers : [])
         .map((x) => ({ urls: [].concat(x?.urls || []).filter((u) => /^turns?:/.test(u)), username: x?.username, credential: x?.credential }))
         .filter((x) => x.urls.length && x.username && x.credential);
       if (!servidores.length) throw new Error("sin servidores de relevo");
       const vida = Number(data.expiresAt) - Date.now();
       if (!(vida > 0)) throw new Error("credenciales sin caducidad");
-      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA };
+      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA, caduca: Number(data.expiresAt), desde: Date.now() };
+      log(`Relevo: credenciales nuevas, válidas ${Math.round(vida / 60000)} min.`);
       relevoFallo = null;
       return relevoListo.cfg;
     } catch (error) {
       log(`Relevo: ${error.message}`);
       relevoFallo = { clave: s.clave, hasta: Date.now() + RELEVO_REINTENTA_MS };
-      aviso(SIN_RELEVO.toUpperCase());
+      if (!renovando) aviso(SIN_RELEVO.toUpperCase());
       throw new Error(SIN_RELEVO);
     }
   }
   /* ---- renovar una conexión viva ----
-     Cada lado usa sus propias credenciales en el relevo. Antes de que caduquen
-     pide unas nuevas y la conexión se renegocia por su propio canal (reinicio
-     ICE): los dos lados vuelven a reservar sitio en el relevo y la partida o
-     la sala siguen sin cortarse. Empieza siempre quien hizo la oferta
-     original (el anfitrión en la sala, quien desafía en el combate); el otro
-     lado, cuando le toca, se lo pide. */
+     Cada lado usa sus propias credenciales en el relevo, y el relevo corta la
+     conexión poco después de que caduquen. Antes de eso se piden unas nuevas
+     y la conexión se renegocia por su propio canal (reinicio ICE): los dos
+     lados vuelven a reservar sitio en el relevo y la sala o la partida siguen
+     sin cortarse. Empieza siempre quien hizo la oferta original (el
+     anfitrión en la sala, quien desafía en el combate); el otro lado, cuando
+     le toca, se lo pide.
+
+     Cada conexión recuerda con qué credenciales está abierta (pc.__cfg). Si
+     no son las actuales, se insiste hasta que lo sean; si no se consigue, se
+     avisa: quedan minutos antes del corte. */
+  let renovando = false;
+  const renovacion = { hechas: 0, fallos: 0, ultima: 0, ultimoFallo: "", avisado: 0 };
+  function falloRenovacion(motivo) {
+    renovacion.fallos += 1; renovacion.ultimoFallo = motivo;
+    log(`Relevo: FALLO al renovar (${motivo}).`);
+    if (Date.now() - renovacion.avisado < 120000) return;
+    renovacion.avisado = Date.now();
+    const quedan = relevoListo?.caduca ? Math.max(0, Math.round((relevoListo.caduca - Date.now()) / 60000)) : 0;
+    aviso(`NO SE HA PODIDO RENOVAR LA CONEXIÓN. PUEDE CORTARSE EN ${quedan > 1 ? `UNOS ${quedan} MINUTOS` : "POCO TIEMPO"}.`);
+  }
+  function renovada(pc, cfg) {
+    pc.__cfg = cfg; pc.__renovando = false; pc.__pendiente = 0;
+    renovacion.hechas += 1; renovacion.ultima = Date.now();
+    log(`Relevo: conexión renovada (${renovacion.hechas}).`);
+  }
   async function reunidos(pc) {
     for (let i = 0; i < 100; i++) {
       if (pc.iceGatheringState === "complete" && candidatosDe(pc.localDescription?.sdp).length) return;
@@ -374,47 +400,58 @@
   }
   async function renuevaConexion(pc, canal) {
     if (!pc || pc.__renovando || canal?.readyState !== "open") return;
-    if (Date.now() - (pc.__renovada || 0) < 20000) return;   /* nadie puede pedirlo sin parar */
     pc.__renovando = true;
     try {
-      pc.setConfiguration(await configRelevo());
+      const cfg = await configRelevo();
+      pc.setConfiguration(cfg);
+      pc.__cfgNueva = cfg;
       await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
       await reunidos(pc);
       safeSend(canal, { type: "relevo:oferta", data: serializaRelevo(pc.localDescription), time: Date.now() });
-      /* Si la respuesta no llega, se podrá intentar otra vez. */
-      setTimeout(() => { pc.__renovando = false; }, 30000);
-    } catch (error) { pc.__renovando = false; log(`Relevo: no se pudo renovar (${error.message})`); }
+      /* Si la respuesta no llega, se intenta otra vez. */
+      setTimeout(() => { if (pc.__renovando && pc.__cfgNueva === cfg) { pc.__renovando = false; falloRenovacion("el otro lado no contesta"); } }, 30000);
+    } catch (error) { pc.__renovando = false; falloRenovacion(error.message); }
   }
   async function alRenovar(pc, canal, packet, hiceLaOferta) {
     if (!pc) return;
     try {
-      if (packet.type === "relevo:pide" && hiceLaOferta) await renuevaConexion(pc, canal);
-      else if (packet.type === "relevo:oferta" && !hiceLaOferta) {
+      if (packet.type === "relevo:pide" && hiceLaOferta) {
+        /* Nadie puede pedirlo sin parar. */
+        if (Date.now() - (pc.__pedida || 0) < 15000) return;
+        pc.__pedida = Date.now();
+        await renuevaConexion(pc, canal);
+      } else if (packet.type === "relevo:oferta" && !hiceLaOferta) {
         const oferta = descripcionRelevo(packet.data, "offer");
-        pc.setConfiguration(await configRelevo());
+        const cfg = await configRelevo();
+        pc.setConfiguration(cfg);
         await pc.setRemoteDescription(oferta);
         await pc.setLocalDescription(await pc.createAnswer());
         await reunidos(pc);
         safeSend(canal, { type: "relevo:respuesta", data: serializaRelevo(pc.localDescription), time: Date.now() });
-        log("Relevo: conexión renovada.");
+        renovada(pc, cfg);
       } else if (packet.type === "relevo:respuesta" && hiceLaOferta && pc.__renovando) {
         await pc.setRemoteDescription(descripcionRelevo(packet.data, "answer"));
-        pc.__renovando = false; pc.__renovada = Date.now();
-        log("Relevo: conexión renovada.");
+        renovada(pc, pc.__cfgNueva);
       }
-    } catch (error) { pc.__renovando = false; log(`Relevo: no se pudo renovar (${error.message})`); }
+    } catch (error) { pc.__renovando = false; falloRenovacion(error.message); }
   }
   setInterval(async () => {
-    if (!relevoListo || Date.now() < relevoListo.renueva || (!hostSession && !joinSession)) return;
-    try {
-      await configRelevo();   /* pide las nuevas; las guarda para lo que venga */
-      if (hostSession) for (const peer of hostSession.peers.values()) renuevaConexion(peer.pc, peer.channel);
-      else if (joinSession) safeSend(joinSession.channel, { type: "relevo:pide", time: Date.now() });
-      if (duelo?.pc && duelo.canal) {
-        if (duelo.asiento === 0) renuevaConexion(duelo.pc, duelo.canal);
-        else safeSend(duelo.canal, { type: "relevo:pide", time: Date.now() });
-      }
-    } catch {}
+    if (!relevoListo || (!hostSession && !joinSession)) return;
+    if (Date.now() >= relevoListo.renueva) {
+      renovando = true;
+      try { await configRelevo(); } catch { falloRenovacion("el servicio de conexión no da credenciales nuevas"); return; } finally { renovando = false; }
+    }
+    const cfg = relevoListo.cfg;
+    const mira = (pc, canal, hiceLaOferta) => {
+      if (!pc || pc.__cfg === cfg || pc.connectionState !== "connected" || canal?.readyState !== "open") return;
+      pc.__pendiente = pc.__pendiente || Date.now();
+      if (Date.now() - pc.__pendiente > 60000) { pc.__pendiente = Date.now(); falloRenovacion("la conexión sigue con las credenciales antiguas"); }
+      if (hiceLaOferta) renuevaConexion(pc, canal);
+      else safeSend(canal, { type: "relevo:pide", time: Date.now() });
+    };
+    if (hostSession) for (const peer of hostSession.peers.values()) mira(peer.pc, peer.channel, true);
+    else if (joinSession) mira(joinSession.pc, joinSession.channel, false);
+    if (duelo?.pc && duelo.canal) mira(duelo.pc, duelo.canal, duelo.asiento === 0);
   }, 10000);
 
   function parseDescription(value, expected) {
@@ -449,7 +486,11 @@
         });
       }
       return { rttMs: rtt === null ? null : Math.round(rtt * 10) / 10, camino, perdidos,
-               conexiones: conexionesVivas.size };
+               conexiones: conexionesVivas.size,
+               /* Renovación de credenciales del relevo: cuántas, cuándo y si ha fallado. */
+               relevo: relevoListo ? { renovadas: renovacion.hechas, fallos: renovacion.fallos, ultimoFallo: renovacion.ultimoFallo,
+                 ultimaHaceS: renovacion.ultima ? Math.round((Date.now() - renovacion.ultima) / 1000) : null,
+                 proximaEnS: Math.round((relevoListo.renueva - Date.now()) / 1000), caducanEnS: Math.round((relevoListo.caduca - Date.now()) / 1000) } : null };
     }
   };
 
@@ -479,6 +520,7 @@
   function makePeer(label, onChannel, cfg) {
     if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
     const pc = new RTCPeerConnection(cfg);
+    pc.__cfg = cfg;
     conexionesVivas.add(pc);
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
@@ -1481,6 +1523,7 @@
   function conexionDirecta(cfg) {
     if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
     const pc = new RTCPeerConnection(cfg);
+    pc.__cfg = cfg;
     pc.addEventListener("connectionstatechange", () => {
       log(`Duelo: conexión ${pc.connectionState}`);
       if ((pc.connectionState === "failed" || pc.connectionState === "closed") && duelo?.pc === pc && duelo.estado === "jugando") caeDuelo("se ha perdido la conexión con el otro jugador");
