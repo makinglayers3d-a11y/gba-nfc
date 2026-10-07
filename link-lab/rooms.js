@@ -16,6 +16,7 @@
   /* Las credenciales duran 6 horas y el relevo corta la conexión poco después
      de que caduquen. Se renuevan pasados 5/6 de su vida: a las 5 horas. */
   const RELEVO_RENUEVA = 5 / 6;
+  const RELEVO_VIDA_S = 6 * 3600;
   const RELEVO_REINTENTA_MS = 30000;
   /* Tope de jugadores en una sala online.
      El cable admite 4 y en local se usan 4, pero por red solo se ha probado
@@ -352,9 +353,13 @@
         .map((x) => ({ urls: [].concat(x?.urls || []).filter((u) => /^turns?:/.test(u)), username: x?.username, credential: x?.credential }))
         .filter((x) => x.urls.length && x.username && x.credential);
       if (!servidores.length) throw new Error("sin servidores de relevo");
-      const vida = Number(data.expiresAt) - Date.now();
-      if (!(vida > 0)) throw new Error("credenciales sin caducidad");
-      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA, caduca: Number(data.expiresAt), desde: Date.now() };
+      /* La hora de caducidad la pone el servidor con su reloj. Si el de este
+         dispositivo va mal, la cuenta saldría mal: nunca se da por buena una
+         vida mayor que la pedida, y si sale absurda se usa la pedida. */
+      const pedida = (corta >= 60 ? corta : RELEVO_VIDA_S) * 1000;
+      let vida = Math.min(pedida, Number(data.expiresAt) - Date.now());
+      if (!(vida > 30000)) vida = pedida;
+      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA, caduca: Date.now() + vida, desde: Date.now() };
       log(`Relevo: credenciales nuevas, válidas ${Math.round(vida / 60000)} min.`);
       relevoFallo = null;
       return relevoListo.cfg;
