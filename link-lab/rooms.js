@@ -9,7 +9,12 @@
   const DEFAULT_API_BASE = location.origin === SITIO_PUBLICADO
     ? "https://ml3d-link-lab.makinglayers3d.workers.dev"
     : `${location.origin}/api`;
-  const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
+  /* Ninguna conexión es directa: todas pasan por un relevo, para que ningún
+     jugador vea la IP de otro. Sin relevo no se conecta; nunca se cae a una
+     conexión directa. */
+  const SIN_RELEVO = "No se puede conectar: el servicio de conexión no responde.";
+  const RELEVO_RENUEVA_MS = 5 * 60 * 60 * 1000;   /* las credenciales duran 6 horas */
+  const RELEVO_REINTENTA_MS = 30000;
   /* Tope de jugadores en una sala online.
      El cable admite 4 y en local se usan 4, pero por red solo se ha probado
      con 2: con 3 o 4 el anfitrion hace de centralita y cada tecla da un salto
@@ -182,7 +187,7 @@
     try {
       localStorage.setItem(RESERVA_KEY, JSON.stringify({
         roomId: joinSession.room.id,
-        roomName: joinSession.room.name || "",
+        roomName: nombreSala(joinSession.room),
         game: joinSession.room.game || "",
         token: joinSession.reserva,
         name: profile.name,
@@ -293,6 +298,76 @@
     return JSON.stringify({ type: desc.type, sdp: desc.sdp });
   }
 
+  /* ---- relevo ---- */
+
+  const candidatosDe = (sdp) => String(sdp || "").split(/\r?\n/).filter((linea) => linea.startsWith("a=candidate:"));
+  /* Solo direcciones del relevo, y ninguna otra al lado (raddr). */
+  function soloRelevo(sdp) {
+    const candidatos = candidatosDe(sdp);
+    return candidatos.length > 0 && candidatos.every((linea) => {
+      if (!/ typ relay( |$)/.test(linea)) return false;
+      const alLado = linea.match(/ raddr (\S+)/);
+      return !alLado || alLado[1] === "0.0.0.0" || alLado[1] === "::";
+    });
+  }
+  /* Lo que sale de este dispositivo. Se revisa aquí, antes de enviarlo: si
+     el navegador hubiera puesto una dirección propia, no sale. */
+  function serializaRelevo(desc) {
+    const sdp = String(desc?.sdp || "").replace(/ raddr \S+ rport \d+/g, " raddr 0.0.0.0 rport 0");
+    if (!soloRelevo(sdp)) throw new Error(SIN_RELEVO);
+    return JSON.stringify({ type: desc.type, sdp });
+  }
+  /* Lo que llega de otro: si trae una dirección que no es del relevo, no se usa. */
+  function descripcionRelevo(value, expected) {
+    const parsed = parseDescription(value, expected);
+    if (!soloRelevo(parsed.sdp)) throw new Error("Conexión no válida: el otro jugador tiene que recargar la página.");
+    return parsed;
+  }
+
+  let relevoListo = null;   /* { clave, cfg, renueva } */
+  let relevoFallo = null;   /* { clave, hasta } */
+  /* Configuración de conexión con credenciales temporales. Las da el
+     servidor de salas a quien está en una sala; duran 6 horas y se piden de
+     nuevo a las 5. */
+  async function configRelevo() {
+    const s = hostSession
+      ? { clave: `h:${hostSession.room.id}`, ruta: `/v1/rooms/${encodeURIComponent(hostSession.room.id)}/relevo`, token: hostSession.token }
+      : joinSession
+        ? { clave: `j:${joinSession.join.id}`, ruta: `/v1/rooms/${encodeURIComponent(joinSession.room.id)}/joins/${encodeURIComponent(joinSession.join.id)}/relevo`, token: joinSession.token }
+        : null;
+    if (!s) throw new Error(SIN_RELEVO);
+    if (relevoListo && relevoListo.clave === s.clave && Date.now() < relevoListo.renueva) return relevoListo.cfg;
+    /* Si acaba de fallar no se insiste en cada intento: el servidor tiene un tope. */
+    if (relevoFallo && relevoFallo.clave === s.clave && Date.now() < relevoFallo.hasta) throw new Error(SIN_RELEVO);
+    try {
+      const data = await api(s.ruta, { method: "POST", token: s.token });
+      const servidores = (Array.isArray(data.iceServers) ? data.iceServers : [])
+        .map((x) => ({ urls: [].concat(x?.urls || []).filter((u) => /^turns?:/.test(u)), username: x?.username, credential: x?.credential }))
+        .filter((x) => x.urls.length && x.username && x.credential);
+      if (!servidores.length) throw new Error("sin servidores de relevo");
+      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + RELEVO_RENUEVA_MS };
+      relevoFallo = null;
+      return relevoListo.cfg;
+    } catch (error) {
+      log(`Relevo: ${error.message}`);
+      relevoFallo = { clave: s.clave, hasta: Date.now() + RELEVO_REINTENTA_MS };
+      aviso(SIN_RELEVO.toUpperCase());
+      throw new Error(SIN_RELEVO);
+    }
+  }
+  /* A las 5 horas, las conexiones abiertas reciben las credenciales nuevas.
+     ponytail: vale para lo que el navegador negocie a partir de ahí; si el
+     relevo cortara una conexión viva al caducar las antiguas, haría falta
+     renegociar por el canal (restartIce). Lo decide la prueba de caducidad. */
+  setInterval(async () => {
+    if (!relevoListo || Date.now() < relevoListo.renueva || (!hostSession && !joinSession)) return;
+    try {
+      const cfg = await configRelevo();
+      for (const pc of conexionesVivas) { try { pc.setConfiguration(cfg); } catch {} }
+      try { duelo?.pc?.setConfiguration(cfg); } catch {}
+    } catch {}
+  }, 60000);
+
   function parseDescription(value, expected) {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     if (!parsed || parsed.type !== expected || typeof parsed.sdp !== "string") {
@@ -352,8 +427,9 @@
     }
   }
 
-  function makePeer(label, onChannel) {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  function makePeer(label, onChannel, cfg) {
+    if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
+    const pc = new RTCPeerConnection(cfg);
     conexionesVivas.add(pc);
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
@@ -910,9 +986,12 @@
     };
   }
 
+  /* Ni en el nombre de un jugador ni en el de una sala se enseña una dirección web. */
+  const sinEnlaces = (text) => (window.ML3DFiltroChat?.sinEnlaces ? window.ML3DFiltroChat.sinEnlaces(text) : String(text ?? ""));
   function cleanName(value) {
-    return String(value || "Jugador").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32) || "Jugador";
+    return sinEnlaces(String(value || "Jugador").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32)) || "Jugador";
   }
+  const nombreSala = (room) => sinEnlaces(room?.name || "") || "Sala";
 
   function cleanChat(value) {
     return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 90);
@@ -1339,14 +1418,19 @@
     const c = arbitro.combate;
     if (!c || c.estado !== "conectando" || !((c.a === joinId && c.b === para) || (c.b === joinId && c.a === para))) return;
     if (JSON.stringify(packet.data ?? null).length > 20000) return;
+    const senal = packet.data?.oferta || packet.data?.respuesta;
+    try { if (!soloRelevo(JSON.parse(senal).sdp)) return; } catch { return; }
     const limpio = { type: "directo:senal", para, de: joinId, data: packet.data, time: Date.now() };
     if (para === "host") alRecibirSenal(limpio);
     else if (para !== joinId) safeSend(hostSession?.peers.get(para)?.channel, limpio);
   }
 
 
-  function conexionDirecta() {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  /* El canal propio de los dos combatientes. Va también por el relevo:
+     ninguno de los dos ve la IP del otro. */
+  function conexionDirecta(cfg) {
+    if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
+    const pc = new RTCPeerConnection(cfg);
     pc.addEventListener("connectionstatechange", () => {
       log(`Duelo: conexión ${pc.connectionState}`);
       if ((pc.connectionState === "failed" || pc.connectionState === "closed") && duelo?.pc === pc && duelo.estado === "jugando") caeDuelo("se ha perdido la conexión con el otro jugador");
@@ -1367,12 +1451,14 @@
   async function ofreceDirecto() {
     const mio = duelo;
     try {
-      mio.pc = conexionDirecta();
+      const cfg = await configRelevo();
+      if (duelo !== mio || mio.pc) return;
+      mio.pc = conexionDirecta(cfg);
       conectaCanal(mio.pc.createDataChannel("ml3d-duelo", { ordered: true }));
       await mio.pc.setLocalDescription(await mio.pc.createOffer());
       await waitIce(mio.pc);
       if (duelo !== mio) return;
-      senalDirecta(mio.otro, { duelo: mio.id, oferta: serialize(mio.pc.localDescription) });
+      senalDirecta(mio.otro, { duelo: mio.id, oferta: serializaRelevo(mio.pc.localDescription) });
     } catch (error) { log(`Duelo: ${error.message}`); fallaDirecto(); }
   }
   async function alRecibirSenal(packet) {
@@ -1381,25 +1467,28 @@
     try {
       if (data.oferta && duelo.asiento === 1 && !duelo.pc) {
         const mio = duelo;
-        mio.pc = conexionDirecta();
+        const oferta = descripcionRelevo(data.oferta, "offer");
+        const cfg = await configRelevo();
+        if (duelo !== mio || mio.pc) return;
+        mio.pc = conexionDirecta(cfg);
         mio.pc.addEventListener("datachannel", (event) => conectaCanal(event.channel));
-        await mio.pc.setRemoteDescription(JSON.parse(data.oferta));
+        await mio.pc.setRemoteDescription(oferta);
         await mio.pc.setLocalDescription(await mio.pc.createAnswer());
         await waitIce(mio.pc);
         if (duelo !== mio) return;
-        senalDirecta(mio.otro, { duelo: mio.id, respuesta: serialize(mio.pc.localDescription) });
+        senalDirecta(mio.otro, { duelo: mio.id, respuesta: serializaRelevo(mio.pc.localDescription) });
       } else if (data.respuesta && duelo.asiento === 0 && duelo.pc && !duelo.pc.currentRemoteDescription) {
-        await duelo.pc.setRemoteDescription(JSON.parse(data.respuesta));
+        await duelo.pc.setRemoteDescription(descripcionRelevo(data.respuesta, "answer"));
       }
     } catch (error) { log(`Duelo: ${error.message}`); fallaDirecto(); }
   }
-  /* No se ha podido abrir: no hay relevo, así que el combate no empieza. */
+  /* No se ha podido abrir, tampoco por el relevo: el combate no empieza. */
   function fallaDirecto() {
     if (!duelo || duelo.estado !== "conectando") return;
     const rival = duelo.nombreOtro;
     avisaArbitro({ type: "combate:resultado", r: "fallo" });
     sueltaDuelo();
-    avisa(`No se ha podido abrir la conexión directa con ${rival}. El combate no empieza.`);
+    avisa(`No se ha podido abrir la conexión con ${rival}. El combate no empieza.`);
   }
 
   function avisaArbitro(packet) {
@@ -1695,13 +1784,13 @@
 
   function updateToolbar(room) {
     if (!room) return;
-    $("#lobbyRoomName").textContent = room.name || "Sala";
+    $("#lobbyRoomName").textContent = nombreSala(room);
     $("#lobbyGameName").textContent = room.game || "Sin juego seleccionado";
     $("#lobbyRoomCode").textContent = room.id ? `Código ${room.id}` : "";
     $("#hostGameInput").value = room.game || "";
-    $("#hostRoomNameInput").value = room.name || "";
+    $("#hostRoomNameInput").value = sinEnlaces(room.name || "");
     $("#hostMaxPlayers").value = String(room.maxPlayers || 2);
-    $("#guestRoomInfo").textContent = `${room.name || "Sala"}${room.game ? ` · ${room.game}` : ""}`;
+    $("#guestRoomInfo").textContent = `${nombreSala(room)}${room.game ? ` · ${room.game}` : ""}`;
   }
 
   function updateDiagnostics() {
@@ -2379,7 +2468,7 @@
         }
         const peer = peers.get(join.id);
         if (join.status === "answer_ready" && peer && !peer.answerApplied && join.answer) {
-          await peer.pc.setRemoteDescription(parseDescription(join.answer, "answer"));
+          await peer.pc.setRemoteDescription(descripcionRelevo(join.answer, "answer"));
           peer.answerApplied = true;
           log(`Host: respuesta aplicada para ${join.displayName}.`);
         }
@@ -2562,6 +2651,8 @@
 
   async function prepareHostOffer(join, slot = 0, previo = null) {
     const { room, token, peers } = hostSession;
+    const cfg = await configRelevo();
+    if (!hostSession || hostSession.room.id !== room.id) return;
     const index = slot || freeSlot();
     const pos = previo ? { x: previo.x, y: previo.y } : spawnPoint(index);
     const placeholder = {
@@ -2591,7 +2682,7 @@
       linkReady: false,
       metrics: { pending: new Map(), rtt: null, jitter: null, lastRtt: null, missed: 0, quality: "unknown" }
     };
-    const pc = makePeer(`Host↔${join.displayName}`, () => {});
+    const pc = makePeer(`Host↔${join.displayName}`, () => {}, cfg);
     peerInfo.pc = pc;
     const channel = pc.createDataChannel("ml3d-link", { ordered: true });
     peerInfo.channel = channel;
@@ -2604,7 +2695,7 @@
     await api(`/v1/rooms/${encodeURIComponent(room.id)}/joins/${encodeURIComponent(join.id)}/offer`, {
       method: "POST",
       token,
-      body: { offer: serialize(pc.localDescription) }
+      body: { offer: serializaRelevo(pc.localDescription) }
     });
     log(`Host: oferta preparada para ${join.displayName}.`);
   }
@@ -2813,7 +2904,7 @@
          en la zona. Nadie ve dónde está otro jugador. */
       const distance = { muy_cerca: "muy cerca", cerca: "cerca", en_tu_zona: "en tu zona" }[room.distanceBand] || "cerca";
       const full = room.players >= room.maxPlayers;
-      return `<div class="room"><div class="room-head"><div><div class="room-title">${escapeHtml(room.name)}</div><div class="hint">${escapeHtml(room.game || "Juego no indicado")}</div></div><div>${room.locked ? "🔒" : ""}</div></div><div class="badges"><span class="badge">${distance}</span><span class="badge">${room.players}/${room.maxPlayers}</span><span class="badge">${escapeHtml(room.id)}</span></div><button data-room-id="${escapeHtml(room.id)}" ${full ? "disabled" : ""}>${full ? "SALA COMPLETA" : "UNIRME"}</button></div>`;
+      return `<div class="room"><div class="room-head"><div><div class="room-title">${escapeHtml(nombreSala(room))}</div><div class="hint">${escapeHtml(room.game || "Juego no indicado")}</div></div><div>${room.locked ? "🔒" : ""}</div></div><div class="badges"><span class="badge">${distance}</span><span class="badge">${room.players}/${room.maxPlayers}</span><span class="badge">${escapeHtml(room.id)}</span></div><button data-room-id="${escapeHtml(room.id)}" ${full ? "disabled" : ""}>${full ? "SALA COMPLETA" : "UNIRME"}</button></div>`;
     }).join("");
     box.querySelectorAll("button[data-room-id]").forEach((button) => {
       button.addEventListener("click", () => selectRoom(rooms.find((r) => r.id === button.dataset.roomId)));
@@ -2825,7 +2916,7 @@
     $("#joinCard").hidden = false;
     $("#joinRoomInfo").textContent = room.byCode
       ? `Código ${room.id} · la sala se comprueba al pulsar ENTRAR AL LOBBY`
-      : `${room.name}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
+      : `${nombreSala(room)}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
     $("#joinPasswordWrap").hidden = !room.locked;
     $("#joinPassword").value = "";
     $("#playerName").value = profile.name;
@@ -2915,19 +3006,22 @@
 
   async function answerHostOffer(offerText) {
     const { room, join, token } = joinSession;
+    const oferta = descripcionRelevo(offerText, "offer");
+    const cfg = await configRelevo();
+    if (!joinSession || joinSession.join.id !== join.id || joinSession.pc) return;
     const pc = makePeer(`Jugador↔${room.name}`, (channel) => {
       joinSession.channel = channel;
       attachGuestChannel(channel);
-    });
+    }, cfg);
     joinSession.pc = pc;
-    await pc.setRemoteDescription(parseDescription(offerText, "offer"));
+    await pc.setRemoteDescription(oferta);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await waitIce(pc);
     await api(`/v1/rooms/${encodeURIComponent(room.id)}/joins/${encodeURIComponent(join.id)}/answer`, {
       method: "POST",
       token,
-      body: { answer: serialize(pc.localDescription) }
+      body: { answer: serializaRelevo(pc.localDescription) }
     });
     joinSession.answerSent = true;
     setState("working", "Respuesta enviada · conectando…");
@@ -3375,7 +3469,7 @@
 
     closeModal("selectModal");
     if (status) {
-      status.textContent = `${room.name || "Sala"} · jugador ${playerNumber} · ${role === "host" ? "HOST" : "INVITADO"}`;
+      status.textContent = `${nombreSala(room)} · jugador ${playerNumber} · ${role === "host" ? "HOST" : "INVITADO"}`;
     }
     document.body.classList.add("link-emulator-open");
     shell.hidden = false;

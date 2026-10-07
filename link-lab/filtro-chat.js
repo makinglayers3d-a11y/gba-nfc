@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  /* Filtro de palabras del chat del lobby.
+  /* Filtro de palabras y de direcciones web del chat del lobby.
 
      Tapa con asteriscos las palabras de una lista fija (español e inglés).
      Se aplica tres veces: al enviar, cuando el anfitrión reparte el mensaje
@@ -11,7 +11,11 @@
      Es una barrera, no una garantía: se esquiva con espacios, con otra
      ortografía o con palabras que no están en la lista. Para lo que el
      filtro no pare están SILENCIAR, DENUNCIAR y la opción de sala de
-     desactivar el chat. */
+     desactivar el chat.
+
+     Las direcciones web (y las IP escritas con números) se tapan igual, en
+     el chat y en los nombres de jugador y de sala: una página ajena vería la
+     IP de quien la abriera. Misma advertencia: barrera, no garantía. */
 
   const PALABRAS = [
     /* español */
@@ -38,8 +42,13 @@
      pero solo como palabra entera: "computadora" no lleva nada tapado. */
   const patrones = PALABRAS.map((palabra) => new RegExp([...palabra].map((c) => base(c).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "+").join(""), "g"));
 
+  const ENLACE = /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|es|io|gg|me|tv|co|info|xyz|app|dev|ly|to|cc|ru|eu|uk|de|fr|it|online|site|link|club|top|live|page|web)\b(?:[\/:?#]\S*)?|\b[a-z0-9-]+\s+(?:punto|dot)\s+(?:com|net|org)\b|\b\d{1,3}(?:\s*\.\s*\d{1,3}){3}\b(?::\d+)?(?:\/\S*)?/gi;
+  function sinEnlaces(texto) {
+    return String(texto ?? "").replace(ENLACE, (trozo) => "*".repeat(trozo.length));
+  }
+
   function limpia(texto) {
-    const original = String(texto ?? "");
+    const original = sinEnlaces(texto);
     const normal = [...original].map(base).join("");
     if (normal.length !== original.length) return original;   /* caracteres fuera del plano básico: no se toca */
     const tapar = new Array(original.length).fill(false);
@@ -56,5 +65,5 @@
     return [...original].map((c, i) => (tapar[i] ? "*" : c)).join("");
   }
 
-  window.ML3DFiltroChat = { limpia };
+  window.ML3DFiltroChat = { limpia, sinEnlaces };
 })();
