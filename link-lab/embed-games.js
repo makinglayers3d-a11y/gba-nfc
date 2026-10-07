@@ -126,6 +126,17 @@
     return open.length === 1 ? open[0] : null;
   }
 
+  /* Lo que va dirigido a un jugador sale solo por su canal: en una sala de
+     3 o 4, el resto no se entera de quién pide u ofrece qué juego. */
+  function sendTo(name, packet) {
+    const channel = channelOf(name);
+    if (!channel) return false;
+    try {
+      channel.__ml3dGamesSend(JSON.stringify({ ...packet, to: clean(name), from: local.name, time: Date.now() }));
+      return true;
+    } catch { return false; }
+  }
+
   /* ---------- estado de juegos ---------- */
 
   function broadcastStatus() {
@@ -334,12 +345,12 @@
     onAccept(handler) { onAccept = handler; },
     /** Quien tiene el juego anuncia qué enviará: nombre, tamaño y huella. */
     offer(name, info) {
-      return send({ type: "ml3d:game:offer", to: clean(name), name: info.name, size: info.size, hash: info.hash }) > 0;
+      return sendTo(name, { type: "ml3d:game:offer", name: info.name, size: info.size, hash: info.hash });
     },
     /** Quien lo pidió acepta esa oferta concreta: a partir de aquí se recibe. */
     accept(name, info) {
       esperados.set(clean(name), { size: Number(info.size) | 0, hash: String(info.hash || "") });
-      return send({ type: "ml3d:game:accept", to: clean(name) }) > 0;
+      return sendTo(name, { type: "ml3d:game:accept" });
     },
     /** El anfitrión avisa de que quiere empezar con este juego. */
     check(game) {
@@ -347,11 +358,11 @@
     },
     /** Pide el juego de la sala a otro jugador. */
     request(name, game) {
-      return send({ type: "ml3d:game:request", to: clean(name), game: String(game || "") }) > 0;
+      return sendTo(name, { type: "ml3d:game:request", game: String(game || "") });
     },
     /** Respuesta de quien no puede o no quiere enviarlo. */
     deny(name, reason) {
-      return send({ type: "ml3d:game:denied", to: clean(name), reason: String(reason || "") }) > 0;
+      return sendTo(name, { type: "ml3d:game:denied", reason: String(reason || "") });
     },
     sendRom,
     /* Para probar los avisos sin un segundo dispositivo. */
