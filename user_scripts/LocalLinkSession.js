@@ -1323,7 +1323,9 @@
            segundo. Es la unica forma de ver desde el PC como le va al movil
            sin tener que mirarle la pantalla. */
         stats: {
-          fps: Math.round((this.rt.status().fps || 0) * 10) / 10,
+          /* Los fotogramas que avanza esta partida por segundo real. El contador
+             del núcleo (rt.status().fps) no cuenta con el cable: daba siempre 0. */
+          fps: this.fpsMedidos ?? 0,
           stalls: this.stallCount,
           holds: this.audioHolds || 0,
           audioMs: Math.round(this.rt.audioBacklogMs())
