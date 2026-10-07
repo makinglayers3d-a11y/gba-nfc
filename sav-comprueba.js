@@ -7,9 +7,10 @@
    cada sección con su firma y su suma de control. De cualquier otro juego
    solo puede mirar el tamaño y si está vacío.
 
-   FORMATO NO VERIFICADO CON PARTIDAS REALES de todas las versiones: está
-   escrito a partir de la documentación pública del formato. El informe lo
-   dice mientras `verificado` sea false.
+   VERIFICADO CON UNA PARTIDA REAL DE ROJO FUEGO (firmas, sumas, orden de las
+   secciones, nombre, tiempo, Pokédex y equipo, contrastados con lo que
+   enseña el propio juego). El resto de juegos está escrito a partir de la
+   documentación pública del formato y sigue sin verificar: el informe lo dice.
 
    Un informe «válido» no garantiza que no haya Pokémon modificados: un
    editor deja las sumas de control correctas. */
@@ -137,8 +138,8 @@
    */
   function comprueba(bytes, opciones = {}) {
     const avisos = [], graves = [];
-    const inf = { tamano: bytes.length, verificado: false, pokemon: false, familia: "", familiaNombre: "", datos: null, juegos: [], avisos, graves,
-      nota: "Un informe válido no garantiza que no haya Pokémon modificados.", formato: "Formato no verificado con partidas reales." };
+    const inf = { tamano: bytes.length, verificado: "Rojo Fuego", pokemon: false, familia: "", familiaNombre: "", datos: null, juegos: [], avisos, graves,
+      nota: "Un informe válido no garantiza que no haya Pokémon modificados.", formato: "Verificado con una partida real de Rojo Fuego; el resto de juegos sin verificar." };
     let b = bytes;
     inf.vacio = !b.length || vacio(b);
     if (inf.vacio) { graves.push("El archivo está vacío: todo son ceros o FF."); return cierra(inf); }
