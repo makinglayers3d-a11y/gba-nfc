@@ -13,7 +13,9 @@
      jugador vea la IP de otro. Sin relevo no se conecta; nunca se cae a una
      conexión directa. */
   const SIN_RELEVO = "No se puede conectar: el servicio de conexión no responde.";
-  const RELEVO_RENUEVA_MS = 5 * 60 * 60 * 1000;   /* las credenciales duran 6 horas */
+  /* Las credenciales duran 6 horas y el relevo corta la conexión poco después
+     de que caduquen. Se renuevan pasados 5/6 de su vida: a las 5 horas. */
+  const RELEVO_RENUEVA = 5 / 6;
   const RELEVO_REINTENTA_MS = 30000;
   /* Tope de jugadores en una sala online.
      El cable admite 4 y en local se usan 4, pero por red solo se ha probado
@@ -345,7 +347,9 @@
         .map((x) => ({ urls: [].concat(x?.urls || []).filter((u) => /^turns?:/.test(u)), username: x?.username, credential: x?.credential }))
         .filter((x) => x.urls.length && x.username && x.credential);
       if (!servidores.length) throw new Error("sin servidores de relevo");
-      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + RELEVO_RENUEVA_MS };
+      const vida = Number(data.expiresAt) - Date.now();
+      if (!(vida > 0)) throw new Error("credenciales sin caducidad");
+      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA };
       relevoFallo = null;
       return relevoListo.cfg;
     } catch (error) {
@@ -355,18 +359,63 @@
       throw new Error(SIN_RELEVO);
     }
   }
-  /* A las 5 horas, las conexiones abiertas reciben las credenciales nuevas.
-     ponytail: vale para lo que el navegador negocie a partir de ahí; si el
-     relevo cortara una conexión viva al caducar las antiguas, haría falta
-     renegociar por el canal (restartIce). Lo decide la prueba de caducidad. */
+  /* ---- renovar una conexión viva ----
+     Cada lado usa sus propias credenciales en el relevo. Antes de que caduquen
+     pide unas nuevas y la conexión se renegocia por su propio canal (reinicio
+     ICE): los dos lados vuelven a reservar sitio en el relevo y la partida o
+     la sala siguen sin cortarse. Empieza siempre quien hizo la oferta
+     original (el anfitrión en la sala, quien desafía en el combate); el otro
+     lado, cuando le toca, se lo pide. */
+  async function reunidos(pc) {
+    for (let i = 0; i < 100; i++) {
+      if (pc.iceGatheringState === "complete" && candidatosDe(pc.localDescription?.sdp).length) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  async function renuevaConexion(pc, canal) {
+    if (!pc || pc.__renovando || canal?.readyState !== "open") return;
+    if (Date.now() - (pc.__renovada || 0) < 20000) return;   /* nadie puede pedirlo sin parar */
+    pc.__renovando = true;
+    try {
+      pc.setConfiguration(await configRelevo());
+      await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+      await reunidos(pc);
+      safeSend(canal, { type: "relevo:oferta", data: serializaRelevo(pc.localDescription), time: Date.now() });
+      /* Si la respuesta no llega, se podrá intentar otra vez. */
+      setTimeout(() => { pc.__renovando = false; }, 30000);
+    } catch (error) { pc.__renovando = false; log(`Relevo: no se pudo renovar (${error.message})`); }
+  }
+  async function alRenovar(pc, canal, packet, hiceLaOferta) {
+    if (!pc) return;
+    try {
+      if (packet.type === "relevo:pide" && hiceLaOferta) await renuevaConexion(pc, canal);
+      else if (packet.type === "relevo:oferta" && !hiceLaOferta) {
+        const oferta = descripcionRelevo(packet.data, "offer");
+        pc.setConfiguration(await configRelevo());
+        await pc.setRemoteDescription(oferta);
+        await pc.setLocalDescription(await pc.createAnswer());
+        await reunidos(pc);
+        safeSend(canal, { type: "relevo:respuesta", data: serializaRelevo(pc.localDescription), time: Date.now() });
+        log("Relevo: conexión renovada.");
+      } else if (packet.type === "relevo:respuesta" && hiceLaOferta && pc.__renovando) {
+        await pc.setRemoteDescription(descripcionRelevo(packet.data, "answer"));
+        pc.__renovando = false; pc.__renovada = Date.now();
+        log("Relevo: conexión renovada.");
+      }
+    } catch (error) { pc.__renovando = false; log(`Relevo: no se pudo renovar (${error.message})`); }
+  }
   setInterval(async () => {
     if (!relevoListo || Date.now() < relevoListo.renueva || (!hostSession && !joinSession)) return;
     try {
-      const cfg = await configRelevo();
-      for (const pc of conexionesVivas) { try { pc.setConfiguration(cfg); } catch {} }
-      try { duelo?.pc?.setConfiguration(cfg); } catch {}
+      await configRelevo();   /* pide las nuevas; las guarda para lo que venga */
+      if (hostSession) for (const peer of hostSession.peers.values()) renuevaConexion(peer.pc, peer.channel);
+      else if (joinSession) safeSend(joinSession.channel, { type: "relevo:pide", time: Date.now() });
+      if (duelo?.pc && duelo.canal) {
+        if (duelo.asiento === 0) renuevaConexion(duelo.pc, duelo.canal);
+        else safeSend(duelo.canal, { type: "relevo:pide", time: Date.now() });
+      }
     } catch {}
-  }, 60000);
+  }, 10000);
 
   function parseDescription(value, expected) {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
@@ -1542,6 +1591,7 @@
 
   /* Lo que llega del rival por el canal directo: el cable y el resultado. */
   function alRecibirDelRival(packet) {
+    if (String(packet.type || "").startsWith("relevo:")) { alRenovar(duelo.pc, duelo.canal, packet, duelo.asiento === 0); return; }
     const rival = duelo.asiento === 0 ? 1 : 0;
     const base = { roomId: duelo.sala, sessionId: String(packet.sessionId || ""), playerNumber: rival };
     if (packet.type === "gba:lockstep:ready") {
@@ -1842,6 +1892,7 @@
     if (!peer) return;
 
     if (packet.type === "directo:senal") { reenviaSenal(joinId, packet); return; }
+    if (packet.type === "relevo:pide" || packet.type === "relevo:respuesta") { alRenovar(peer.pc, peer.channel, packet, true); return; }
     if (arbitraPaquete(joinId, packet)) return;
     /* En una sala de 3 o 4 el cable de los combates no pasa por aquí. Si
        llegara algo, no se mira ni se reparte. */
@@ -2054,6 +2105,7 @@
   }
 
   function handleGuestPacket(packet) {
+    if (packet.type === "relevo:oferta") { alRenovar(joinSession?.pc, joinSession?.channel, packet, false); return; }
     if (packet.type === "combate:estado") {
       const texto = (v, n) => String(v || "").slice(0, n);
       const c = packet.combate && typeof packet.combate === "object" ? packet.combate : null;
