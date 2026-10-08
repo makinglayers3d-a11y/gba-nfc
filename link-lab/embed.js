@@ -1159,7 +1159,7 @@
     const c = combates();
     const tipo = c.tipos[desafio.tipo] || desafio.tipo;
     dialogo({
-      texto: `${desafio.nombre} desafía: ${tipo}${desafio.juego ? " · «" + desafio.juego + "»" : ""}. Jugaréis conectados directamente entre los dos.`,
+      texto: `${desafio.nombre} desafía: ${tipo}${desafio.juego ? " · «" + desafio.juego + "»" : ""}. Jugaréis conectados entre los dos, con conexión cifrada.`,
       botones: [
         { texto: "ACEPTAR", principal: true, accion: () => {
           const clave = gameKey(desafio.juego);

@@ -100,11 +100,11 @@
       cuerpo.style.cssText = "font-weight:normal;font-size:15px;max-width:38ch";
       cuerpo.textContent =
         (tienePartida
-          ? "Va directa a su dispositivo y solo se usa mientras dura la sesión: no se guarda allí ni en ningún servidor. Antes se ha hecho una copia de tu partida. "
+          ? "Va cifrada a su dispositivo y solo se usa mientras dura la sesión: no se guarda allí ni en ningún servidor. Antes se ha hecho una copia de tu partida. "
           : "No tienes partida guardada de este juego. ") +
         "Tú recibirás la suya igual: solo durante la sesión." +
         (comparteJuego
-          ? " El juego también va directo, solo en memoria, y se borra al terminar. Al aceptar declaras que tienes derecho a compartirlo."
+          ? " El juego también va cifrado, solo en memoria, y se borra al terminar. Al aceptar declaras que tienes derecho a compartirlo."
           : "");
       const fila = document.createElement("div");
       fila.style.cssText = "display:flex;gap:12px;margin-top:6px";
