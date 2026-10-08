@@ -279,13 +279,81 @@
     }));
   }
 
+  /* ---- diagnóstico: cómo va la recogida de direcciones del relevo ----
+
+     Para saber por qué en algunas redes la recogida agota el tope de espera.
+     De cada conexión se apunta cuándo llega cada dirección de relevo y por
+     qué vía, qué vías fallan y cuándo termina. NUNCA se apunta una dirección
+     IP, ni la del dispositivo ni la del relevo: solo la vía (esquema, puerto
+     y transporte), el protocolo, la familia (IPv4 o IPv6), el código de
+     error y los tiempos. */
+  const recogidas = [];
+  /* "turn:turn.ejemplo.com:3478?transport=udp" -> "turn 3478 udp". Del
+     nombre del servidor no se guarda nada. */
+  function viaDeRelevo(url) {
+    const texto = String(url || "");
+    const esquema = /^(turns?):/i.exec(texto), puerto = /:(\d{1,5})(?:\?|$)/.exec(texto), transporte = /[?&]transport=([a-z]+)/i.exec(texto);
+    if (!esquema) return "vía sin identificar";
+    return `${esquema[1].toLowerCase()} ${puerto ? puerto[1] : "puerto por defecto"} ${(transporte ? transporte[1] : "udp").toLowerCase()}`;
+  }
+  const familiaIp = (dir) => !dir ? "familia sin dato" : String(dir).includes(":") ? "IPv6" : "IPv4";
+  /* El texto de un error puede traer una dirección dentro: se le quita. */
+  const sinDirecciones = (texto) => String(texto || "")
+    .replace(/\d{1,3}(\.\d{1,3}){3}(:\d+)?/g, "…")                      /* IPv4, con o sin puerto */
+    .replace(/\[?[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}\]?(:\d+)?/gi, "…")   /* IPv6 */
+    .slice(0, 70);
+  function vigilaRecogida(pc, etiqueta) {
+    const t0 = performance.now();
+    const ms = () => Math.round(performance.now() - t0);
+    const r = { etiqueta: String(etiqueta || "Conexión").replace(/↔.*$/, "").trim().slice(0, 24), hora: new Date().toLocaleTimeString("es-ES", { hour12: false }),
+      red: String(navigator.connection?.type || "sin dato"), vias: [], errores: [], fin: null, enviado: null, ms };
+    recogidas.push(r);
+    while (recogidas.length > 6) recogidas.shift();
+    pc.__recogida = r;
+    pc.addEventListener("icecandidate", (event) => {
+      const c = event.candidate;
+      if (!c || !c.candidate) return;
+      const v = { ms: ms(), tipo: String(c.type || ""), via: viaDeRelevo(c.url || event.url), protocolo: String(c.relayProtocol || c.protocol || ""), familia: familiaIp(c.address) };
+      r.vias.push(v);
+      log(`Recogida ${r.etiqueta}: ${v.ms} ms · ${v.via} · ${v.familia}${v.tipo !== "relay" ? " · NO ES DE RELEVO (" + v.tipo + ")" : ""}`);
+    });
+    pc.addEventListener("icecandidateerror", (event) => {
+      const e = { ms: ms(), via: viaDeRelevo(event.url), codigo: Number(event.errorCode) || 0, texto: sinDirecciones(event.errorText), familia: familiaIp(event.address) };
+      r.errores.push(e);
+      log(`Recogida ${r.etiqueta}: ${e.ms} ms · FALLA ${e.via} · ${e.familia} · error ${e.codigo} ${e.texto}`);
+    });
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState !== "complete" || r.fin !== null) return;
+      r.fin = ms();
+      log(`Recogida ${r.etiqueta}: terminada a los ${r.fin} ms (${r.vias.length} direcciones, ${r.errores.length} fallos)`);
+    });
+  }
+  /* Lo mismo, en texto, para verlo en pantalla (menú de la sala). */
+  function textoRecogidas() {
+    const seg = (n) => (n / 1000).toFixed(1).replace(".", ",") + " s";
+    if (!recogidas.length) return "Todavía no se ha abierto ninguna conexión.";
+    const lineas = [];
+    for (const r of [...recogidas].reverse()) {
+      lineas.push(`${r.etiqueta.toUpperCase()} · ${r.hora} · red: ${r.red}`);
+      const todo = [...r.vias.map((v) => ({ ms: v.ms, t: `${v.via} · ${v.familia}${v.tipo !== "relay" ? " · NO RELEVO" : ""}` })),
+        ...r.errores.map((e) => ({ ms: e.ms, t: `FALLA ${e.via} · ${e.familia} · ${e.codigo} ${e.texto}` }))].sort((a, b) => a.ms - b.ms);
+      for (const x of todo) lineas.push(`  ${seg(x.ms).padStart(6)}  ${x.t}`);
+      if (!todo.length) lineas.push("  (ninguna dirección todavía)");
+      lineas.push(`  recogida: ${r.fin === null ? "SIN TERMINAR" : "terminada a los " + seg(r.fin)}`);
+      lineas.push(`  enviado: ${r.enviado === null ? "todavía no" : "a los " + seg(r.enviado.ms) + (r.enviado.tope ? " (AGOTÓ EL TOPE)" : "")}`, "");
+    }
+    return lineas.join("\n").trimEnd();
+  }
+
   function waitIce(peer) {
-    if (peer.iceGatheringState === "complete") return Promise.resolve();
+    const anota = (tope) => { if (peer.__recogida && !peer.__recogida.enviado) peer.__recogida.enviado = { ms: peer.__recogida.ms(), tope }; };
+    if (peer.iceGatheringState === "complete") { anota(false); return Promise.resolve(); }
     return new Promise((resolve) => {
       let done = false;
       const finish = () => {
         if (done) return;
         done = true;
+        anota(peer.iceGatheringState !== "complete");
         peer.removeEventListener("icegatheringstatechange", onChange);
         resolve();
       };
@@ -473,6 +541,9 @@
   const conexionesVivas = new Set();
 
   window.ML3DLinkNet = {
+    /* Diagnóstico de la recogida de direcciones del relevo, sin ninguna IP. */
+    recogida: () => textoRecogidas(),
+    recogidaDatos: () => recogidas.map((r) => ({ etiqueta: r.etiqueta, hora: r.hora, red: r.red, vias: r.vias, errores: r.errores, fin: r.fin, enviado: r.enviado })),
     async medida() {
       let rtt = null;
       let camino = "";
@@ -526,6 +597,7 @@
     if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
     const pc = new RTCPeerConnection(cfg);
     pc.__cfg = cfg;
+    vigilaRecogida(pc, label);
     conexionesVivas.add(pc);
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
@@ -1529,6 +1601,7 @@
     if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
     const pc = new RTCPeerConnection(cfg);
     pc.__cfg = cfg;
+    vigilaRecogida(pc, "Duelo");
     pc.addEventListener("connectionstatechange", () => {
       log(`Duelo: conexión ${pc.connectionState}`);
       if ((pc.connectionState === "failed" || pc.connectionState === "closed") && duelo?.pc === pc && duelo.estado === "jugando") caeDuelo("se ha perdido la conexión con el otro jugador");

@@ -775,6 +775,7 @@
     desdeMenu("salaAceptar", aceptaDesdeMenu);
     desdeMenu("salaTabla", abreTabla);
     desdeMenu("salaGestos", abreGestos);
+    desdeMenu("salaDiagnostico", abreDiagnostico);
     byId("gestoButton")?.addEventListener("click", abreGestos);
     games()?.onCheck(() => {
       /* En juegos distintos: si a este jugador le falta acceso al juego del
@@ -809,7 +810,7 @@
   function dialogo({ texto, opciones = [], qr = "", botones = [], alCancelar = null, detalle = "", casilla = "" }) {
     const box = byId("embedDialog");
     if (!box) return;
-    box.classList.remove("embed-dialog-grande");
+    box.classList.remove("embed-dialog-grande", "embed-dialog-diagnostico");
     byId("embedDialogText").textContent = texto;
     byId("embedDialogDetalle").hidden = !detalle;
     byId("embedDialogDetalle").textContent = detalle;
@@ -1223,6 +1224,15 @@
     estado.tabla.forEach((f, i) => lineas.push(`${i + 1}. ${f.nombre.padEnd(12)}  G ${f.ganados} · P ${f.perdidos} · E ${f.empates}`));
     for (const d of estado.desafios) lineas.push("", `DESAFÍA: ${d.nombre} · ${combates().tipos[d.tipo] || d.tipo}${d.juego ? " · " + d.juego : ""}`);
     return lineas.join("\n");
+  }
+  /* Cómo ha ido la recogida de direcciones del relevo en este dispositivo.
+     Es para hacerle una foto: no enseña ninguna dirección IP. */
+  function abreDiagnostico() {
+    const texto = window.ML3DLinkNet?.recogida?.() || "Sin datos.";
+    dialogo({ texto: "Diagnóstico de conexión (sin direcciones IP)", detalle: texto, botones: [
+      { texto: "COPIAR TEXTO", accion: () => { navigator.clipboard?.writeText(texto).then(() => toast("TEXTO COPIADO", 2600), () => toast("NO SE PUDO COPIAR · HAZ UNA FOTO", 3600)) ?? toast("NO SE PUDO COPIAR · HAZ UNA FOTO", 3600); } },
+      { texto: "CERRAR", principal: true }] });
+    byId("embedDialog")?.classList.add("embed-dialog-grande", "embed-dialog-diagnostico");
   }
   function abreTabla() {
     dialogo({ texto: "Pantalla de la sala", detalle: textoTabla(), botones: [{ texto: "CERRAR", principal: true }] });
