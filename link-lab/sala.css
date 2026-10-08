@@ -233,9 +233,9 @@ body.chat-desactivado #chatButton { display: none; }
   top: 3.4%;
   width: 28%;
   height: 10.6%;
-  /* por encima de personajes y etiquetas: quien se pone delante quedaba
-     tapándola con su nombre, justo cuando iba a leerla */
-  z-index: 30;
+  /* Por debajo de los personajes: quien se pone delante no pierde la
+     cabeza detrás de ella. Su etiqueta se aparta sola (sala.js). */
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;

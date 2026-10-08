@@ -208,6 +208,7 @@
   /* Dos personajes juntos: sus etiquetas se pisarían. La de quien está
      delante (más abajo) se queda en su sitio y las otras suben lo justo para
      quedar encima. Solo se vuelve a medir cuando algo ha cambiado. */
+  const ALTO_PERSONAJE = 96;   /* lo que la etiqueta sube sobre los pies (sala.css) */
   let firmaEtiquetas = "";
   function separaEtiquetas() {
     const todas = [...etiquetas.children];
@@ -215,6 +216,9 @@
     if (firma === firmaEtiquetas) return;
     firmaEtiquetas = firma;
     const borde = etiquetas.getBoundingClientRect();
+    /* el hueco del cartel, que es donde va .sala-pantalla (sala.css) */
+    const marco = pantalla.parentElement.getBoundingClientRect();
+    const zona = { izq: marco.left + marco.width * 0.36, der: marco.left + marco.width * 0.64, arr: marco.top + marco.height * 0.034, aba: marco.top + marco.height * 0.14 };
     const cajas = todas.map((e) => {
       const antes = Number(e.dataset.sube) || 0, corrida = Number(e.dataset.corre) || 0, r = e.getBoundingClientRect();
       /* Junto a una pared la etiqueta se salía de la sala y se cortaba: se
@@ -228,7 +232,7 @@
       if (corrida !== corre) { e.dataset.corre = String(corre); e.style.setProperty("--corre", corre + "px"); }
       return { e, izq: izq + corre, der: der + corre, arr: r.top + antes, aba: r.bottom + antes, sube: 0 };
     }).sort((a, b) => b.aba - a.aba);
-    const puestas = [];
+    const puestas = [], bajas = [];
     for (const c of cajas) {
       /* subir para librar una puede hacerla pisar otra: se repasa */
       for (let vuelta = 0; vuelta < puestas.length; vuelta++) {
@@ -241,6 +245,16 @@
          y no verse, la etiqueta baja lo que haga falta. */
       const tope = c.arr - borde.top - 2;
       if (c.sube > tope) c.sube = tope;
+      /* Delante de la pantalla de la sala la etiqueta la taparía, justo
+         cuando se va a leer: pasa a ir bajo los pies del personaje. Vale
+         también con el cartel a la vista, para que no salte cada 5 s. */
+      const pisaPantalla = c.izq < zona.der && c.der > zona.izq && c.arr - c.sube < zona.aba && c.aba - c.sube > zona.arr;
+      if (pisaPantalla) {
+        c.sube = -((c.aba - c.arr) + ALTO_PERSONAJE * k + 4);
+        /* dos personajes juntos ahí delante: la segunda, debajo de la primera */
+        for (const p of bajas) if (c.izq < p.der && c.der > p.izq && c.arr - c.sube < p.aba - p.sube && c.aba - c.sube > p.arr - p.sube) c.sube = c.arr - (p.aba - p.sube) - 2;
+        bajas.push(c);
+      }
       puestas.push(c);
       const px = Math.round(c.sube);
       if ((Number(c.e.dataset.sube) || 0) !== px) { c.e.dataset.sube = String(px); c.e.style.setProperty("--sube", px + "px"); }
