@@ -571,6 +571,10 @@ body.ml3d-embed .embed-share-button {
   overflow-wrap: anywhere;
 }
 
+/* El diagnóstico tiene muchas líneas y es para hacerle una foto: letra más
+   pequeña y de ancho fijo, para que quepa de una vez. */
+.embed-dialog-diagnostico .embed-dialog-detalle { font-size: 0.66em; line-height: 1.25; font-family: ui-monospace, Consolas, "Roboto Mono", monospace; white-space: pre; }
+
 .embed-dialog-casilla {
   margin: 0 0 0.6em;
   font-size: 0.82em;
@@ -703,3 +707,30 @@ body.ml3d-embed .embed-share-button {
   background: #7a4a12;
   outline: 2px solid #ffc26b;
 }
+
+/* Botón de acción: aparece cuando hay algo cerca (o un combate propio). */
+.embed-accion {
+  position: absolute;
+  left: 50%;
+  bottom: 2.1em;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: auto;
+  max-width: 92%;
+  min-height: 0;
+  padding: 0.4em 0.9em;
+  border: 2px solid #ffd66e;
+  border-radius: 999px;
+  background: rgba(40, 26, 4, .94);
+  color: #ffe6a6;
+  font-size: 0.82em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* En pantallas estrechas la ayuda ocupa dos líneas: el botón va por encima. */
+@media (max-width: 420px) { .embed-accion { bottom: 3.7em; } }
+.embed-gesto { margin-left: auto; margin-right: 0.35em; }
+.embed-dialog-grande .embed-dialog-detalle { min-height: 44dvh; max-height: 62dvh; font-size: 0.9em; }

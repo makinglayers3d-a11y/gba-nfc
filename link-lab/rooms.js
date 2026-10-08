@@ -9,12 +9,22 @@
   const DEFAULT_API_BASE = location.origin === SITIO_PUBLICADO
     ? "https://ml3d-link-lab.makinglayers3d.workers.dev"
     : `${location.origin}/api`;
-  const ICE_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
+  /* Ninguna conexión es directa: todas pasan por un relevo, para que ningún
+     jugador vea la IP de otro. Sin relevo no se conecta; nunca se cae a una
+     conexión directa. */
+  const SIN_RELEVO = "No se puede conectar: el servicio de conexión no responde.";
+  /* Las credenciales duran 6 horas y el relevo corta la conexión poco después
+     de que caduquen. Se renuevan pasados 5/6 de su vida: a las 5 horas. */
+  const RELEVO_RENUEVA = 5 / 6;
+  const RELEVO_VIDA_S = 6 * 3600;
+  const RELEVO_REINTENTA_MS = 30000;
   /* Tope de jugadores en una sala online.
      El cable admite 4 y en local se usan 4, pero por red solo se ha probado
      con 2: con 3 o 4 el anfitrion hace de centralita y cada tecla da un salto
      de mas, y eso no esta medido. Subir a 3 o 4 cuando se pruebe. */
-  const MAX_JUGADORES_ONLINE = 2;
+  /* La sala admite hasta 4 personas por red. El cable no: en una sala de 3 o 4
+     une solo a los dos que aceptan un desafío (ver "combates"). */
+  const MAX_JUGADORES_ONLINE = 4;
   const PROFILE_KEY = "ml3d-link-profile-v1";
   const API_KEY = "ml3d-link-api";
   const MOVE_INTERVAL_MS = 55;
@@ -44,6 +54,7 @@
 
   let selectedRoom = null;
   let hostSession = null;
+  let duelo = null;   /* el combate de este jugador, si está en uno (ver "combates") */
   let joinSession = null;
   let profile = loadProfile();
   let localPlayerId = null;
@@ -179,7 +190,7 @@
     try {
       localStorage.setItem(RESERVA_KEY, JSON.stringify({
         roomId: joinSession.room.id,
-        roomName: joinSession.room.name || "",
+        roomName: nombreSala(joinSession.room),
         game: joinSession.room.game || "",
         token: joinSession.reserva,
         name: profile.name,
@@ -268,27 +279,285 @@
     }));
   }
 
+  /* ---- diagnóstico: cómo va la recogida de direcciones del relevo ----
+
+     Para saber por qué en algunas redes la recogida agota el tope de espera.
+     De cada conexión se apunta cuándo llega cada dirección de relevo y por
+     qué vía, qué vías fallan y cuándo termina. NUNCA se apunta una dirección
+     IP, ni la del dispositivo ni la del relevo: solo la vía (esquema, puerto
+     y transporte), el protocolo, la familia (IPv4 o IPv6), el código de
+     error y los tiempos. */
+  const recogidas = [];
+  /* "turn:turn.ejemplo.com:3478?transport=udp" -> "turn 3478 udp". Del
+     nombre del servidor no se guarda nada. El navegador también avisa de
+     fallos con el esquema "stun" para esas mismas vías. */
+  function viaDeRelevo(url) {
+    const texto = String(url || "");
+    const esquema = /^(stuns?|turns?):/i.exec(texto), puerto = /:(\d{1,5})(?:\?|$)/.exec(texto), transporte = /[?&]transport=([a-z]+)/i.exec(texto);
+    if (!esquema) return "vía sin identificar";
+    return `${esquema[1].toLowerCase()} ${puerto ? puerto[1] : "puerto por defecto"} ${(transporte ? transporte[1] : "udp").toLowerCase()}`;
+  }
+  const familiaIp = (dir) => !dir ? "familia sin dato" : String(dir).includes(":") ? "IPv6" : "IPv4";
+  /* El texto de un error puede traer una dirección dentro: se le quita. */
+  const sinDirecciones = (texto) => String(texto || "")
+    .replace(/\d{1,3}(\.\d{1,3}){3}(:\d+)?/g, "…")                      /* IPv4, con o sin puerto */
+    .replace(/\[?[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}\]?(:\d+)?/gi, "…")   /* IPv6 */
+    .slice(0, 70);
+  function vigilaRecogida(pc, etiqueta) {
+    const t0 = performance.now();
+    const ms = () => Math.round(performance.now() - t0);
+    const r = { etiqueta: String(etiqueta || "Conexión").replace(/↔.*$/, "").trim().slice(0, 24), hora: new Date().toLocaleTimeString("es-ES", { hour12: false }),
+      red: String(navigator.connection?.type || "sin dato"), vias: [], errores: [], fin: null, enviado: null, ms };
+    recogidas.push(r);
+    while (recogidas.length > 6) recogidas.shift();
+    pc.__recogida = r;
+    pc.addEventListener("icecandidate", (event) => {
+      const c = event.candidate;
+      if (!c || !c.candidate) return;
+      const v = { ms: ms(), tipo: String(c.type || ""), via: viaDeRelevo(c.url || event.url), protocolo: String(c.relayProtocol || c.protocol || ""), familia: familiaIp(c.address) };
+      r.vias.push(v);
+      log(`Recogida ${r.etiqueta}: ${v.ms} ms · ${v.via} · ${v.familia}${v.tipo !== "relay" ? " · NO ES DE RELEVO (" + v.tipo + ")" : ""}`);
+    });
+    pc.addEventListener("icecandidateerror", (event) => {
+      const e = { ms: ms(), via: viaDeRelevo(event.url), codigo: Number(event.errorCode) || 0, texto: sinDirecciones(event.errorText), familia: familiaIp(event.address) };
+      r.errores.push(e);
+      log(`Recogida ${r.etiqueta}: ${e.ms} ms · FALLA ${e.via} · ${e.familia} · error ${e.codigo} ${e.texto}`);
+    });
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState !== "complete" || r.fin !== null) return;
+      r.fin = ms();
+      log(`Recogida ${r.etiqueta}: terminada a los ${r.fin} ms (${r.vias.length} direcciones, ${r.errores.length} fallos)`);
+    });
+  }
+  /* Lo mismo, en texto, para verlo en pantalla (menú de la sala). */
+  function textoRecogidas() {
+    const seg = (n) => (n / 1000).toFixed(1).replace(".", ",") + " s";
+    if (!recogidas.length) return "Todavía no se ha abierto ninguna conexión.";
+    const lineas = [];
+    for (const r of [...recogidas].reverse()) {
+      lineas.push(`${r.etiqueta.toUpperCase()} · ${r.hora} · red: ${r.red}`);
+      const todo = [...r.vias.map((v) => ({ ms: v.ms, t: `${v.via} · ${v.familia}${v.tipo !== "relay" ? " · NO RELEVO" : ""}` })),
+        ...r.errores.map((e) => ({ ms: e.ms, t: `FALLA ${e.via} · ${e.familia} · ${e.codigo} ${e.texto}` }))].sort((a, b) => a.ms - b.ms);
+      /* Las líneas iguales (una vía da una dirección por cada interfaz de
+         red) van juntas, con la hora de la primera y cuántas son. */
+      const juntas = [];
+      for (const x of todo) { const y = juntas.find((j) => j.t === x.t); if (y) y.n++; else juntas.push({ ...x, n: 1 }); }
+      for (const x of juntas) lineas.push(`  ${seg(x.ms).padStart(6)}  ${x.t}${x.n > 1 ? " ×" + x.n : ""}`);
+      if (!todo.length) lineas.push("  (ninguna dirección todavía)");
+      lineas.push(`  recogida: ${r.fin === null ? "SIN TERMINAR" : "terminada a los " + seg(r.fin)}`);
+      lineas.push(`  enviado: ${r.enviado === null ? "todavía no" : "a los " + seg(r.enviado.ms) + (r.enviado.tope ? " (AGOTÓ EL TOPE)" : "")}`, "");
+    }
+    return lineas.join("\n").trimEnd();
+  }
+
+  /* Cuánto se espera a reunir las direcciones del relevo antes de enviar la
+     oferta o la respuesta.
+
+     Antes se esperaba a que el navegador diera la recogida por terminada, y
+     no lo hace hasta que acaban TODOS sus intentos. En algunos dispositivos
+     queda alguno sin respuesta ni error durante unos 11 s, cuando todas las
+     direcciones útiles han llegado en las primeras décimas: se agotaba el
+     tope en cada conexión (medido en un móvil real, con wifi y con datos).
+
+     Ahora se envía cuando hay al menos una dirección de relevo y pasa un
+     rato corto sin que llegue otra. Las que lleguen después no se envían.
+     Sin ninguna dirección de relevo no cambia nada: se espera hasta el tope
+     y lo que salga pasa por serializaRelevo, que sin relevo no deja salir. */
+  const RECOGIDA_TOPE_MS = 10000;
+  const RECOGIDA_CALMA_MS = 500;
   function waitIce(peer) {
-    if (peer.iceGatheringState === "complete") return Promise.resolve();
+    const anota = (tope) => { if (peer.__recogida && !peer.__recogida.enviado) peer.__recogida.enviado = { ms: peer.__recogida.ms(), tope }; };
+    if (peer.iceGatheringState === "complete") { anota(false); return Promise.resolve(); }
     return new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
+      let done = false, calma = null, tope = null;
+      const finish = (porTope) => {
         if (done) return;
         done = true;
+        clearTimeout(calma);
+        clearTimeout(tope);
         peer.removeEventListener("icegatheringstatechange", onChange);
+        peer.removeEventListener("icecandidate", onCandidate);
+        anota(porTope);
         resolve();
       };
       const onChange = () => {
-        if (peer.iceGatheringState === "complete") finish();
+        if (peer.iceGatheringState === "complete") finish(false);
+      };
+      /* Cada dirección de relevo que llega reinicia la cuenta corta. Una
+         dirección que no sea de relevo no cuenta: no se va a enviar. */
+      const llegaRelevo = () => { clearTimeout(calma); calma = setTimeout(() => finish(false), RECOGIDA_CALMA_MS); };
+      const onCandidate = (event) => {
+        if (/ typ relay( |$)/.test(String(event.candidate?.candidate || ""))) llegaRelevo();
       };
       peer.addEventListener("icegatheringstatechange", onChange);
-      setTimeout(finish, 10000);
+      peer.addEventListener("icecandidate", onCandidate);
+      /* Alguna puede haber llegado antes de empezar a esperar. */
+      if (/ typ relay( |$)/m.test(String(peer.localDescription?.sdp || ""))) llegaRelevo();
+      tope = setTimeout(() => finish(true), RECOGIDA_TOPE_MS);
     });
   }
 
   function serialize(desc) {
     return JSON.stringify({ type: desc.type, sdp: desc.sdp });
   }
+
+  /* ---- relevo ---- */
+
+  const candidatosDe = (sdp) => String(sdp || "").split(/\r?\n/).filter((linea) => linea.startsWith("a=candidate:"));
+  /* Solo direcciones del relevo, y ninguna otra al lado (raddr). */
+  function soloRelevo(sdp) {
+    const candidatos = candidatosDe(sdp);
+    return candidatos.length > 0 && candidatos.every((linea) => {
+      if (!/ typ relay( |$)/.test(linea)) return false;
+      const alLado = linea.match(/ raddr (\S+)/);
+      return !alLado || alLado[1] === "0.0.0.0" || alLado[1] === "::";
+    });
+  }
+  /* Lo que sale de este dispositivo. Se revisa aquí, antes de enviarlo: si
+     el navegador hubiera puesto una dirección propia, no sale. */
+  function serializaRelevo(desc) {
+    const sdp = String(desc?.sdp || "").replace(/ raddr \S+ rport \d+/g, " raddr 0.0.0.0 rport 0");
+    if (!soloRelevo(sdp)) throw new Error(SIN_RELEVO);
+    return JSON.stringify({ type: desc.type, sdp });
+  }
+  /* Lo que llega de otro: si trae una dirección que no es del relevo, no se usa. */
+  function descripcionRelevo(value, expected) {
+    const parsed = parseDescription(value, expected);
+    if (!soloRelevo(parsed.sdp)) throw new Error("Conexión no válida: el otro jugador tiene que recargar la página.");
+    return parsed;
+  }
+
+  let relevoListo = null;   /* { clave, cfg, renueva } */
+  let relevoFallo = null;   /* { clave, hasta } */
+  /* Configuración de conexión con credenciales temporales. Las da el
+     servidor de salas a quien está en una sala; duran 6 horas y se piden de
+     nuevo a las 5. */
+  async function configRelevo() {
+    const s = hostSession
+      ? { clave: `h:${hostSession.room.id}`, ruta: `/v1/rooms/${encodeURIComponent(hostSession.room.id)}/relevo`, token: hostSession.token }
+      : joinSession
+        ? { clave: `j:${joinSession.join.id}`, ruta: `/v1/rooms/${encodeURIComponent(joinSession.room.id)}/joins/${encodeURIComponent(joinSession.join.id)}/relevo`, token: joinSession.token }
+        : null;
+    if (!s) throw new Error(SIN_RELEVO);
+    if (relevoListo && relevoListo.clave === s.clave && Date.now() < relevoListo.renueva) return relevoListo.cfg;
+    /* Si acaba de fallar no se insiste en cada intento: el servidor tiene un tope. */
+    if (relevoFallo && relevoFallo.clave === s.clave && Date.now() < relevoFallo.hasta) throw new Error(SIN_RELEVO);
+    try {
+      /* Para probar la renovación sin esperar 5 horas: con
+         localStorage "ml3d-relevo-ttl" = segundos, se piden credenciales más
+         cortas. El servidor solo admite acortarlas, nunca alargarlas. */
+      let corta = 0;
+      try { corta = Number(localStorage.getItem("ml3d-relevo-ttl")) || 0; } catch {}
+      const data = await api(s.ruta, { method: "POST", token: s.token, body: corta >= 60 ? { ttl: corta } : {} });
+      const servidores = (Array.isArray(data.iceServers) ? data.iceServers : [])
+        .map((x) => ({ urls: [].concat(x?.urls || []).filter((u) => /^turns?:/.test(u)), username: x?.username, credential: x?.credential }))
+        .filter((x) => x.urls.length && x.username && x.credential);
+      if (!servidores.length) throw new Error("sin servidores de relevo");
+      /* La hora de caducidad la pone el servidor con su reloj. Si el de este
+         dispositivo va mal, la cuenta saldría mal: nunca se da por buena una
+         vida mayor que la pedida, y si sale absurda se usa la pedida. */
+      const pedida = (corta >= 60 ? corta : RELEVO_VIDA_S) * 1000;
+      let vida = Math.min(pedida, Number(data.expiresAt) - Date.now());
+      if (!(vida > 30000)) vida = pedida;
+      relevoListo = { clave: s.clave, cfg: { iceServers: servidores, iceTransportPolicy: "relay" }, renueva: Date.now() + vida * RELEVO_RENUEVA, caduca: Date.now() + vida, desde: Date.now() };
+      log(`Relevo: credenciales nuevas, válidas ${Math.round(vida / 60000)} min.`);
+      relevoFallo = null;
+      return relevoListo.cfg;
+    } catch (error) {
+      log(`Relevo: ${error.message}`);
+      relevoFallo = { clave: s.clave, hasta: Date.now() + RELEVO_REINTENTA_MS };
+      if (!renovando) aviso(SIN_RELEVO.toUpperCase());
+      throw new Error(SIN_RELEVO);
+    }
+  }
+  /* ---- renovar una conexión viva ----
+     Cada lado usa sus propias credenciales en el relevo, y el relevo corta la
+     conexión poco después de que caduquen. Antes de eso se piden unas nuevas
+     y la conexión se renegocia por su propio canal (reinicio ICE): los dos
+     lados vuelven a reservar sitio en el relevo y la sala o la partida siguen
+     sin cortarse. Empieza siempre quien hizo la oferta original (el
+     anfitrión en la sala, quien desafía en el combate); el otro lado, cuando
+     le toca, se lo pide.
+
+     Cada conexión recuerda con qué credenciales está abierta (pc.__cfg). Si
+     no son las actuales, se insiste hasta que lo sean; si no se consigue, se
+     avisa: quedan minutos antes del corte. */
+  let renovando = false;
+  const renovacion = { hechas: 0, fallos: 0, ultima: 0, ultimoFallo: "", avisado: 0 };
+  function falloRenovacion(motivo) {
+    renovacion.fallos += 1; renovacion.ultimoFallo = motivo;
+    log(`Relevo: FALLO al renovar (${motivo}).`);
+    if (Date.now() - renovacion.avisado < 120000) return;
+    renovacion.avisado = Date.now();
+    const quedan = relevoListo?.caduca ? Math.max(0, Math.round((relevoListo.caduca - Date.now()) / 60000)) : 0;
+    aviso(`NO SE HA PODIDO RENOVAR LA CONEXIÓN. PUEDE CORTARSE EN ${quedan > 1 ? `UNOS ${quedan} MINUTOS` : "POCO TIEMPO"}.`);
+  }
+  function renovada(pc, cfg) {
+    pc.__cfg = cfg; pc.__renovando = false; pc.__pendiente = 0;
+    renovacion.hechas += 1; renovacion.ultima = Date.now();
+    log(`Relevo: conexión renovada (${renovacion.hechas}).`);
+  }
+  async function reunidos(pc) {
+    for (let i = 0; i < 100; i++) {
+      if (pc.iceGatheringState === "complete" && candidatosDe(pc.localDescription?.sdp).length) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  async function renuevaConexion(pc, canal) {
+    if (!pc || pc.__renovando || canal?.readyState !== "open") return;
+    pc.__renovando = true;
+    try {
+      const cfg = await configRelevo();
+      pc.setConfiguration(cfg);
+      pc.__cfgNueva = cfg;
+      await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+      await reunidos(pc);
+      safeSend(canal, { type: "relevo:oferta", data: serializaRelevo(pc.localDescription), time: Date.now() });
+      /* Si la respuesta no llega, se intenta otra vez. */
+      setTimeout(() => { if (pc.__renovando && pc.__cfgNueva === cfg) { pc.__renovando = false; falloRenovacion("el otro lado no contesta"); } }, 30000);
+    } catch (error) { pc.__renovando = false; falloRenovacion(error.message); }
+  }
+  async function alRenovar(pc, canal, packet, hiceLaOferta) {
+    if (!pc) return;
+    try {
+      if (packet.type === "relevo:pide" && hiceLaOferta) {
+        /* Nadie puede pedirlo sin parar. */
+        if (Date.now() - (pc.__pedida || 0) < 15000) return;
+        pc.__pedida = Date.now();
+        await renuevaConexion(pc, canal);
+      } else if (packet.type === "relevo:oferta" && !hiceLaOferta) {
+        const oferta = descripcionRelevo(packet.data, "offer");
+        const cfg = await configRelevo();
+        pc.setConfiguration(cfg);
+        await pc.setRemoteDescription(oferta);
+        await pc.setLocalDescription(await pc.createAnswer());
+        await reunidos(pc);
+        safeSend(canal, { type: "relevo:respuesta", data: serializaRelevo(pc.localDescription), time: Date.now() });
+        renovada(pc, cfg);
+      } else if (packet.type === "relevo:respuesta" && hiceLaOferta && pc.__renovando) {
+        await pc.setRemoteDescription(descripcionRelevo(packet.data, "answer"));
+        renovada(pc, pc.__cfgNueva);
+      }
+    } catch (error) { pc.__renovando = false; falloRenovacion(error.message); }
+  }
+  setInterval(async () => {
+    if (!relevoListo || (!hostSession && !joinSession)) return;
+    if (Date.now() >= relevoListo.renueva) {
+      renovando = true;
+      try { await configRelevo(); } catch { falloRenovacion("el servicio de conexión no da credenciales nuevas"); return; } finally { renovando = false; }
+    }
+    const cfg = relevoListo.cfg;
+    const mira = (pc, canal, hiceLaOferta) => {
+      if (!pc || pc.__cfg === cfg || pc.connectionState !== "connected" || canal?.readyState !== "open") return;
+      pc.__pendiente = pc.__pendiente || Date.now();
+      if (Date.now() - pc.__pendiente > 60000) { pc.__pendiente = Date.now(); falloRenovacion("la conexión sigue con las credenciales antiguas"); }
+      if (hiceLaOferta) renuevaConexion(pc, canal);
+      else safeSend(canal, { type: "relevo:pide", time: Date.now() });
+    };
+    if (hostSession) for (const peer of hostSession.peers.values()) mira(peer.pc, peer.channel, true);
+    else if (joinSession) mira(joinSession.pc, joinSession.channel, false);
+    if (duelo?.pc && duelo.canal) mira(duelo.pc, duelo.canal, duelo.asiento === 0);
+  }, 10000);
 
   function parseDescription(value, expected) {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
@@ -304,6 +573,9 @@
   const conexionesVivas = new Set();
 
   window.ML3DLinkNet = {
+    /* Diagnóstico de la recogida de direcciones del relevo, sin ninguna IP. */
+    recogida: () => textoRecogidas(),
+    recogidaDatos: () => recogidas.map((r) => ({ etiqueta: r.etiqueta, hora: r.hora, red: r.red, vias: r.vias, errores: r.errores, fin: r.fin, enviado: r.enviado })),
     async medida() {
       let rtt = null;
       let camino = "";
@@ -322,7 +594,11 @@
         });
       }
       return { rttMs: rtt === null ? null : Math.round(rtt * 10) / 10, camino, perdidos,
-               conexiones: conexionesVivas.size };
+               conexiones: conexionesVivas.size,
+               /* Renovación de credenciales del relevo: cuántas, cuándo y si ha fallado. */
+               relevo: relevoListo ? { renovadas: renovacion.hechas, fallos: renovacion.fallos, ultimoFallo: renovacion.ultimoFallo,
+                 ultimaHaceS: renovacion.ultima ? Math.round((Date.now() - renovacion.ultima) / 1000) : null,
+                 proximaEnS: Math.round((relevoListo.renueva - Date.now()) / 1000), caducanEnS: Math.round((relevoListo.caduca - Date.now()) / 1000) } : null };
     }
   };
 
@@ -349,8 +625,11 @@
     }
   }
 
-  function makePeer(label, onChannel) {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  function makePeer(label, onChannel, cfg) {
+    if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
+    const pc = new RTCPeerConnection(cfg);
+    pc.__cfg = cfg;
+    vigilaRecogida(pc, label);
     conexionesVivas.add(pc);
     pc.addEventListener("connectionstatechange", () => {
       log(`${label}: peer ${pc.connectionState}`);
@@ -393,7 +672,11 @@
     return joinSession?.channel?.readyState === "open" ? [joinSession.channel] : [];
   }
 
+  /* El nombre de la sesión de cable de este jugador: la de su combate si
+     está en uno; la sala entera si es una sala de dos; ninguna si mira. */
   function currentLinkRoomId() {
+    if (duelo && duelo.estado !== "conectando") return duelo.sala;
+    if (!salaDeCable()) return "";
     return String(hostSession?.room?.id || joinSession?.room?.id || "");
   }
 
@@ -407,7 +690,9 @@
     return Math.max(2, Math.min(MAX_JUGADORES_ONLINE, Number(room?.maxPlayers) | 0 || 2));
   }
 
-  function rememberLocalLinkSession(roomId, playerNumber, role, players) {
+  function rememberLocalLinkSession(roomId, playerNumber, role, players, game) {
+    /* En una sala de 3 o 4 no hay cable hasta que hay combate. */
+    if (!duelo && !salaDeCable()) return null;
     const next = {
       roomId: String(roomId || ""),
       playerNumber: Math.max(0, Math.min(3, Number(playerNumber) | 0)),
@@ -424,7 +709,7 @@
         type: "gba:link:configure",
         source: "lobby",
         /* El emulador abre este juego si no lo tiene ya puesto. */
-        game: String(hostSession?.room?.game || joinSession?.room?.game || ""),
+        game: String(game || hostSession?.room?.game || joinSession?.room?.game || ""),
         ...next
       });
     }
@@ -455,7 +740,10 @@
      llegar, sin explicacion para el jugador. */
   let caidaAvisada = false;
 
-  function avisaCaidaAlEmulador(motivo) {
+  function avisaCaidaAlEmulador(motivo, delDuelo = false) {
+    /* Con un combate en marcha, el cable es el canal directo con el rival:
+       que se caiga la sala o el anfitrión no es una caída del cable. */
+    if (duelo && !delDuelo) return;
     if (caidaAvisada || !gbaLinkBus) return;
     const roomId = currentLinkRoomId();
     if (!roomId) return;
@@ -626,6 +914,18 @@
     if (!packet || packet.source !== "emulator") return;
     const roomId = currentLinkRoomId();
     if (!roomId || packet.roomId !== roomId) return;
+
+    /* En un combate, el cable va por el canal directo: solo al rival. */
+    if (duelo && roomId === duelo.sala) {
+      const tipo = String(packet.type || "");
+      if (!/^gba:lockstep:(ready|start|save|input|sync)$/.test(tipo)) return;
+      if (tipo === "gba:lockstep:start" && duelo.asiento !== 0) return;
+      const saliente = tipo === "gba:lockstep:save"
+        ? savePacket(packet, roomId, duelo.asiento)
+        : { ...packet, source: undefined, roomId, playerNumber: duelo.asiento, time: Date.now() };
+      safeSend(duelo.canal, saliente);
+      return;
+    }
 
     if (packet.type === "gba:lockstep:ready") {
       const outgoing = {
@@ -886,9 +1186,13 @@
     };
   }
 
+  /* Ni en el nombre de un jugador ni en el de una sala se enseña una dirección web. */
+  /* Declarada con function: cleanName se usa ya al arrancar, antes de llegar aquí. */
+  function sinEnlaces(text) { return window.ML3DFiltroChat?.sinEnlaces ? window.ML3DFiltroChat.sinEnlaces(text) : String(text ?? ""); }
   function cleanName(value) {
-    return String(value || "Jugador").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32) || "Jugador";
+    return sinEnlaces(String(value || "Jugador").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 32)) || "Jugador";
   }
+  function nombreSala(room) { return sinEnlaces(room?.name || "") || "Sala"; }
 
   function cleanChat(value) {
     return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 90);
@@ -1003,6 +1307,7 @@
       el.classList.toggle("local", player.id === localPlayerId);
       el.classList.toggle("paused", Boolean(player.paused));
       el.classList.toggle("silenciado", silenciados.has(player.id));
+      el.dataset.nombre = player.name;
       /* personajes.js pinta a partir de esto y lo valida antes de dibujar. */
       const aspecto = player.aspecto ? JSON.stringify(player.aspecto) : "";
       if (el.dataset.aspecto !== aspecto) el.dataset.aspecto = aspecto;
@@ -1018,6 +1323,7 @@
       renderAvatarInto(el.querySelector(".avatar-wrap"), player.avatar);
     }
     for (const el of existing.values()) el.remove();
+    pintaCombates();
     updateDiagnostics();
   }
 
@@ -1117,6 +1423,473 @@
     }
   }
 
+  /* ---------------------------------------------------------------- combates
+
+     En una sala de 3 o 4 el cable no une a toda la sala: une a dos jugadores,
+     cuando uno lanza un desafío y otro lo acepta. Los demás miran.
+
+     - ARBITRA EL ANFITRIÓN. No hay servidor: si dos aceptan a la vez, gana
+       el que llega antes al navegador del anfitrión y el otro recibe "ya
+       aceptado".
+     - CANAL DIRECTO. Al aceptar, los dos combatientes abren una conexión solo
+       entre ellos (también cuando uno de los dos es el anfitrión). Por ahí,
+       y solo por ahí, van las teclas, las partidas y los datos del juego. El
+       anfitrión reenvía los mensajes para abrirla y nada más. Sin relevo: si
+       no se puede abrir, el combate no empieza.
+     - LO PÚBLICO. Toda la sala sabe quién desafía, quién juega, a qué, cuánto
+       lleva y cómo acabó. Nada más.
+     - RESULTADOS. Cada uno dice si ganó, perdió o empató; cuenta si
+       coinciden, si no queda "disputado". La tabla vive en la memoria del
+       anfitrión y se borra con la sala.
+
+     En una sala de 2 sigue valiendo INICIAR CONEXIÓN, como siempre. */
+
+  const TIPOS_DESAFIO = {
+    combate: { nombre: "Combate", cuenta: true },
+    carrera: { nombre: "Carrera", cuenta: true },
+    intercambio: { nombre: "Intercambio", cuenta: false },
+    libre: { nombre: "Libre", cuenta: false }
+  };
+  /* Un desafío se acepta yendo hasta quien lo lanza. CERCA_PX es la distancia
+     a la que aparece el botón (en píxeles de la sala de referencia, 720x480).
+     El anfitrión lo comprueba con sus propias posiciones y algo de margen:
+     la posición de los demás le llega con un pequeño retraso. */
+  const CERCA_PX = 78;
+  const ACEPTA_PX = 120;
+  const distanciaSala = (a, b) => Math.hypot((a.x - b.x) * 7.2, (a.y - b.y) * 4.8);
+  const DESAFIO_CADUCA_MS = 45000;
+  const DESAFIO_CADA_MS = 20000;
+  const DIRECTO_ESPERA_MS = 15000;
+  const RESULTADO_ESPERA_MS = 60000;
+  const NOMBRE_TABLA_MAX = 12;
+
+  /* Sala de dos: el cable une a toda la sala, como siempre. */
+  function salaDeCable() {
+    const room = hostSession?.room || joinSession?.room;
+    return (Number(room?.maxPlayers) | 0 || 2) <= 2;
+  }
+  const nombrePublico = (id) => filtra(String(players.get(id)?.name || "Jugador")).slice(0, NOMBRE_TABLA_MAX);
+
+  /* Lo que sabe toda la sala. Lo escribe el anfitrión; los demás lo reciben. */
+  let combates = { habilitados: true, desafios: [], combate: null, tabla: [], ultimo: null };
+  const escuchasCombate = new Set();
+  const rechazados = new Set();   /* desafíos que este jugador ha dicho que no quiere */
+
+  /* ---- anfitrión: árbitro ---- */
+  const arbitro = { ultimo: new Map(), vetados: new Map(), resultados: new Map(), tabla: new Map(), siguiente: 1, plazo: null, habilitados: true, desafios: [], combate: null, ultimoFin: null };
+
+  function publicaCombates() {
+    if (!hostSession) return;
+    combates = {
+      habilitados: arbitro.habilitados,
+      desafios: arbitro.desafios.map((d) => ({ id: d.id, de: d.de, nombre: nombrePublico(d.de), tipo: d.tipo, juego: d.juego, biblioteca: d.biblioteca, caduca: d.caduca })),
+      combate: arbitro.combate ? { ...arbitro.combate } : null,
+      tabla: [...arbitro.tabla.values()].sort((a, b) => b.ganados - a.ganados || a.perdidos - b.perdidos).slice(0, 8),
+      ultimo: arbitro.ultimoFin
+    };
+    sendAll({ type: "combate:estado", ...combates, time: Date.now() });
+    avisaCombates();
+  }
+
+  function respondeA(quien, motivo) {
+    const packet = { type: "desafio:respuesta", motivo, time: Date.now() };
+    if (quien === "host") alRecibirRespuesta(packet);
+    else safeSend(hostSession?.peers.get(quien)?.channel, packet);
+  }
+
+  function arbitraLanza(quien, packet) {
+    const tipo = String(packet.tipo || "");
+    if (!hostSession || salaDeCable() || !arbitro.habilitados) return respondeA(quien, "desactivados");
+    if (!TIPOS_DESAFIO[tipo] || !players.has(quien)) return;
+    if (arbitro.combate) return respondeA(quien, "hay_combate");
+    if (arbitro.desafios.some((d) => d.de === quien)) return respondeA(quien, "ya_tienes_uno");
+    const ahora = Date.now();
+    if (ahora - (arbitro.ultimo.get(quien) || 0) < DESAFIO_CADA_MS) return respondeA(quien, "espera");
+    arbitro.ultimo.set(quien, ahora);
+    const id = "d" + arbitro.siguiente++;
+    arbitro.desafios.push({ id, de: quien, tipo, juego: cleanName(packet.juego || "").slice(0, 80), biblioteca: packet.biblioteca === true, caduca: ahora + DESAFIO_CADUCA_MS });
+    /* A quién ha silenciado quien desafía: no podrán aceptarle. No se publica. */
+    arbitro.vetados.set(id, new Set((Array.isArray(packet.vetados) ? packet.vetados : []).slice(0, 8).map(String)));
+    publicaCombates();
+  }
+
+  function arbitraRetira(quien) {
+    const antes = arbitro.desafios.length;
+    arbitro.desafios = arbitro.desafios.filter((d) => d.de !== quien);
+    if (arbitro.desafios.length !== antes) publicaCombates();
+  }
+
+  /* El primero que llega aquí se lo queda. */
+  function arbitraAcepta(quien, id) {
+    const desafio = arbitro.desafios.find((d) => d.id === id);
+    if (!desafio) return respondeA(quien, arbitro.combate ? "ya_aceptado" : "caducado");
+    if (arbitro.combate) return respondeA(quien, "ya_aceptado");
+    if (desafio.de === quien || !players.has(quien) || !players.has(desafio.de)) return;
+    if (arbitro.vetados.get(id)?.has(quien)) return respondeA(quien, "no_puedes");
+    if (!(distanciaSala(players.get(quien), players.get(desafio.de)) <= ACEPTA_PX)) return respondeA(quien, "lejos");
+    arbitro.combate = { id, a: desafio.de, b: quien, nombreA: nombrePublico(desafio.de), nombreB: nombrePublico(quien), tipo: desafio.tipo, juego: desafio.juego, estado: "conectando", inicio: 0, listos: [] };
+    arbitro.desafios = arbitro.desafios.filter((d) => d.de !== desafio.de && d.de !== quien);
+    arbitro.resultados.clear();
+    publicaCombates();
+  }
+
+  function arbitraListo(quien) {
+    const c = arbitro.combate;
+    if (!c || c.estado !== "conectando" || (quien !== c.a && quien !== c.b)) return;
+    if (!c.listos.includes(quien)) c.listos.push(quien);
+    if (c.listos.length === 2) { c.estado = "jugando"; c.inicio = Date.now(); publicaCombates(); }
+  }
+
+  function terminaCombate(resultado) {
+    const c = arbitro.combate;
+    if (!c) return;
+    clearTimeout(arbitro.plazo);
+    if (TIPOS_DESAFIO[c.tipo]?.cuenta && ["gana_a", "gana_b", "empate"].includes(resultado)) {
+      for (const [id, nombre, gano, perdio] of [[c.a, c.nombreA, resultado === "gana_a", resultado === "gana_b"], [c.b, c.nombreB, resultado === "gana_b", resultado === "gana_a"]]) {
+        const fila = arbitro.tabla.get(id) || { nombre, ganados: 0, perdidos: 0, empates: 0 };
+        fila.nombre = nombre;
+        if (gano) fila.ganados++; else if (perdio) fila.perdidos++; else fila.empates++;
+        arbitro.tabla.set(id, fila);
+      }
+    }
+    arbitro.ultimoFin = { id: c.id, nombreA: c.nombreA, nombreB: c.nombreB, tipo: c.tipo, juego: c.juego, resultado };
+    arbitro.combate = null;
+    publicaCombates();
+  }
+
+  /* Cada combatiente dice cómo le ha ido. Solo cuenta si los dos coinciden. */
+  function arbitraResultado(quien, r) {
+    const c = arbitro.combate;
+    if (!c || (quien !== c.a && quien !== c.b)) return;
+    if (c.estado === "conectando") { if (r === "fallo") terminaCombate("sin_conexion"); return; }
+    if (!["gane", "perdi", "empate", "abandono"].includes(r)) return;
+    if (r === "abandono") return terminaCombate("abandonada");
+    arbitro.resultados.set(quien, r);
+    const ra = arbitro.resultados.get(c.a), rb = arbitro.resultados.get(c.b);
+    if (ra && rb) {
+      if (ra === "gane" && rb === "perdi") terminaCombate("gana_a");
+      else if (ra === "perdi" && rb === "gane") terminaCombate("gana_b");
+      else if (ra === "empate" && rb === "empate") terminaCombate("empate");
+      else terminaCombate("disputado");
+      return;
+    }
+    if (c.estado !== "terminando") {
+      c.estado = "terminando";
+      arbitro.plazo = setTimeout(() => terminaCombate("disputado"), RESULTADO_ESPERA_MS);
+      publicaCombates();
+    }
+  }
+
+  /* Una vez por segundo: caducan los desafíos y se va quien ya no está. */
+  function arbitraVigila() {
+    if (!hostSession) return;
+    const ahora = Date.now();
+    const antes = arbitro.desafios.length;
+    arbitro.desafios = arbitro.desafios.filter((d) => d.caduca > ahora && players.has(d.de));
+    const c = arbitro.combate;
+    if (c && (!players.has(c.a) || !players.has(c.b))) return terminaCombate(c.estado === "conectando" ? "sin_conexion" : "abandonada");
+    if (arbitro.desafios.length !== antes) publicaCombates();
+  }
+  setInterval(arbitraVigila, 1000);
+
+  function arbitraPaquete(quien, packet) {
+    if (packet.type === "desafio:lanza") arbitraLanza(quien, packet);
+    else if (packet.type === "desafio:retira") arbitraRetira(quien);
+    else if (packet.type === "desafio:acepta") arbitraAcepta(quien, String(packet.id || ""));
+    else if (packet.type === "combate:listo") arbitraListo(quien);
+    else if (packet.type === "combate:resultado") arbitraResultado(quien, String(packet.r || ""));
+    else return false;
+    return true;
+  }
+
+  /* ---- canal directo entre dos jugadores ---- */
+
+  /* Los mensajes para abrirlo pasan por el anfitrión, que los entrega a su
+     destinatario y a nadie más. Son descripciones de conexión, no datos del
+     juego. */
+  function senalDirecta(para, data) {
+    const packet = { type: "directo:senal", para, de: localPlayerId, data, time: Date.now() };
+    if (hostSession) safeSend(hostSession.peers.get(para)?.channel, packet);
+    else safeSend(joinSession?.channel, packet);
+  }
+  function reenviaSenal(joinId, packet) {
+    const para = String(packet.para || "");
+    /* Solo entre los dos del combate que se está abriendo, y solo el
+       mensaje de apertura: nada más pasa por aquí. */
+    const c = arbitro.combate;
+    if (!c || c.estado !== "conectando" || !((c.a === joinId && c.b === para) || (c.b === joinId && c.a === para))) return;
+    if (JSON.stringify(packet.data ?? null).length > 20000) return;
+    const senal = packet.data?.oferta || packet.data?.respuesta;
+    try { if (!soloRelevo(JSON.parse(senal).sdp)) return; } catch { return; }
+    const limpio = { type: "directo:senal", para, de: joinId, data: packet.data, time: Date.now() };
+    if (para === "host") alRecibirSenal(limpio);
+    else if (para !== joinId) safeSend(hostSession?.peers.get(para)?.channel, limpio);
+  }
+
+
+  /* El canal propio de los dos combatientes. Va también por el relevo:
+     ninguno de los dos ve la IP del otro. */
+  function conexionDirecta(cfg) {
+    if (cfg?.iceTransportPolicy !== "relay") throw new Error(SIN_RELEVO);
+    const pc = new RTCPeerConnection(cfg);
+    pc.__cfg = cfg;
+    vigilaRecogida(pc, "Duelo");
+    pc.addEventListener("connectionstatechange", () => {
+      log(`Duelo: conexión ${pc.connectionState}`);
+      if ((pc.connectionState === "failed" || pc.connectionState === "closed") && duelo?.pc === pc && duelo.estado === "jugando") caeDuelo("se ha perdido la conexión con el otro jugador");
+    });
+    return pc;
+  }
+  function conectaCanal(canal) {
+    if (!duelo) return;
+    duelo.canal = canal;
+    canal.addEventListener("open", () => { if (duelo?.canal === canal) { clearTimeout(duelo.plazo); avisaArbitro({ type: "combate:listo" }); } });
+    canal.addEventListener("message", (event) => {
+      let packet;
+      try { packet = JSON.parse(event.data); } catch { return; }
+      if (duelo?.canal === canal) alRecibirDelRival(packet);
+    });
+    canal.addEventListener("close", () => { if (duelo?.canal === canal && duelo.estado === "jugando") caeDuelo("se ha perdido la conexión con el otro jugador"); });
+  }
+  async function ofreceDirecto() {
+    const mio = duelo;
+    try {
+      const cfg = await configRelevo();
+      if (duelo !== mio || mio.pc) return;
+      mio.pc = conexionDirecta(cfg);
+      conectaCanal(mio.pc.createDataChannel("ml3d-duelo", { ordered: true }));
+      await mio.pc.setLocalDescription(await mio.pc.createOffer());
+      await waitIce(mio.pc);
+      if (duelo !== mio) return;
+      senalDirecta(mio.otro, { duelo: mio.id, oferta: serializaRelevo(mio.pc.localDescription) });
+    } catch (error) { log(`Duelo: ${error.message}`); fallaDirecto(); }
+  }
+  async function alRecibirSenal(packet) {
+    const data = packet.data || {};
+    if (!duelo || data.duelo !== duelo.id || String(packet.de) !== duelo.otro) return;
+    try {
+      if (data.oferta && duelo.asiento === 1 && !duelo.pc) {
+        const mio = duelo;
+        const oferta = descripcionRelevo(data.oferta, "offer");
+        const cfg = await configRelevo();
+        if (duelo !== mio || mio.pc) return;
+        mio.pc = conexionDirecta(cfg);
+        mio.pc.addEventListener("datachannel", (event) => conectaCanal(event.channel));
+        await mio.pc.setRemoteDescription(oferta);
+        await mio.pc.setLocalDescription(await mio.pc.createAnswer());
+        await waitIce(mio.pc);
+        if (duelo !== mio) return;
+        senalDirecta(mio.otro, { duelo: mio.id, respuesta: serializaRelevo(mio.pc.localDescription) });
+      } else if (data.respuesta && duelo.asiento === 0 && duelo.pc && !duelo.pc.currentRemoteDescription) {
+        await duelo.pc.setRemoteDescription(descripcionRelevo(data.respuesta, "answer"));
+      }
+    } catch (error) { log(`Duelo: ${error.message}`); fallaDirecto(); }
+  }
+  /* No se ha podido abrir, tampoco por el relevo: el combate no empieza. */
+  function fallaDirecto() {
+    if (!duelo || duelo.estado !== "conectando") return;
+    const rival = duelo.nombreOtro;
+    avisaArbitro({ type: "combate:resultado", r: "fallo" });
+    sueltaDuelo();
+    avisa(`No se ha podido abrir la conexión con ${rival}. El combate no empieza.`);
+  }
+
+  function avisaArbitro(packet) {
+    packet.time = Date.now();
+    if (hostSession) arbitraPaquete("host", packet);
+    else safeSend(joinSession?.channel, packet);
+  }
+
+  /* ---- el combate de este jugador ---- */
+
+  function sueltaDuelo() {
+    if (!duelo) return;
+    const viejo = duelo;
+    duelo = null;
+    clearTimeout(viejo.plazo);
+    clearLocalLinkSession(viejo.sala);
+    try { viejo.canal?.close(); } catch {}
+    try { viejo.pc?.close(); } catch {}
+    avisaCombates();
+  }
+  function caeDuelo(motivo) {
+    if (!duelo) return;
+    avisaCaidaAlEmulador(motivo, true);
+    avisaArbitro({ type: "combate:resultado", r: "abandono" });
+    duelo.estado = "caido";
+    avisaCombates();
+  }
+
+  /* El cable de dos: este jugador es la consola 1 o la 2 de una sesión que
+     solo existe entre los dos, con nombre propio para no mezclarse con la sala. */
+  function empiezaDuelo() {
+    if (!duelo || duelo.estado !== "conectando") return;
+    duelo.estado = "jugando";
+    olvidaCaida();
+    rememberLocalLinkSession(duelo.sala, duelo.asiento, duelo.asiento === 0 ? "host" : "guest", 2, duelo.juego);
+    showSessionBanner("3", 550);
+    setTimeout(() => showSessionBanner("2", 550), 600);
+    setTimeout(() => showSessionBanner("1", 550), 1200);
+    setTimeout(() => showSessionBanner("ML3D LINK\nPREPARADO", 1800), 1800);
+    const mio = duelo;
+    setTimeout(() => {
+      if (duelo !== mio) return;
+      closeModal("selectModal");
+      if (new URLSearchParams(location.search).get("embed") === "1") {
+        window.parent?.postMessage({ source: "ml3d-lobby", type: "link-start", roomId: mio.sala, playerNumber: mio.asiento, role: mio.asiento === 0 ? "host" : "guest" }, location.origin);
+      }
+    }, 2400);
+    avisaCombates();
+  }
+
+  /* Lo que llega del rival por el canal directo: el cable y el resultado. */
+  function alRecibirDelRival(packet) {
+    if (String(packet.type || "").startsWith("relevo:")) { alRenovar(duelo.pc, duelo.canal, packet, duelo.asiento === 0); return; }
+    const rival = duelo.asiento === 0 ? 1 : 0;
+    const base = { roomId: duelo.sala, sessionId: String(packet.sessionId || ""), playerNumber: rival };
+    if (packet.type === "gba:lockstep:ready") {
+      postLocalLink({
+        type: "gba:lockstep:remote-ready", roomId: duelo.sala, ready: true, playerNumber: rival,
+        romHash: String(packet.romHash || ""), protocol: String(packet.protocol || ""),
+        consent: packet.consent === true, declined: packet.declined === true, go: packet.go === true, have: String(packet.have || ""),
+        pre: packet.pre === true,
+        rom: packet.rom && typeof packet.rom === "object" ? {
+          hash: String(packet.rom.hash || ""), nombre: String(packet.rom.nombre || "").slice(0, 120),
+          size: Number(packet.rom.size) | 0, origen: String(packet.rom.origen || ""), envio: packet.rom.envio === true
+        } : null,
+        preHave: String(packet.preHave || ""), motivo: String(packet.motivo || "").slice(0, 24)
+      });
+    } else if (packet.type === "gba:lockstep:save") {
+      postLocalLink({ ...savePacket(packet, duelo.sala, rival), type: "gba:lockstep:remote-save" });
+    } else if (packet.type === "gba:lockstep:start" && rival === 0) {
+      postLocalLink({ type: "gba:lockstep:start", roomId: duelo.sala, sessionId: base.sessionId, delay: Number(packet.delay) | 0, romHash: String(packet.romHash || ""), clock: Number(packet.clock) || 0 });
+    } else if (packet.type === "gba:lockstep:input") {
+      postLocalLink({ type: "gba:lockstep:remote-input", ...base, frame: Number(packet.frame), mask: Number(packet.mask) & 0x3ff });
+    } else if (packet.type === "gba:lockstep:sync") {
+      postLocalLink({ type: "gba:lockstep:remote-sync", ...base, frame: Number(packet.frame), hash: Number(packet.hash) >>> 0, stats: packet.stats || null });
+    } else if (packet.type === "duelo:resultado") {
+      /* El rival ha terminado: se suelta el cable y se pregunta el resultado. */
+      duelo.suyo = String(packet.r || "");
+      if (duelo.estado === "jugando") { duelo.estado = "terminando"; clearLocalLinkSession(duelo.sala); window.parent?.postMessage({ source: "ml3d-lobby", type: "attention" }, location.origin); }
+      resuelveSinSala();
+      avisaCombates();
+    }
+  }
+
+  /* El jugador dice cómo ha acabado: gane, perdi, empate o abandono. */
+  function terminaMiDuelo(r) {
+    if (!duelo || !["gane", "perdi", "empate", "abandono"].includes(r)) return;
+    duelo.mio = r;
+    safeSend(duelo.canal, { type: "duelo:resultado", r, time: Date.now() });
+    if (duelo.estado === "jugando") { duelo.estado = "terminando"; clearLocalLinkSession(duelo.sala); }
+    avisaArbitro({ type: "combate:resultado", r });
+    resuelveSinSala();
+    avisaCombates();
+  }
+  /* Sin sala (el anfitrión se fue): el resultado lo cierran los dos entre ellos. */
+  function resuelveSinSala() {
+    if (!duelo || hostSession || joinSession) return;
+    const mio = duelo.mio, suyo = duelo.suyo;
+    if (mio !== "abandono" && suyo !== "abandono" && !(mio && suyo)) return;
+    const texto = mio === "abandono" || suyo === "abandono" ? "Partida abandonada."
+      : mio === "gane" && suyo === "perdi" ? `Has ganado a ${duelo.nombreOtro}.`
+      : mio === "perdi" && suyo === "gane" ? `${duelo.nombreOtro} te ha ganado.`
+      : mio === "empate" && suyo === "empate" ? "Empate." : "Resultado disputado: no coincidís.";
+    sueltaDuelo();
+    avisa(texto);
+  }
+
+  /* Cada vez que cambia lo público, este jugador mira si le toca algo. */
+  function reaccionaCombate() {
+    const c = combates.combate;
+    const soyDe = (x) => x && (x.a === localPlayerId || x.b === localPlayerId);
+    if (soyDe(c) && !duelo) {
+      const soyA = c.a === localPlayerId;
+      duelo = { id: c.id, otro: soyA ? c.b : c.a, nombreOtro: soyA ? c.nombreB : c.nombreA, asiento: soyA ? 0 : 1, tipo: c.tipo, juego: c.juego, estado: "conectando",
+        sala: `${currentRoomId()}:${c.id}`, pc: null, canal: null, mio: "", suyo: "" };
+      duelo.plazo = setTimeout(fallaDirecto, DIRECTO_ESPERA_MS + (soyA ? 0 : 3000));
+      if (soyA) ofreceDirecto();
+    }
+    if (duelo && c && c.id === duelo.id && c.estado === "jugando" && duelo.estado === "conectando") empiezaDuelo();
+    if (duelo && c && c.id === duelo.id && c.estado === "terminando" && duelo.estado === "jugando") {
+      duelo.estado = "terminando";
+      clearLocalLinkSession(duelo.sala);
+      window.parent?.postMessage({ source: "ml3d-lobby", type: "attention" }, location.origin);
+    }
+    /* El árbitro lo ha cerrado. */
+    if (duelo && (!c || c.id !== duelo.id) && (hostSession || joinSession)) {
+      const fin = combates.ultimo && combates.ultimo.id === duelo.id ? combates.ultimo.resultado : "";
+      const eraA = duelo.asiento === 0;
+      const texto = fin === "sin_conexion" ? "" : fin === "abandonada" ? "Partida abandonada."
+        : fin === "disputado" ? "Resultado disputado: no coincidís."
+        : fin === "empate" ? "Empate."
+        : fin === "gana_a" || fin === "gana_b" ? ((fin === "gana_a") === eraA ? `Has ganado a ${duelo.nombreOtro}.` : `${duelo.nombreOtro} te ha ganado.`) : "";
+      sueltaDuelo();
+      if (texto) avisa(texto);
+    }
+  }
+
+  function alRecibirRespuesta(packet) {
+    const TEXTO = { ya_aceptado: "Ya aceptado: otro jugador llegó antes.", caducado: "Ese desafío ya no está.", no_puedes: "No puedes aceptar este desafío.", lejos: "Estás demasiado lejos. Acércate a quien desafía.",
+      desactivados: "Los desafíos están desactivados en esta sala.", hay_combate: "Ya hay un combate en la sala. Espera a que termine.",
+      ya_tienes_uno: "Ya tienes un desafío lanzado.", espera: "Espera un poco antes de lanzar otro desafío." };
+    avisa(TEXTO[packet.motivo] || "No se ha podido.");
+  }
+
+  /* Marcas en cada jugador para que se vea quién desafía y quién juega. */
+  function pintaCombates() {
+    for (const el of playersLayer.querySelectorAll(".player")) {
+      const id = el.dataset.playerId;
+      const d = combates.desafios.find((x) => x.de === id);
+      const c = combates.combate;
+      const marca = c && (c.a === id || c.b === id) ? "combate" : d ? "desafio:" + d.tipo : "";
+      if ((el.dataset.duelo || "") !== marca) { if (marca) el.dataset.duelo = marca; else delete el.dataset.duelo; }
+      if (d) el.dataset.desafio = d.id; else delete el.dataset.desafio;
+    }
+    document.body.classList.toggle("sala-de-cable", salaDeCable());
+    const casilla = $("#hostDesafios");
+    if (casilla) casilla.checked = combates.habilitados;
+  }
+  function avisaCombates() {
+    reaccionaCombate();
+    pintaCombates();
+    for (const escucha of escuchasCombate) { try { escucha(); } catch (error) { console.error(error); } }
+  }
+  function currentRoomId() { return String(hostSession?.room?.id || joinSession?.room?.id || ""); }
+
+  /* Al cambiar de sala no queda nada de la anterior. */
+  function olvidaCombates() {
+    arbitro.ultimo.clear(); arbitro.vetados.clear(); arbitro.resultados.clear(); arbitro.tabla.clear();
+    arbitro.desafios = []; arbitro.combate = null; arbitro.ultimoFin = null; arbitro.habilitados = true;
+    clearTimeout(arbitro.plazo);
+    rechazados.clear();
+    combates = { habilitados: true, desafios: [], combate: null, tabla: [], ultimo: null };
+  }
+
+  window.ML3DCombates = {
+    cerca: CERCA_PX,
+    tipos: Object.fromEntries(Object.entries(TIPOS_DESAFIO).map(([id, t]) => [id, t.nombre])),
+    get disponible() { return Boolean(hostSession || joinSession) && !salaDeCable(); },
+    estado() {
+      return { ...combates, yo: localPlayerId, esAnfitrion: Boolean(hostSession),
+        duelo: duelo ? { id: duelo.id, estado: duelo.estado, rival: duelo.nombreOtro, juego: duelo.juego, tipo: duelo.tipo, mio: duelo.mio, suyo: duelo.suyo } : null };
+    },
+    /* "biblioteca": quien desafía dice si su juego es de la biblioteca de
+       testers, para que a quien le falte se le ofrezca pedir acceso. Es solo
+       una pista para el aviso: el acceso lo decide el servidor. */
+    lanza(tipo, juego, biblioteca = false) { avisaArbitro({ type: "desafio:lanza", tipo, juego, biblioteca: biblioteca === true, vetados: [...silenciados] }); },
+    retira() { avisaArbitro({ type: "desafio:retira" }); },
+    acepta(id) { avisaArbitro({ type: "desafio:acepta", id }); },
+    rechaza(id) { rechazados.add(id); avisaCombates(); },
+    rechazado: (id) => rechazados.has(id),
+    silenciado: (playerId) => silenciados.has(playerId),
+    silencia(playerId) { if (!silenciados.has(playerId)) cambiaSilencio(playerId); },
+    termina: terminaMiDuelo,
+    /* Anfitrión: activar o desactivar los desafíos de la sala. */
+    activa(valor) { if (!hostSession) return; arbitro.habilitados = Boolean(valor); if (!valor) arbitro.desafios = []; publicaCombates(); },
+    onCambio(escucha) { escuchasCombate.add(escucha); }
+  };
+
   /* ---------------------------------------------------------------- chat y gestos
 
      El chat va directo entre navegadores y no se guarda en ningún servidor.
@@ -1215,13 +1988,13 @@
 
   function updateToolbar(room) {
     if (!room) return;
-    $("#lobbyRoomName").textContent = room.name || "Sala";
+    $("#lobbyRoomName").textContent = nombreSala(room);
     $("#lobbyGameName").textContent = room.game || "Sin juego seleccionado";
     $("#lobbyRoomCode").textContent = room.id ? `Código ${room.id}` : "";
     $("#hostGameInput").value = room.game || "";
-    $("#hostRoomNameInput").value = room.name || "";
+    $("#hostRoomNameInput").value = sinEnlaces(room.name || "");
     $("#hostMaxPlayers").value = String(room.maxPlayers || 2);
-    $("#guestRoomInfo").textContent = `${room.name || "Sala"}${room.game ? ` · ${room.game}` : ""}`;
+    $("#guestRoomInfo").textContent = `${nombreSala(room)}${room.game ? ` · ${room.game}` : ""}`;
   }
 
   function updateDiagnostics() {
@@ -1270,6 +2043,13 @@
     const peer = hostSession.peers.get(joinId);
     const player = players.get(joinId);
     if (!peer) return;
+
+    if (packet.type === "directo:senal") { reenviaSenal(joinId, packet); return; }
+    if (packet.type === "relevo:pide" || packet.type === "relevo:respuesta") { alRenovar(peer.pc, peer.channel, packet, true); return; }
+    if (arbitraPaquete(joinId, packet)) return;
+    /* En una sala de 3 o 4 el cable de los combates no pasa por aquí. Si
+       llegara algo, no se mira ni se reparte. */
+    if (!salaDeCable() && String(packet.type || "").startsWith("gba:lockstep:")) return;
 
     if (packet.type === "gba:lockstep:ready") {
       postLocalLink({
@@ -1478,6 +2258,24 @@
   }
 
   function handleGuestPacket(packet) {
+    if (packet.type === "relevo:oferta") { alRenovar(joinSession?.pc, joinSession?.channel, packet, false); return; }
+    if (packet.type === "combate:estado") {
+      const texto = (v, n) => String(v || "").slice(0, n);
+      const c = packet.combate && typeof packet.combate === "object" ? packet.combate : null;
+      combates = {
+        habilitados: packet.habilitados !== false,
+        desafios: (Array.isArray(packet.desafios) ? packet.desafios : []).slice(0, 4).filter((d) => TIPOS_DESAFIO[d?.tipo]).map((d) => ({ id: texto(d.id, 12), de: texto(d.de, 64), nombre: filtra(texto(d.nombre, NOMBRE_TABLA_MAX)), tipo: d.tipo, juego: texto(d.juego, 80), biblioteca: d.biblioteca === true, caduca: Number(d.caduca) || 0 })),
+        combate: c && TIPOS_DESAFIO[c.tipo] ? { id: texto(c.id, 12), a: texto(c.a, 64), b: texto(c.b, 64), nombreA: filtra(texto(c.nombreA, NOMBRE_TABLA_MAX)), nombreB: filtra(texto(c.nombreB, NOMBRE_TABLA_MAX)), tipo: c.tipo, juego: texto(c.juego, 80), estado: texto(c.estado, 12), inicio: Number(c.inicio) || 0 } : null,
+        tabla: (Array.isArray(packet.tabla) ? packet.tabla : []).slice(0, 8).map((f) => ({ nombre: filtra(texto(f?.nombre, NOMBRE_TABLA_MAX)), ganados: Number(f?.ganados) | 0, perdidos: Number(f?.perdidos) | 0, empates: Number(f?.empates) | 0 })),
+        ultimo: packet.ultimo && typeof packet.ultimo === "object" ? { id: texto(packet.ultimo.id, 12), nombreA: filtra(texto(packet.ultimo.nombreA, NOMBRE_TABLA_MAX)), nombreB: filtra(texto(packet.ultimo.nombreB, NOMBRE_TABLA_MAX)), tipo: texto(packet.ultimo.tipo, 12), juego: texto(packet.ultimo.juego, 80), resultado: texto(packet.ultimo.resultado, 14) } : null
+      };
+      avisaCombates();
+      return;
+    }
+    if (packet.type === "desafio:respuesta") { alRecibirRespuesta(packet); return; }
+    if (packet.type === "directo:senal") { alRecibirSenal(packet); return; }
+    if (!salaDeCable() && String(packet.type || "").startsWith("gba:lockstep:")) return;
+
     if (packet.type === "gba:lockstep:ready") {
       postLocalLink({
         type: "gba:lockstep:remote-ready",
@@ -1819,6 +2617,7 @@
       players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     silenciados.clear();
+    olvidaCombates();
       hostSession = {
         room: data.room, token: data.hostToken, peers: new Map(), pollBusy: false, joins: [],
         kind,
@@ -1830,6 +2629,7 @@
       };
       hostSession.chat = Boolean($("#roomChat")?.checked);
       silenciados.clear();
+    olvidaCombates();
       pintaChat();
       rememberLocalLinkSession(data.room.id, 0, "host");
       ensureLocalPlayer("host", true, spawnPoint(0));
@@ -1874,7 +2674,7 @@
         }
         const peer = peers.get(join.id);
         if (join.status === "answer_ready" && peer && !peer.answerApplied && join.answer) {
-          await peer.pc.setRemoteDescription(parseDescription(join.answer, "answer"));
+          await peer.pc.setRemoteDescription(descripcionRelevo(join.answer, "answer"));
           peer.answerApplied = true;
           log(`Host: respuesta aplicada para ${join.displayName}.`);
         }
@@ -2057,6 +2857,8 @@
 
   async function prepareHostOffer(join, slot = 0, previo = null) {
     const { room, token, peers } = hostSession;
+    const cfg = await configRelevo();
+    if (!hostSession || hostSession.room.id !== room.id) return;
     const index = slot || freeSlot();
     const pos = previo ? { x: previo.x, y: previo.y } : spawnPoint(index);
     const placeholder = {
@@ -2086,7 +2888,7 @@
       linkReady: false,
       metrics: { pending: new Map(), rtt: null, jitter: null, lastRtt: null, missed: 0, quality: "unknown" }
     };
-    const pc = makePeer(`Host↔${join.displayName}`, () => {});
+    const pc = makePeer(`Host↔${join.displayName}`, () => {}, cfg);
     peerInfo.pc = pc;
     const channel = pc.createDataChannel("ml3d-link", { ordered: true });
     peerInfo.channel = channel;
@@ -2099,7 +2901,7 @@
     await api(`/v1/rooms/${encodeURIComponent(room.id)}/joins/${encodeURIComponent(join.id)}/offer`, {
       method: "POST",
       token,
-      body: { offer: serialize(pc.localDescription) }
+      body: { offer: serializaRelevo(pc.localDescription) }
     });
     log(`Host: oferta preparada para ${join.displayName}.`);
   }
@@ -2119,7 +2921,8 @@
         log(`Confirmación connected: ${e.message}`);
       }
       safeSend(channel, lobbySnapshot());
-      safeSend(channel, {
+      safeSend(channel, { type: "combate:estado", ...combates, time: Date.now() });
+      if (salaDeCable()) safeSend(channel, {
         type: "gba:link:configure",
         roomId: hostSession.room.id,
         playerNumber: peerInfo.linkSlot,
@@ -2253,6 +3056,7 @@
     players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     silenciados.clear();
+    olvidaCombates();
     localPlayerId = null;
     setLobbyVisible(false);
     updateChannelButtons();
@@ -2306,7 +3110,7 @@
          en la zona. Nadie ve dónde está otro jugador. */
       const distance = { muy_cerca: "muy cerca", cerca: "cerca", en_tu_zona: "en tu zona" }[room.distanceBand] || "cerca";
       const full = room.players >= room.maxPlayers;
-      return `<div class="room"><div class="room-head"><div><div class="room-title">${escapeHtml(room.name)}</div><div class="hint">${escapeHtml(room.game || "Juego no indicado")}</div></div><div>${room.locked ? "🔒" : ""}</div></div><div class="badges"><span class="badge">${distance}</span><span class="badge">${room.players}/${room.maxPlayers}</span><span class="badge">${escapeHtml(room.id)}</span></div><button data-room-id="${escapeHtml(room.id)}" ${full ? "disabled" : ""}>${full ? "SALA COMPLETA" : "UNIRME"}</button></div>`;
+      return `<div class="room"><div class="room-head"><div><div class="room-title">${escapeHtml(nombreSala(room))}</div><div class="hint">${escapeHtml(room.game || "Juego no indicado")}</div></div><div>${room.locked ? "🔒" : ""}</div></div><div class="badges"><span class="badge">${distance}</span><span class="badge">${room.players}/${room.maxPlayers}</span><span class="badge">${escapeHtml(room.id)}</span></div><button data-room-id="${escapeHtml(room.id)}" ${full ? "disabled" : ""}>${full ? "SALA COMPLETA" : "UNIRME"}</button></div>`;
     }).join("");
     box.querySelectorAll("button[data-room-id]").forEach((button) => {
       button.addEventListener("click", () => selectRoom(rooms.find((r) => r.id === button.dataset.roomId)));
@@ -2318,7 +3122,7 @@
     $("#joinCard").hidden = false;
     $("#joinRoomInfo").textContent = room.byCode
       ? `Código ${room.id} · la sala se comprueba al pulsar ENTRAR AL LOBBY`
-      : `${room.name}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
+      : `${nombreSala(room)}${room.game ? ` · ${room.game}` : ""} · ${room.players}/${room.maxPlayers}`;
     $("#joinPasswordWrap").hidden = !room.locked;
     $("#joinPassword").value = "";
     $("#playerName").value = profile.name;
@@ -2344,6 +3148,7 @@
       players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     silenciados.clear();
+    olvidaCombates();
       joinSession = {
         room: selectedRoom,
         join: data.join,
@@ -2407,19 +3212,22 @@
 
   async function answerHostOffer(offerText) {
     const { room, join, token } = joinSession;
+    const oferta = descripcionRelevo(offerText, "offer");
+    const cfg = await configRelevo();
+    if (!joinSession || joinSession.join.id !== join.id || joinSession.pc) return;
     const pc = makePeer(`Jugador↔${room.name}`, (channel) => {
       joinSession.channel = channel;
       attachGuestChannel(channel);
-    });
+    }, cfg);
     joinSession.pc = pc;
-    await pc.setRemoteDescription(parseDescription(offerText, "offer"));
+    await pc.setRemoteDescription(oferta);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await waitIce(pc);
     await api(`/v1/rooms/${encodeURIComponent(room.id)}/joins/${encodeURIComponent(join.id)}/answer`, {
       method: "POST",
       token,
-      body: { answer: serialize(pc.localDescription) }
+      body: { answer: serializaRelevo(pc.localDescription) }
     });
     joinSession.answerSent = true;
     setState("working", "Respuesta enviada · conectando…");
@@ -2511,6 +3319,7 @@
     players = new Map();
     ultimosMensajes.clear();   /* lo dicho en la sala anterior no se conserva */
     silenciados.clear();
+    olvidaCombates();
     localPlayerId = null;
     setLobbyVisible(false);
     closeModal("selectModal");
@@ -2866,7 +3675,7 @@
 
     closeModal("selectModal");
     if (status) {
-      status.textContent = `${room.name || "Sala"} · jugador ${playerNumber} · ${role === "host" ? "HOST" : "INVITADO"}`;
+      status.textContent = `${nombreSala(room)} · jugador ${playerNumber} · ${role === "host" ? "HOST" : "INVITADO"}`;
     }
     document.body.classList.add("link-emulator-open");
     shell.hidden = false;
@@ -2886,6 +3695,12 @@
 
   function startSessionCountdown() {
     if (!hostSession) return;
+    /* INICIAR CONEXIÓN es para salas de dos. Con 3 o 4, el cable empieza
+       cuando alguien acepta un desafío. */
+    if (!salaDeCable()) {
+      showSessionBanner("EN ESTA SALA EL CABLE EMPIEZA\nAL ACEPTAR UN DESAFÍO", 2800);
+      return;
+    }
     const connectedPeers = [...hostSession.peers.values()]
       .filter((peer) => peer.channel?.readyState === "open");
     /* El cable admite de 2 a 4 consolas y cada una necesita su asiento: 0 para
@@ -3040,6 +3855,10 @@
   $("#startSession").addEventListener("click", startSessionCountdown);
   $("#hostIdleMinutes")?.addEventListener("change", (event) => {
     if (hostSession) hostSession.idleMinutes = Number(event.target.value) || 0;
+  });
+  $("#hostDesafios")?.addEventListener("change", (event) => {
+    window.ML3DCombates.activa(event.target.checked);
+    avisa(event.target.checked ? "Desafíos activados en la sala." : "Desafíos desactivados en la sala.");
   });
   $("#hostChat")?.addEventListener("change", (event) => {
     ponChat(event.target.checked);

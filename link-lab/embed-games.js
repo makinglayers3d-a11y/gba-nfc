@@ -70,6 +70,9 @@
   }
 
   function wireChannel(channel, nativeSend) {
+    /* El canal directo de un combate lleva solo el cable. Los avisos y el
+       envío de juegos van por el canal de la sala, entre anfitrión e invitado. */
+    if (channel.label === "ml3d-duelo") return;
     if (channel.__ml3dGames) return;
     channel.__ml3dGames = true;
     channel.__ml3dGamesSend = (text) => nativeSend.call(channel, text);
@@ -114,12 +117,24 @@
 
   function channelOf(name) {
     const wanted = clean(name);
-    for (const channel of channels) {
-      if (channel.readyState === "open" && channel.__ml3dGamesPeer === wanted) return channel;
-    }
+    /* En una sala de 3 o 4 puede haber dos jugadores con el mismo nombre: si
+       no se sabe a cuál de los dos, no se envía a ninguno. */
+    const suyos = [...channels].filter((channel) => channel.readyState === "open" && channel.__ml3dGamesPeer === wanted);
+    if (suyos.length) return suyos.length === 1 ? suyos[0] : null;
     /* Con dos jugadores solo hay un canal: sirve aunque aún no tenga nombre. */
     const open = [...channels].filter((channel) => channel.readyState === "open");
     return open.length === 1 ? open[0] : null;
+  }
+
+  /* Lo que va dirigido a un jugador sale solo por su canal: en una sala de
+     3 o 4, el resto no se entera de quién pide u ofrece qué juego. */
+  function sendTo(name, packet) {
+    const channel = channelOf(name);
+    if (!channel) return false;
+    try {
+      channel.__ml3dGamesSend(JSON.stringify({ ...packet, to: clean(name), from: local.name, time: Date.now() }));
+      return true;
+    } catch { return false; }
   }
 
   /* ---------- estado de juegos ---------- */
@@ -330,12 +345,12 @@
     onAccept(handler) { onAccept = handler; },
     /** Quien tiene el juego anuncia qué enviará: nombre, tamaño y huella. */
     offer(name, info) {
-      return send({ type: "ml3d:game:offer", to: clean(name), name: info.name, size: info.size, hash: info.hash }) > 0;
+      return sendTo(name, { type: "ml3d:game:offer", name: info.name, size: info.size, hash: info.hash });
     },
     /** Quien lo pidió acepta esa oferta concreta: a partir de aquí se recibe. */
     accept(name, info) {
       esperados.set(clean(name), { size: Number(info.size) | 0, hash: String(info.hash || "") });
-      return send({ type: "ml3d:game:accept", to: clean(name) }) > 0;
+      return sendTo(name, { type: "ml3d:game:accept" });
     },
     /** El anfitrión avisa de que quiere empezar con este juego. */
     check(game) {
@@ -343,11 +358,11 @@
     },
     /** Pide el juego de la sala a otro jugador. */
     request(name, game) {
-      return send({ type: "ml3d:game:request", to: clean(name), game: String(game || "") }) > 0;
+      return sendTo(name, { type: "ml3d:game:request", game: String(game || "") });
     },
     /** Respuesta de quien no puede o no quiere enviarlo. */
     deny(name, reason) {
-      return send({ type: "ml3d:game:denied", to: clean(name), reason: String(reason || "") }) > 0;
+      return sendTo(name, { type: "ml3d:game:denied", reason: String(reason || "") });
     },
     sendRom,
     /* Para probar los avisos sin un segundo dispositivo. */
