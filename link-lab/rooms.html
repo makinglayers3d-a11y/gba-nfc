@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="rooms.css?v=4">
   <link rel="stylesheet" href="rooms-theme-ml3d-v2.css?v=3">
   <link rel="stylesheet" href="personajes.css?v=3">
-  <link rel="stylesheet" href="sala.css?v=4">
+  <link rel="stylesheet" href="sala.css?v=5">
   <!-- Solo actúa con ?embed=1, cuando el lobby va dentro de la pantalla del emulador. -->
   <link rel="stylesheet" href="embed.css?v=10">
   <script src="../ml3d-edad.js?v=1"></script>
@@ -99,6 +99,26 @@
       </div>
       <button id="joinRoom" class="primary top-gap">ENTRAR AL LOBBY</button>
     </section>
+  </section>
+
+  <!-- Pantalla de conexión: tapa todo mientras se entra en una sala. -->
+  <section id="conectando" class="conectando" hidden role="dialog" aria-modal="true" aria-labelledby="conectandoTitulo" data-estado="conectando">
+    <div class="conectando-caja">
+      <div class="conectando-rueda" aria-hidden="true"></div>
+      <h2 id="conectandoTitulo">CONECTANDO…</h2>
+      <ol id="conectandoPasos" class="conectando-pasos">
+        <li>Buscando la sala</li>
+        <li>Pidiendo conexión segura</li>
+        <li>Conectando con los jugadores</li>
+        <li>Entrando</li>
+      </ol>
+      <p id="conectandoTexto" class="conectando-texto" role="status" aria-live="polite"></p>
+      <div class="conectando-botones">
+        <button type="button" id="conectandoReintentar" hidden>REINTENTAR</button>
+        <button type="button" id="conectandoVolver" hidden>VOLVER</button>
+        <button type="button" id="conectandoCancelar">CANCELAR</button>
+      </div>
+    </div>
   </section>
 
   <section id="lobbyShell" class="lobby-shell" hidden>
@@ -279,7 +299,7 @@
 <script src="filtro-chat.js?v=2"></script>
 <script src="sala.js?v=4"></script>
 <script src="walkable-final.js?v=1"></script>
-<script src="rooms-runtime-loader.js?v=34"></script>
+<script src="rooms-runtime-loader.js?v=35"></script>
 <script src="rooms-touch-fix.js?v=6"></script>
 <script src="rooms-arena-final.js?v=2"></script>
 <script src="embed-games.js?v=7"></script>
