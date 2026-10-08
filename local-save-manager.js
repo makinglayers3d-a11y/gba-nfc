@@ -952,7 +952,14 @@
       /* Destino explícito: una lista, nunca el nombre del archivo. */
       const eligeDestino = async (zonaBotones) => {
         const destinos = await destinosImportar();
-        if (!destinos.length) { di("No hay ningún juego de GBA al que darle la partida. Abre antes el juego una vez."); return; }
+        if (!destinos.length) {
+          /* Se añade debajo: no puede borrar el informe que ya esté a la vista. */
+          const sin = document.createElement("div");
+          sin.className = "ml3d-sav-informe";
+          sin.textContent = "Para importarla hace falta un juego de GBA al que dársela, y en este navegador todavía no hay ninguno. Abre antes el juego una vez y vuelve a Importar .sav.";
+          zonaBotones.appendChild(sin);
+          return;
+        }
         const caja = document.createElement("div");
         caja.className = "ml3d-sav-botones";
         const etiqueta = document.createElement("label");
