@@ -3185,6 +3185,10 @@
 
   function selectRoom(room) {
     selectedRoom = room;
+    /* Se oculta y se vuelve a enseñar: el lobby embebido abre «Unirse a la
+       sala» al ver aparecer esta tarjeta. Tras una primera sala ya estaba a
+       la vista, y al entrar por código en otra no pasaba nada. */
+    $("#joinCard").hidden = true;
     $("#joinCard").hidden = false;
     $("#joinRoomInfo").textContent = room.byCode
       ? `Código ${room.id} · la sala se comprueba al pulsar ENTRAR AL LOBBY`
