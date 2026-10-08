@@ -571,6 +571,10 @@ body.ml3d-embed .embed-share-button {
   overflow-wrap: anywhere;
 }
 
+/* El diagnóstico tiene muchas líneas y es para hacerle una foto: letra más
+   pequeña y de ancho fijo, para que quepa de una vez. */
+.embed-dialog-diagnostico .embed-dialog-detalle { font-size: 0.66em; line-height: 1.25; font-family: ui-monospace, Consolas, "Roboto Mono", monospace; white-space: pre; }
+
 .embed-dialog-casilla {
   margin: 0 0 0.6em;
   font-size: 0.82em;
@@ -730,6 +734,3 @@ body.ml3d-embed .embed-share-button {
 @media (max-width: 420px) { .embed-accion { bottom: 3.7em; } }
 .embed-gesto { margin-left: auto; margin-right: 0.35em; }
 .embed-dialog-grande .embed-dialog-detalle { min-height: 44dvh; max-height: 62dvh; font-size: 0.9em; }
-/* El diagnóstico tiene muchas líneas y es para hacerle una foto: letra más
-   pequeña y de ancho fijo, para que quepa de una vez. */
-.embed-dialog-diagnostico .embed-dialog-detalle { font-size: 0.66em; line-height: 1.25; font-family: ui-monospace, Consolas, "Roboto Mono", monospace; white-space: pre; }
