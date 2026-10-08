@@ -80,6 +80,14 @@
      - La partida ajena vive solo en memoria mientras dura la sesion. No se
        escribe en disco y no hay forma de verla ni exportarla.
      - Cada jugador guarda solo la de su propia consola. */
+  /* Cuántos frames va este lado por delante del otro. El frame del otro llega
+     solo una vez por segundo (con cada huella), así que al mirarlo ya es
+     viejo: restarlo tal cual daba la edad del dato (0 a 60 frames), no el
+     desfase. Se le suman los frames que el otro habrá corrido desde que llegó. */
+  function desfaseReal(miFrame, otro, ahora) {
+    const fps = otro.fps > 0 ? otro.fps : 60;
+    return Math.round(miFrame - (otro.frame + (ahora - otro.at) / 1000 * fps)) || 0;
+  }
   const ESPERA_AVISO_MS = 500;
   function pideConsentimiento(tienePartida, comparteJuego = false) {
     return new Promise((resolve) => {
@@ -1254,7 +1262,7 @@
           otroFps: fresco ? otro.fps : null,
           otroAudioMs: fresco ? otro.audioMs : null,
           otroFrame: fresco ? otro.frame : null,
-          desfase: fresco ? this.frame - otro.frame : null,
+          desfase: fresco ? desfaseReal(this.frame, otro, Date.now()) : null,
           desync: Boolean(this.desync)
         });
         this.frameAnterior = this.frame;
