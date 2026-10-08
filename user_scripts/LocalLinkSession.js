@@ -80,6 +80,7 @@
      - La partida ajena vive solo en memoria mientras dura la sesion. No se
        escribe en disco y no hay forma de verla ni exportarla.
      - Cada jugador guarda solo la de su propia consola. */
+  const ESPERA_AVISO_MS = 500;
   function pideConsentimiento(tienePartida, comparteJuego = false) {
     return new Promise((resolve) => {
       document.getElementById("ml3d-link-consent")?.remove();
@@ -114,12 +115,23 @@
         b.style.cssText =
           "padding:10px 22px;font:bold 15px system-ui,sans-serif;color:#fff;border:0;" +
           "border-radius:8px;cursor:pointer;background:" + fondo;
-        b.addEventListener("click", () => { el.remove(); resolve(valor); });
+        b.addEventListener("click", () => { if (b.disabled) return; el.remove(); resolve(valor); });
         return b;
       };
-      fila.append(boton("CANCELAR", "#555b66", false), boton("ACEPTAR", "#3b6fd4", true));
+      const cancelar = boton("CANCELAR", "#555b66", false);
+      const aceptar = boton("ACEPTAR", "#3b6fd4", true);
+      fila.append(cancelar, aceptar);
       el.append(titulo, cuerpo, fila);
       document.documentElement.appendChild(el);
+      /* Es un consentimiento: no puede darse por un toque que ya venía de
+         camino. El aviso tapa toda la pantalla, también los botones de la
+         consola, así que los suyos no responden hasta pasada la espera, y el
+         que queda enfocado es CANCELAR: una tecla suelta nunca acepta. */
+      for (const b of [cancelar, aceptar]) { b.disabled = true; b.style.opacity = ".45"; }
+      setTimeout(() => {
+        for (const b of [cancelar, aceptar]) { b.disabled = false; b.style.opacity = ""; }
+        if (el.isConnected) cancelar.focus({ preventScroll: true });
+      }, ESPERA_AVISO_MS);
     });
   }
 
