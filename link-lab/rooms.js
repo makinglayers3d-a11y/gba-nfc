@@ -350,23 +350,50 @@
     return lineas.join("\n").trimEnd();
   }
 
+  /* Cuánto se espera a reunir las direcciones del relevo antes de enviar la
+     oferta o la respuesta.
+
+     Antes se esperaba a que el navegador diera la recogida por terminada, y
+     no lo hace hasta que acaban TODOS sus intentos. En algunos dispositivos
+     queda alguno sin respuesta ni error durante unos 11 s, cuando todas las
+     direcciones útiles han llegado en las primeras décimas: se agotaba el
+     tope en cada conexión (medido en un móvil real, con wifi y con datos).
+
+     Ahora se envía cuando hay al menos una dirección de relevo y pasa un
+     rato corto sin que llegue otra. Las que lleguen después no se envían.
+     Sin ninguna dirección de relevo no cambia nada: se espera hasta el tope
+     y lo que salga pasa por serializaRelevo, que sin relevo no deja salir. */
+  const RECOGIDA_TOPE_MS = 10000;
+  const RECOGIDA_CALMA_MS = 500;
   function waitIce(peer) {
     const anota = (tope) => { if (peer.__recogida && !peer.__recogida.enviado) peer.__recogida.enviado = { ms: peer.__recogida.ms(), tope }; };
     if (peer.iceGatheringState === "complete") { anota(false); return Promise.resolve(); }
     return new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
+      let done = false, calma = null, tope = null;
+      const finish = (porTope) => {
         if (done) return;
         done = true;
-        anota(peer.iceGatheringState !== "complete");
+        clearTimeout(calma);
+        clearTimeout(tope);
         peer.removeEventListener("icegatheringstatechange", onChange);
+        peer.removeEventListener("icecandidate", onCandidate);
+        anota(porTope);
         resolve();
       };
       const onChange = () => {
-        if (peer.iceGatheringState === "complete") finish();
+        if (peer.iceGatheringState === "complete") finish(false);
+      };
+      /* Cada dirección de relevo que llega reinicia la cuenta corta. Una
+         dirección que no sea de relevo no cuenta: no se va a enviar. */
+      const llegaRelevo = () => { clearTimeout(calma); calma = setTimeout(() => finish(false), RECOGIDA_CALMA_MS); };
+      const onCandidate = (event) => {
+        if (/ typ relay( |$)/.test(String(event.candidate?.candidate || ""))) llegaRelevo();
       };
       peer.addEventListener("icegatheringstatechange", onChange);
-      setTimeout(finish, 10000);
+      peer.addEventListener("icecandidate", onCandidate);
+      /* Alguna puede haber llegado antes de empezar a esperar. */
+      if (/ typ relay( |$)/m.test(String(peer.localDescription?.sdp || ""))) llegaRelevo();
+      tope = setTimeout(() => finish(true), RECOGIDA_TOPE_MS);
     });
   }
 
