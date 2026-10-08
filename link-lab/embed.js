@@ -1206,7 +1206,7 @@
 
   /* ---------- tabla de resultados y estado del combate ---------- */
 
-  const RESULTADO = { empate: "empate", disputado: "disputado", abandonada: "abandonada", sin_conexion: "no se pudo conectar" };
+  const RESULTADO = { empate: "empate", disputado: "disputado", abandonada: "abandonada", cancelado: "cancelado antes de empezar", sin_conexion: "no se pudo conectar" };
   const resultadoDe = (u) => u.resultado === "gana_a" ? "ganó " + u.nombreA : u.resultado === "gana_b" ? "ganó " + u.nombreB : RESULTADO[u.resultado] || u.resultado;
   function textoTabla() {
     const estado = combates()?.estado();

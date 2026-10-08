@@ -967,6 +967,7 @@
     /* En un combate, el cable va por el canal directo: solo al rival. */
     if (duelo && roomId === duelo.sala) {
       const tipo = String(packet.type || "");
+      if (tipo === "gba:link:cancelled") { cancelaMiDuelo(); return; }
       if (!/^gba:lockstep:(ready|start|save|input|sync)$/.test(tipo)) return;
       if (tipo === "gba:lockstep:start" && duelo.asiento !== 0) return;
       const saliente = tipo === "gba:lockstep:save"
@@ -1611,6 +1612,8 @@
     const c = arbitro.combate;
     if (!c || (quien !== c.a && quien !== c.b)) return;
     if (c.estado === "conectando") { if (r === "fallo") terminaCombate("sin_conexion"); return; }
+    /* Alguien no aceptó el aviso de partida compartida: no llegó a empezar. */
+    if (r === "cancelado") return terminaCombate("cancelado");
     if (!["gane", "perdi", "empate", "abandono"].includes(r)) return;
     if (r === "abandono") return terminaCombate("abandonada");
     arbitro.resultados.set(quien, r);
@@ -1750,6 +1753,7 @@
 
   /* ---- el combate de este jugador ---- */
 
+  const TEXTO_CANCELADO = "Combate cancelado antes de empezar.";
   function sueltaDuelo() {
     if (!duelo) return;
     const viejo = duelo;
@@ -1818,6 +1822,8 @@
     } else if (packet.type === "duelo:resultado") {
       /* El rival ha terminado: se suelta el cable y se pregunta el resultado. */
       duelo.suyo = String(packet.r || "");
+      /* Cancelado antes de empezar: no hay resultado que preguntar. */
+      if (duelo.suyo === "cancelado") { resuelveSinSala(); avisaCombates(); return; }
       if (duelo.estado === "jugando") { duelo.estado = "terminando"; clearLocalLinkSession(duelo.sala); window.parent?.postMessage({ source: "ml3d-lobby", type: "attention" }, location.origin); }
       resuelveSinSala();
       avisaCombates();
@@ -1834,12 +1840,24 @@
     resuelveSinSala();
     avisaCombates();
   }
+  /* El cable no llegó a empezar porque uno de los dos no aceptó el aviso de
+     partida compartida. Lo dice la sesión del emulador; aquí se cierra el
+     combate para el rival y para la sala, sin contar en la tabla. */
+  function cancelaMiDuelo() {
+    if (!duelo || duelo.estado !== "jugando" || duelo.mio) return;
+    duelo.mio = "cancelado";
+    safeSend(duelo.canal, { type: "duelo:resultado", r: "cancelado", time: Date.now() });
+    avisaArbitro({ type: "combate:resultado", r: "cancelado" });
+    resuelveSinSala();
+    avisaCombates();
+  }
   /* Sin sala (el anfitrión se fue): el resultado lo cierran los dos entre ellos. */
   function resuelveSinSala() {
     if (!duelo || hostSession || joinSession) return;
     const mio = duelo.mio, suyo = duelo.suyo;
-    if (mio !== "abandono" && suyo !== "abandono" && !(mio && suyo)) return;
-    const texto = mio === "abandono" || suyo === "abandono" ? "Partida abandonada."
+    const cancelado = mio === "cancelado" || suyo === "cancelado";
+    if (!cancelado && mio !== "abandono" && suyo !== "abandono" && !(mio && suyo)) return;
+    const texto = cancelado ? TEXTO_CANCELADO : mio === "abandono" || suyo === "abandono" ? "Partida abandonada."
       : mio === "gane" && suyo === "perdi" ? `Has ganado a ${duelo.nombreOtro}.`
       : mio === "perdi" && suyo === "gane" ? `${duelo.nombreOtro} te ha ganado.`
       : mio === "empate" && suyo === "empate" ? "Empate." : "Resultado disputado: no coincidís.";
@@ -1868,7 +1886,7 @@
     if (duelo && (!c || c.id !== duelo.id) && (hostSession || joinSession)) {
       const fin = combates.ultimo && combates.ultimo.id === duelo.id ? combates.ultimo.resultado : "";
       const eraA = duelo.asiento === 0;
-      const texto = fin === "sin_conexion" ? "" : fin === "abandonada" ? "Partida abandonada."
+      const texto = fin === "sin_conexion" ? "" : fin === "cancelado" ? TEXTO_CANCELADO : fin === "abandonada" ? "Partida abandonada."
         : fin === "disputado" ? "Resultado disputado: no coincidís."
         : fin === "empate" ? "Empate."
         : fin === "gana_a" || fin === "gana_b" ? ((fin === "gana_a") === eraA ? `Has ganado a ${duelo.nombreOtro}.` : `${duelo.nombreOtro} te ha ganado.`) : "";

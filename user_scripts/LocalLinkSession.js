@@ -1830,6 +1830,9 @@
      juego normal, igual que al desconectar. */
   function cancelaSesion() {
     if (!controller && !prelude) return;
+    /* El lobby tiene que enterarse: si esto era un combate, sin este aviso la
+       sala lo seguía dando por «en combate» hasta que alguien lo cerraba a mano. */
+    sendLocal({ type: "gba:link:cancelled" });
     disconnectSession({});
     configuredKey = "";
   }
