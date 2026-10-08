@@ -171,9 +171,11 @@
       .ml3d-local-save-card h3{margin:0 0 12px;font-size:1.25rem}
       .ml3d-local-save-card p{margin:0 0 18px;line-height:1.45;color:#eef}
       #ml3d-local-save-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-      #ml3d-local-save-actions button{border:0;border-radius:12px;padding:10px 16px;font:inherit;font-weight:800;cursor:pointer}
-      #ml3d-local-save-actions button[data-primary="1"]{background:#fff;color:#111}
-      #ml3d-local-save-actions button[data-secondary="1"]{background:#fff;color:#111}
+      /* Color propio tambien en los botones sin marca (Cancelar): con el del
+         navegador, en un movil casi no se leian sobre el fondo oscuro. */
+      #ml3d-local-save-actions button{border:1px solid #7f93ab;border-radius:12px;padding:10px 16px;font:inherit;font-weight:800;cursor:pointer;background:#27364a;color:#fff}
+      #ml3d-local-save-actions button[data-primary="1"]{background:#fff;color:#111;border-color:#fff}
+      #ml3d-local-save-actions button[data-secondary="1"]{background:#fff;color:#111;border-color:#fff}
       #ml3d-local-save-progress{margin:8px 0 18px}
       #ml3d-local-save-progress>div{height:8px;border-radius:999px;background:#ffffff1f;overflow:hidden}
       #ml3d-local-save-progress span{display:block;height:100%;width:45%;background:#fff;animation:ml3dSaveProgress 1s ease-in-out infinite alternate}
