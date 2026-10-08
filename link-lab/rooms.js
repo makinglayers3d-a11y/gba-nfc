@@ -289,10 +289,11 @@
      error y los tiempos. */
   const recogidas = [];
   /* "turn:turn.ejemplo.com:3478?transport=udp" -> "turn 3478 udp". Del
-     nombre del servidor no se guarda nada. */
+     nombre del servidor no se guarda nada. El navegador también avisa de
+     fallos con el esquema "stun" para esas mismas vías. */
   function viaDeRelevo(url) {
     const texto = String(url || "");
-    const esquema = /^(turns?):/i.exec(texto), puerto = /:(\d{1,5})(?:\?|$)/.exec(texto), transporte = /[?&]transport=([a-z]+)/i.exec(texto);
+    const esquema = /^(stuns?|turns?):/i.exec(texto), puerto = /:(\d{1,5})(?:\?|$)/.exec(texto), transporte = /[?&]transport=([a-z]+)/i.exec(texto);
     if (!esquema) return "vía sin identificar";
     return `${esquema[1].toLowerCase()} ${puerto ? puerto[1] : "puerto por defecto"} ${(transporte ? transporte[1] : "udp").toLowerCase()}`;
   }
@@ -337,7 +338,11 @@
       lineas.push(`${r.etiqueta.toUpperCase()} · ${r.hora} · red: ${r.red}`);
       const todo = [...r.vias.map((v) => ({ ms: v.ms, t: `${v.via} · ${v.familia}${v.tipo !== "relay" ? " · NO RELEVO" : ""}` })),
         ...r.errores.map((e) => ({ ms: e.ms, t: `FALLA ${e.via} · ${e.familia} · ${e.codigo} ${e.texto}` }))].sort((a, b) => a.ms - b.ms);
-      for (const x of todo) lineas.push(`  ${seg(x.ms).padStart(6)}  ${x.t}`);
+      /* Las líneas iguales (una vía da una dirección por cada interfaz de
+         red) van juntas, con la hora de la primera y cuántas son. */
+      const juntas = [];
+      for (const x of todo) { const y = juntas.find((j) => j.t === x.t); if (y) y.n++; else juntas.push({ ...x, n: 1 }); }
+      for (const x of juntas) lineas.push(`  ${seg(x.ms).padStart(6)}  ${x.t}${x.n > 1 ? " ×" + x.n : ""}`);
       if (!todo.length) lineas.push("  (ninguna dirección todavía)");
       lineas.push(`  recogida: ${r.fin === null ? "SIN TERMINAR" : "terminada a los " + seg(r.fin)}`);
       lineas.push(`  enviado: ${r.enviado === null ? "todavía no" : "a los " + seg(r.enviado.ms) + (r.enviado.tope ? " (AGOTÓ EL TOPE)" : "")}`, "");
