@@ -730,3 +730,5 @@ body.ml3d-embed .embed-share-button {
 @media (max-width: 420px) { .embed-accion { bottom: 3.7em; } }
 .embed-gesto { margin-left: auto; margin-right: 0.35em; }
 .embed-dialog-grande .embed-dialog-detalle { min-height: 44dvh; max-height: 62dvh; font-size: 0.9em; }
+/* La tabla alinea sus columnas con espacios: necesita letra de ancho fijo. */
+.embed-dialog-grande .embed-dialog-detalle { font-family: ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace; }

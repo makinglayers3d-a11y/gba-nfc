@@ -47,8 +47,9 @@
   gap: calc(2px * var(--k));
   /* justo encima de la cabeza del personaje */
   transform: translate(-50%, calc(-100% - 96px * var(--k)));
-  /* lo que sube para no pisar la etiqueta de otro personaje (sala.js) */
-  translate: 0 calc(-1 * var(--sube, 0px));
+  /* lo que sube para no pisar la etiqueta de otro personaje, y lo que se
+     corre de lado para no salirse por el borde de la sala (sala.js) */
+  translate: var(--corre, 0px) calc(-1 * var(--sube, 0px));
   white-space: nowrap;
 }
 
@@ -232,7 +233,9 @@ body.chat-desactivado #chatButton { display: none; }
   top: 3.4%;
   width: 28%;
   height: 10.6%;
-  z-index: 6;
+  /* por encima de personajes y etiquetas: quien se pone delante quedaba
+     tapándola con su nombre, justo cuando iba a leerla */
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;

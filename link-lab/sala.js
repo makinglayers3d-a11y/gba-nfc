@@ -214,9 +214,19 @@
     const firma = todas.map((e) => e.style.left + e.style.top + e.childElementCount + ":" + e.textContent.length).join("|") + "|" + capa.clientWidth;
     if (firma === firmaEtiquetas) return;
     firmaEtiquetas = firma;
+    const borde = etiquetas.getBoundingClientRect();
     const cajas = todas.map((e) => {
-      const antes = Number(e.dataset.sube) || 0, r = e.getBoundingClientRect();
-      return { e, izq: r.left, der: r.right, arr: r.top + antes, aba: r.bottom + antes, sube: 0 };
+      const antes = Number(e.dataset.sube) || 0, corrida = Number(e.dataset.corre) || 0, r = e.getBoundingClientRect();
+      /* Junto a una pared la etiqueta se salía de la sala y se cortaba: se
+         corre de lado lo justo para caber entera. */
+      let izq = r.left - corrida, der = r.right - corrida, corre = 0;
+      if (der - izq < borde.width - 4) {
+        if (izq < borde.left + 2) corre = borde.left + 2 - izq;
+        else if (der > borde.right - 2) corre = borde.right - 2 - der;
+      }
+      corre = Math.round(corre);
+      if (corrida !== corre) { e.dataset.corre = String(corre); e.style.setProperty("--corre", corre + "px"); }
+      return { e, izq: izq + corre, der: der + corre, arr: r.top + antes, aba: r.bottom + antes, sube: 0 };
     }).sort((a, b) => b.aba - a.aba);
     const puestas = [];
     for (const c of cajas) {
@@ -227,6 +237,10 @@
           if (pisa) c.sube = c.aba - (p.arr - p.sube) + 2;
         }
       }
+      /* Arriba del todo no hay sitio para subir: antes que salirse de la sala
+         y no verse, la etiqueta baja lo que haga falta. */
+      const tope = c.arr - borde.top - 2;
+      if (c.sube > tope) c.sube = tope;
       puestas.push(c);
       const px = Math.round(c.sube);
       if ((Number(c.e.dataset.sube) || 0) !== px) { c.e.dataset.sube = String(px); c.e.style.setProperty("--sube", px + "px"); }

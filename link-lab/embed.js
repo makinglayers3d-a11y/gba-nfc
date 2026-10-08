@@ -315,7 +315,9 @@
 
   function adjustValue(step) {
     const el = cursorItems()[cursorIndex];
-    if (!(el instanceof HTMLSelectElement)) return;
+    /* Sin nada que ajustar, izquierda y derecha mueven la selección: los
+       botones de un diálogo van en fila y lo natural es ir de lado. */
+    if (!(el instanceof HTMLSelectElement)) { moveCursor(step); return; }
     const next = Math.max(0, Math.min(el.options.length - 1, el.selectedIndex + step));
     if (next === el.selectedIndex) return;
     el.selectedIndex = next;
@@ -1071,7 +1073,10 @@
     }
     prueba({ tipo: "pantalla", texto: estado?.combate ? "VER EL COMBATE" : "VER LA TABLA" }, PANTALLA.x, PANTALLA.y);
     const desafio = desafioMasCercano();
-    if (desafio && desafio.d <= cercaPx() && (!mejor || desafio.d < mejor.d)) mejor = desafio;
+    /* Un desafío al alcance manda sobre lo demás: junto a la pantalla de la
+       sala, A ofrecía ver la tabla y el desafío solo se podía aceptar desde
+       el menú. La tabla sigue en el menú de la sala. */
+    if (desafio && desafio.d <= cercaPx()) mejor = desafio;
     return mejor;
   }
 
